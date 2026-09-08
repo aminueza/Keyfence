@@ -165,6 +165,24 @@ def test_entropy_respects_json_key_context():
     assert findings[0].start > body.index('"text"')
 
 
+def test_entropy_key_context_covers_token_at_start_of_value():
+    body = json.dumps({"delta": {"signature": RANDOM + RANDOM}, "other": "x"})
+    assert entropy_kinds(body) == []
+
+
+def test_entropy_skips_lockfile_hashes_and_code_expressions():
+    sri = "sha512-" + base64.b64encode(bytes(range(64))).decode()
+    gosum = "h1:" + base64.b64encode(bytes(range(32))).decode()
+    assert entropy_kinds(f"integrity {sri} and {gosum}") == []
+    assert entropy_kinds(f"secret_group={RANDOM}.groupindex") == []
+    assert entropy_kinds(f"value {RANDOM}==") == ["entropy"]
+
+
+def test_generic_assignment_ignores_code_expressions():
+    assert scan("token = self._placeholder(f.value, mapping)", config=NO_ENTROPY) == []
+    assert scan("token = raw.strip('.,:=!?')", config=NO_ENTROPY) == []
+
+
 def test_entropy_key_context_only_applies_to_json_bodies():
     assert entropy_kinds(f"signature: {RANDOM}") == ["entropy"]
 

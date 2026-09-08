@@ -52,6 +52,9 @@ sudo security add-trusted-cert -d -p ssl \
   the vault, pattern rules, entropy check, what is excluded, the audit log.
 - [Configuration](https://github.com/aminueza/keyfence/blob/main/docs/configuration.md):
   every option, environment variables, the system prompt notice.
+- [Benchmark](https://github.com/aminueza/keyfence/blob/main/docs/benchmark.md):
+  recall by secret format and false positive rate by content type, against
+  gitleaks, reproducible with `python bench/run.py`.
 - [Limitations](https://github.com/aminueza/keyfence/blob/main/docs/limitations.md):
   what keyfence does not cover and what to combine it with.
 - [Development](https://github.com/aminueza/keyfence/blob/main/docs/development.md):

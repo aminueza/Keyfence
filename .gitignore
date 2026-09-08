@@ -10,6 +10,7 @@ venv/
 coverage.xml
 htmlcov/
 data/
+bench/corpus/
 .claude/settings.local.json
 .env
 .env.*

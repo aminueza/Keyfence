@@ -73,6 +73,7 @@ BUILTIN_RULES: list[Rule] = [
          ignore_regexes=(
              compile_regex(_PLACEHOLDER_VALUES, re.IGNORECASE),
              compile_regex(r"(?i)^(?:\$\{|\$[a-z_]|<|your|chang|exemplo|example)"),
+             compile_regex(r"[()]"),
          )),
 ]
 
@@ -110,11 +111,12 @@ _BASE64ISH = re.compile(r"^[A-Za-z0-9+/_-]+=*$")
 _DATA_URI = re.compile(r"data:[\w/+.-]+;base64,[A-Za-z0-9+/=_-]+")
 _QUERY_VALUE = re.compile(r"[?&][A-Za-z0-9_.-]*(?:token|key|secret|auth|password|pass|sig)[A-Za-z0-9_.-]*=([^&\s#\\]{8,})", re.IGNORECASE)
 
-API_ID_PREFIXES = (
+SKIP_PREFIXES = (
     "toolu_", "srvtoolu_", "mcptoolu_", "msg_", "msgbatch_", "req_", "compl_",
     "chatcmpl-", "call_", "fc_", "rs_", "resp_", "run_", "step_", "thread_",
     "asst_", "file-", "file_", "batch_", "gen-", "ws_", "container_", "sess_",
     "evt_", "trace_", "span_", "cmpl-", "ftjob-", "vs_", "vsf_", "msgi_",
+    "sha256-", "sha384-", "sha512-", "h1:",
 )
 
 ENTROPY_SKIP_KEYS = frozenset({
@@ -123,7 +125,7 @@ ENTROPY_SKIP_KEYS = frozenset({
     "request_id", "session_id", "conversation_id", "user_id", "trace_id",
     "span_id", "idempotency_key", "sha256", "checksum", "hash", "etag", "digest",
     "fingerprint", "image", "audio", "thumbnail", "file_id", "container_id",
-    "batch_id", "item_id", "response_id", "parent_id",
+    "batch_id", "item_id", "response_id", "parent_id", "integrity",
 })
 
 
@@ -168,24 +170,26 @@ def _json_spans(text: str) -> list[tuple[int, int, str | None]]:
     return string_value_spans(text)
 
 
-def _excluded_spans(text: str, json_spans: list[tuple[int, int, str | None]]) -> list[tuple[int, int]]:
-    spans = [m.span() for m in _DATA_URI.finditer(text)]
-    spans.extend((start, end) for start, end, key in json_spans if key in ENTROPY_SKIP_KEYS)
-    return sorted(spans)
+def _enclosing(start: int, end: int, spans: list[tuple]) -> tuple | None:
+    idx = bisect.bisect_right(spans, start, key=lambda sp: sp[0]) - 1
+    if idx >= 0 and end <= spans[idx][1]:
+        return spans[idx]
+    return None
 
 
-def _inside(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
-    idx = bisect.bisect_right(spans, (start, end)) - 1
-    return idx >= 0 and spans[idx][0] <= start and end <= spans[idx][1]
+def _excluded_spans(text: str, json_spans: list[tuple[int, int, str | None]]) -> list[list[tuple]]:
+    uri_spans = [m.span() for m in _DATA_URI.finditer(text)]
+    key_spans = [(s, e) for s, e, key in json_spans if key in ENTROPY_SKIP_KEYS]
+    return [uri_spans, key_spans]
+
+
+def _inside(start: int, end: int, span_lists: list[list[tuple]]) -> bool:
+    return any(_enclosing(start, end, spans) is not None for spans in span_lists)
 
 
 def _key_at(start: int, end: int, json_spans: list[tuple[int, int, str | None]]) -> str | None:
-    idx = bisect.bisect_right(json_spans, (start, end, None)) - 1
-    while idx >= 0 and json_spans[idx][0] <= start:
-        if end <= json_spans[idx][1]:
-            return json_spans[idx][2]
-        idx -= 1
-    return None
+    span = _enclosing(start, end, json_spans)
+    return span[2] if span else None
 
 
 def shannon_entropy(s: str) -> float:
@@ -216,7 +220,9 @@ def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5,
             continue
         if _HEXISH.match(token) and len(token) in (32, 40, 64):
             continue
-        if token.startswith(API_ID_PREFIXES) or _decodes_to_json(token):
+        if token.startswith(SKIP_PREFIXES) or _decodes_to_json(token):
+            continue
+        if "(" in token or ")" in token or "=" in token.rstrip("="):
             continue
         has_upper = any(c.isupper() for c in token)
         has_lower = any(c.islower() for c in token)
