@@ -36,6 +36,7 @@ class Config:
     mode: str = "redact"
     hosts: list[str] = field(default_factory=lambda: list(DEFAULT_AI_HOSTS))
     intercept_all_hosts: bool = False
+    notice: bool = True
     scan: ScanConfig = field(default_factory=ScanConfig)
     audit_log: Path = field(default_factory=lambda: DEFAULT_DIR / "audit.log")
 
@@ -54,6 +55,7 @@ class Config:
                 cfg.hosts.extend(data["extra_hosts"])
             cfg.intercept_all_hosts = bool(
                 data.get("intercept_all_hosts", cfg.intercept_all_hosts))
+            cfg.notice = bool(data.get("notice", cfg.notice))
             scan = data.get("scan") or {}
             cfg.scan = ScanConfig(
                 patterns_enabled=scan.get("patterns", True),

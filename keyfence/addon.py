@@ -15,6 +15,7 @@ from mitmproxy import http  # noqa: E402
 
 from keyfence.config import Config  # noqa: E402
 from keyfence.detectors import Finding, scan  # noqa: E402
+from keyfence.notice import add_notice  # noqa: E402
 from keyfence.streaming import SSERestorer, restore  # noqa: E402
 from keyfence.vault import Vault  # noqa: E402
 
@@ -103,6 +104,8 @@ class KeyFence:
                 token = f"[REDACTED:{f.kind}]"
             new_text = new_text[:f.start] + token + new_text[f.end:]
 
+        if self.config.notice:
+            new_text = add_notice(new_text, host)
         flow.request.set_text(new_text)
         if mapping:
             flow.metadata[MAPPING_KEY] = mapping

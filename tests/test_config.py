@@ -17,6 +17,7 @@ def test_reads_yaml(write_config, home):
         "hosts: [one.example]\n"
         "extra_hosts: [two.example]\n"
         "intercept_all_hosts: true\n"
+        "notice: false\n"
         "audit_log: ~/kf-audit.log\n"
         "scan:\n"
         "  patterns: false\n"
@@ -29,6 +30,7 @@ def test_reads_yaml(write_config, home):
     assert cfg.mode == "block"
     assert cfg.hosts == ["one.example", "two.example"]
     assert cfg.intercept_all_hosts
+    assert cfg.notice is False
     assert str(cfg.audit_log).endswith("kf-audit.log")
     assert not cfg.scan.patterns_enabled
     assert not cfg.scan.entropy_enabled

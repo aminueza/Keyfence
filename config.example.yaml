@@ -14,6 +14,11 @@ extra_hosts:
 # true = scan ALL HTTPS traffic, not only AI providers (slower)
 intercept_all_hosts: false
 
+# When a request was changed, add a short note to the system prompt telling the
+# model that the [REDACTED:...] / <<SECRET_n>> tokens are expected, so it does
+# not warn the user or suggest rotating credentials, and keeps placeholders intact.
+notice: true
+
 scan:
   patterns: true          # built-in formats (OpenAI, Anthropic, AWS, GitHub, ...)
   gitleaks: true          # 200+ additional formats from the bundled gitleaks ruleset

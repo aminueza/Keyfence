@@ -143,6 +143,7 @@ Copy `config.example.yaml` to `~/.keyfence/config.yaml`. Options:
 | `hosts` | 14 AI provider hosts | hosts to monitor; wildcards allowed |
 | `extra_hosts` | `[]` | hosts to add to the default list |
 | `intercept_all_hosts` | `false` | scan every host, not only AI providers |
+| `notice` | `true` | tell the model why it sees redaction tokens (see below) |
 | `scan.patterns` | `true` | built-in pattern rules |
 | `scan.gitleaks` | `true` | bundled gitleaks rules |
 | `scan.gitleaks_rules` | bundled file | path to your own gitleaks-compatible TOML |
@@ -165,6 +166,13 @@ where it came from and `scan.allowlist` silences the exact value.
 
 ## Behaviour worth knowing
 
+- When a request was changed, keyfence appends a short note to the system
+  prompt (Anthropic `system`, OpenAI system message or `instructions`, Gemini
+  `systemInstruction`). It tells the model that the redaction tokens are
+  expected, that it should not warn the user or suggest rotating credentials,
+  and that placeholders must be written exactly as shown. Without it, models
+  tend to treat the tokens as evidence of tampering. Clean requests are not
+  touched. Set `notice: false` to disable.
 - If the detector raises an exception, the request gets a 403. A bug in
   keyfence cannot let a secret through.
 - Secret values are never written to disk. The vault stores hashes, the

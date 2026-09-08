@@ -96,6 +96,32 @@ def test_audit_log_caps_previews(guard, home, monkeypatch):
     assert len(entry["findings"]) == 1
 
 
+def test_redaction_adds_notice_to_system_prompt(guard):
+    kf = guard("redact")
+    body = json.dumps({"system": "sys", "messages": [{"role": "user", "content": f"key {KEY}"}]}).encode()
+    flow = make_flow(body=body, host="api.anthropic.com")
+    kf.request(flow)
+    out = json.loads(flow.request.get_text())
+    assert "keyfence" in out["system"]
+    assert "[REDACTED:github-token]" in out["messages"][0]["content"]
+
+
+def test_notice_can_be_disabled(guard):
+    kf = guard("redact", "notice: false\n")
+    body = json.dumps({"system": "sys", "messages": [{"role": "user", "content": f"key {KEY}"}]}).encode()
+    flow = make_flow(body=body, host="api.anthropic.com")
+    kf.request(flow)
+    assert json.loads(flow.request.get_text())["system"] == "sys"
+
+
+def test_clean_request_gets_no_notice(guard):
+    kf = guard("redact")
+    body = json.dumps({"system": "sys", "messages": []}).encode()
+    flow = make_flow(body=body, host="api.anthropic.com")
+    kf.request(flow)
+    assert flow.request.content == body
+
+
 def test_block_mode(guard):
     kf = guard("block")
     flow = make_flow()
