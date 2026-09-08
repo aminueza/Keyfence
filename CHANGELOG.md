@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `keyfence run` replaces its own process with mitmdump instead of
+  spawning it. Killing `keyfence run` used to leave mitmdump running, and
+  with `--local` that orphan kept capturing the named processes system-wide.
+
 ## 0.3.0 (2026-09-08)
 
 - `--local` on `keyfence run` and `keyfence exec`: capture traffic by

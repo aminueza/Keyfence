@@ -6,7 +6,6 @@ import json
 import os
 import re
 import secrets
-import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -102,9 +101,10 @@ def cmd_run(args) -> int:
     print(f"  export HTTPS_PROXY=http://127.0.0.1:{args.port}")
     print(f"  export HTTP_PROXY=http://127.0.0.1:{args.port}")
     print("or run them through it directly: keyfence exec -- <command>")
-    print("(Ctrl+C to stop)\n")
+    print("(Ctrl+C to stop)\n", flush=True)
+    command = runner.proxy_command(args.port, local=args.local)
     try:
-        return subprocess.call(runner.proxy_command(args.port, local=args.local))
+        os.execvp(command[0], command)
     except FileNotFoundError:
         print("mitmdump not found. Install it with: pip install mitmproxy")
         return 1

@@ -127,19 +127,25 @@ def test_status_without_audit_log(home, capsys):
     assert "Recent detections" not in capsys.readouterr().out
 
 
-def test_run_invokes_mitmdump(home, monkeypatch, capsys):
+def test_run_replaces_the_process_with_mitmdump(home, monkeypatch, capsys):
     seen = {}
-    monkeypatch.setattr(cli.subprocess, "call", lambda cmd: seen.update(cmd=cmd) or 0)
-    assert cli.main(["run", "-p", "9001"]) == 0
-    assert "9001" in seen["cmd"]
+
+    def fake_exec(program, argv):
+        seen.update(program=program, argv=argv)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(cli.os, "execvp", fake_exec)
+    with pytest.raises(SystemExit):
+        cli.main(["run", "-p", "9001"])
+    assert seen["program"].endswith("mitmdump") and "9001" in seen["argv"]
     assert "keyfence exec" in capsys.readouterr().out
 
 
 def test_run_without_mitmdump(home, monkeypatch, capsys):
-    def missing(_cmd):
+    def missing(_program, _argv):
         raise FileNotFoundError
 
-    monkeypatch.setattr(cli.subprocess, "call", missing)
+    monkeypatch.setattr(cli.os, "execvp", missing)
     assert cli.main(["run"]) == 1
     assert "mitmdump not found" in capsys.readouterr().out
 
@@ -169,11 +175,16 @@ def test_exec_passes_local_flag(home, monkeypatch):
 
 def test_run_with_local_mode(home, monkeypatch, capsys):
     seen = {}
-    monkeypatch.setattr(cli.subprocess, "call", lambda cmd: seen.update(cmd=cmd) or 0)
-    assert cli.main(["run", "--local"]) == 0
+
+    def fake_exec(program, argv):
+        seen.update(cmd=argv)
+        raise FileNotFoundError
+
+    monkeypatch.setattr(cli.os, "execvp", fake_exec)
+    assert cli.main(["run", "--local"]) == 1
     assert "--mode" in seen["cmd"] and "local" in seen["cmd"]
     assert "all processes" in capsys.readouterr().out
-    assert cli.main(["run", "--local", "claude"]) == 0
+    assert cli.main(["run", "--local", "claude"]) == 1
     assert "local:claude" in seen["cmd"]
 
 
