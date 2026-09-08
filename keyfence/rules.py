@@ -9,6 +9,7 @@ from pathlib import Path
 
 BUNDLED_RULES = Path(__file__).parent / "rules" / "gitleaks.toml"
 _INLINE_IGNORECASE = re.compile(r"\(\?i\)")
+_END_OF_STRING = re.compile(r"(?<!\\)\\z")
 
 
 @dataclass
@@ -40,6 +41,7 @@ def present_keywords(text_lower: str, rules: Iterable[Rule]) -> frozenset[str]:
 
 
 def compile_regex(regex: str, flags: int = 0) -> re.Pattern:
+    regex = _END_OF_STRING.sub(r"\\Z", regex)
     if _INLINE_IGNORECASE.search(regex):
         regex = _INLINE_IGNORECASE.sub("", regex)
         flags |= re.IGNORECASE

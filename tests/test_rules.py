@@ -17,6 +17,20 @@ def test_inline_ignorecase_is_normalised():
     assert pattern.search("ABCDEF")
 
 
+def test_end_of_string_anchor_is_translated():
+    pattern = compile_regex(r"tok-[a-z]+\z")
+    assert pattern.search("x tok-abc")
+    assert not pattern.search("tok-abc\n")
+    assert compile_regex(r"literal\\z").search("literal\\z")
+
+
+def test_every_bundled_rule_with_a_regex_loads():
+    import tomllib
+    with BUNDLED_RULES.open("rb") as fh:
+        expected = sum(1 for r in tomllib.load(fh)["rules"] if "regex" in r and r["id"] != "generic-api-key")
+    assert len(load_rules()) == expected
+
+
 def test_compile_regex_without_flags_is_case_sensitive():
     assert compile_regex("abc").search("ABC") is None
 
