@@ -7,6 +7,9 @@ name = "keyfence"
 dynamic = ["version"]
 description = "Local proxy that keeps your API keys, passwords and secrets out of LLM requests."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "keyfence/rules/GITLEAKS-LICENSE"]
+authors = [{ name = "Amanda Souza" }]
 requires-python = ">=3.12"
 dependencies = [
     "mitmproxy>=10.0",
@@ -21,6 +24,12 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Topic :: Security",
 ]
+
+[project.urls]
+Homepage = "https://github.com/aminueza/keyfence"
+Documentation = "https://github.com/aminueza/keyfence/tree/main/docs"
+Repository = "https://github.com/aminueza/keyfence"
+Issues = "https://github.com/aminueza/keyfence/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov>=5"]

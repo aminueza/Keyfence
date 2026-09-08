@@ -48,3 +48,29 @@ that secret scanners, including GitHub push protection, do not flag them.
 GitHub Actions runs the unit tests on Linux (Python 3.12 to 3.14) and macOS,
 the integration script on both, and builds the wheel to check that the
 bundled rules ship in the package.
+
+## Benchmark
+
+```bash
+python bench/run.py            # keyfence configurations, plus gitleaks if installed
+python bench/run.py --json     # machine-readable
+```
+
+The corpus is generated from a fixed seed, so nothing secret-looking is
+committed. Results are kept in `docs/benchmark.md`.
+
+## Releasing
+
+Releases are published to PyPI by the `Release` workflow through PyPI
+trusted publishing, so no token is stored anywhere. One-time setup on PyPI:
+add a pending publisher for project `keyfence` with owner `aminueza`,
+repository `keyfence`, workflow `release.yml` and environment `pypi`, and
+create the `pypi` environment in the GitHub repository settings.
+
+To release:
+
+1. Bump `__version__` in `keyfence/__init__.py`.
+2. Commit, then tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
+
+The workflow builds the sdist and wheel, checks that the tag matches the
+package version, and publishes.
