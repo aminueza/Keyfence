@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-Fixes from an end-to-end QA pass:
-
 - A corrupted `vault.json` now produces one clear message from the CLI
   and from the proxy at startup instead of a traceback, and the vault is
   written atomically so a running proxy never reads a half-written file.
