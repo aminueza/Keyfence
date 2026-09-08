@@ -7,7 +7,7 @@ name = "keyfence"
 dynamic = ["version"]
 description = "Local proxy that keeps your API keys, passwords and secrets out of LLM requests."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "mitmproxy>=10.0",
     "PyYAML>=6.0",

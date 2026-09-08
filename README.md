@@ -1,5 +1,9 @@
 # keyfence
 
+[![CI](https://github.com/aminueza/keyfence/actions/workflows/ci.yml/badge.svg)](https://github.com/aminueza/keyfence/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)
+
 **A local proxy that keeps your API keys, passwords and secrets out of LLM
 requests. Works with Claude Code, Cursor, Codex, Aider, curl, anything.**
 
