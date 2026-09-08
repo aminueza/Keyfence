@@ -68,5 +68,11 @@ touched. Set `notice: false` to disable.
 - When a request contains placeholders, keyfence sets
   `Accept-Encoding: identity` so the response can be rewritten as it
   streams. Placeholders split across SSE events are still restored.
-- The vault file is reloaded when it changes, so `import` and
-  `add-secret` take effect on a running proxy.
+- The vault file and the config file are reloaded when they change, so
+  `import`, `add-secret`, `canary` and edits to `config.yaml` take effect
+  on a running proxy. A config file that fails to parse is logged and the
+  previous configuration stays in force. A vault file that fails to parse
+  stops the proxy at startup with a message, and makes a running proxy
+  fail closed until the file is fixed or moved aside.
+- The vault is written atomically, so the running proxy never reads a
+  half-written file.

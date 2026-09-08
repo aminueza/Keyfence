@@ -2,6 +2,8 @@ import json
 import socket
 import subprocess
 
+import pytest
+
 from keyfence import runner
 from keyfence.vault import Vault
 
@@ -29,10 +31,17 @@ def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
     ca.write_text("cert")
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or FakeProxy())
-    monkeypatch.setattr(runner, "port_open", lambda port: True)
+    monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
     assert runner.run(["/usr/local/bin/claude", "-p"], 8899, ca_cert=ca, timeout=1, local="") == 0
     assert "local:claude" in seen["cmd"]
+
+
+def test_run_refuses_busy_port(home, monkeypatch, capsys):
+    monkeypatch.setattr(runner, "port_open", lambda port: True)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start"))
+    assert runner.run(["echo"], 8899) == 1
+    assert "already in use" in capsys.readouterr().out
 
 
 def test_mitmdump_path_prefers_interpreter_bindir(tmp_path, monkeypatch):
@@ -125,7 +134,7 @@ def test_run_success(home, monkeypatch, tmp_path):
     ca.write_text("cert")
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(proxy_cmd=cmd, proxy_env=env, stdout=stdout) or proxy)
-    monkeypatch.setattr(runner, "port_open", lambda port: True)
+    monkeypatch.setattr(runner, "port_open", lambda port: "proxy_cmd" in seen)
 
     def fake_call(command, env):
         seen["command"] = command

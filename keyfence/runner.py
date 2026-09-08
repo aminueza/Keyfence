@@ -87,6 +87,9 @@ def build_env_vault(environ: Mapping[str, str], everything: bool = False) -> Pat
 
 def run(command: Sequence[str], port: int, everything: bool = False,
         timeout: float = 20.0, ca_cert: Path = CA_CERT, local: str | None = None) -> int:
+    if port_open(port):
+        print(f"Port {port} is already in use. Pick another one with -p.")
+        return 1
     env_vault = build_env_vault(os.environ, everything)
     proxy_env = dict(os.environ, **{ENV_VAULT_VAR: str(env_vault)})
     DEFAULT_DIR.mkdir(parents=True, exist_ok=True)

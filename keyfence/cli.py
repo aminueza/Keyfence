@@ -14,7 +14,7 @@ from . import export, hooks, runner
 from .config import Config
 from .detectors import scan
 from .importer import default_paths, env_values, import_files
-from .vault import DEFAULT_DIR, Vault
+from .vault import DEFAULT_DIR, Vault, VaultError
 
 
 def cmd_add_secret(_args) -> int:
@@ -101,6 +101,9 @@ def cmd_run(args) -> int:
     print(f"  export HTTPS_PROXY=http://127.0.0.1:{args.port}")
     print(f"  export HTTP_PROXY=http://127.0.0.1:{args.port}")
     print("or run them through it directly: keyfence exec -- <command>")
+    if runner.port_open(args.port):
+        print(f"Port {args.port} is already in use. Pick another one with -p.")
+        return 1
     print("(Ctrl+C to stop)\n", flush=True)
     command = runner.proxy_command(args.port, local=args.local)
     try:
@@ -257,6 +260,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        return _dispatch(args)
+    except VaultError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _dispatch(args) -> int:
     return {
         "add-secret": cmd_add_secret,
         "import": cmd_import,

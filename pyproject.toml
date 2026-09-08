@@ -48,7 +48,7 @@ keyfence = ["rules/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q --cov=keyfence --cov-report=term-missing"
 
 [tool.coverage.run]
 source = ["keyfence"]

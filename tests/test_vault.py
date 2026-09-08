@@ -4,7 +4,7 @@ import stat
 
 import pytest
 
-from keyfence.vault import MIN_SECRET_LENGTH, Vault
+from keyfence.vault import MIN_SECRET_LENGTH, Vault, VaultError
 
 
 def test_add_and_contains(tmp_path):
@@ -114,6 +114,23 @@ def test_placeholder_digest_is_stable_and_separate(tmp_path):
     assert a != v.placeholder_digest("secret-value-two")
     assert a != v._digest("secret-value-one")
     assert len(a) == 64
+
+
+@pytest.mark.parametrize("content", ["x", "", '{"salt": "zz"}', '{"hashes": []}', "[1, 2]", '{"salt": 1, "hashes": []}'])
+def test_corrupted_vault_raises_actionable_error(tmp_path, content):
+    path = tmp_path / "vault.json"
+    path.write_text(content)
+    with pytest.raises(VaultError) as exc:
+        Vault(path=path)
+    assert "keyfence import" in str(exc.value) and str(path) in str(exc.value)
+
+
+def test_save_is_atomic_and_leaves_no_temp_file(tmp_path):
+    path = tmp_path / "vault.json"
+    v = Vault(path=path)
+    v.add("persisted-secret-value")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["vault.json"]
+    assert json.loads(path.read_text())["hashes"]
 
 
 def test_chmod_failure_is_ignored(tmp_path, monkeypatch):

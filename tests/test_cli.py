@@ -127,6 +127,21 @@ def test_status_without_audit_log(home, capsys):
     assert "Recent detections" not in capsys.readouterr().out
 
 
+def test_corrupted_vault_gives_one_line_error(home, capsys):
+    (home / "vault.json").write_text("x")
+    assert cli.main(["status"]) == 1
+    err = capsys.readouterr().err
+    assert "not a valid keyfence vault" in err and "Traceback" not in err
+    assert cli.main(["scan", "anything"]) == 1
+
+
+def test_run_refuses_busy_port(home, monkeypatch, capsys):
+    monkeypatch.setattr(cli.runner, "port_open", lambda port: True)
+    monkeypatch.setattr(cli.os, "execvp", lambda *a: pytest.fail("must not exec"))
+    assert cli.main(["run", "-p", "9001"]) == 1
+    assert "already in use" in capsys.readouterr().out
+
+
 def test_run_replaces_the_process_with_mitmdump(home, monkeypatch, capsys):
     seen = {}
 
@@ -134,6 +149,7 @@ def test_run_replaces_the_process_with_mitmdump(home, monkeypatch, capsys):
         seen.update(program=program, argv=argv)
         raise SystemExit(0)
 
+    monkeypatch.setattr(cli.runner, "port_open", lambda port: False)
     monkeypatch.setattr(cli.os, "execvp", fake_exec)
     with pytest.raises(SystemExit):
         cli.main(["run", "-p", "9001"])
@@ -145,6 +161,7 @@ def test_run_without_mitmdump(home, monkeypatch, capsys):
     def missing(_program, _argv):
         raise FileNotFoundError
 
+    monkeypatch.setattr(cli.runner, "port_open", lambda port: False)
     monkeypatch.setattr(cli.os, "execvp", missing)
     assert cli.main(["run"]) == 1
     assert "mitmdump not found" in capsys.readouterr().out
@@ -180,6 +197,7 @@ def test_run_with_local_mode(home, monkeypatch, capsys):
         seen.update(cmd=argv)
         raise FileNotFoundError
 
+    monkeypatch.setattr(cli.runner, "port_open", lambda port: False)
     monkeypatch.setattr(cli.os, "execvp", fake_exec)
     assert cli.main(["run", "--local"]) == 1
     assert "--mode" in seen["cmd"] and "local" in seen["cmd"]

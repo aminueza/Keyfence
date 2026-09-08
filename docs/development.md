@@ -13,7 +13,8 @@ pytest                            # unit tests
 bash tests/integration_test.sh    # end-to-end against a real mitmproxy
 ```
 
-Coverage must stay at or above 90%; `pytest` fails below that. The
+`pytest` always measures coverage (`addopts` in `pyproject.toml`) and fails
+below 90%. The
 integration script starts an echo server and a real `mitmdump` with the
 keyfence addon, then checks redact, placeholder, streaming, block and
 `keyfence exec` end to end.

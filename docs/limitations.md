@@ -15,6 +15,12 @@ real incidents. Out of scope:
   system and works on macOS and Windows only.
 - **Local models.** Ollama and similar do not go through the proxy. Their
   traffic also does not leave the machine.
+- **Only the request body is scanned.** Headers and the URL query string
+  are passed through untouched, in every mode, and the audit log records
+  the path without its query. This is deliberate: the provider's own key
+  travels in `Authorization` or, for Gemini, in `?key=`, and redacting it
+  would break authentication. A secret you put in a query string yourself
+  is not caught.
 - **Streams ending mid-placeholder.** If a streamed response ends in the
   middle of a placeholder, the last characters are passed through as they
   are.

@@ -12,6 +12,10 @@ DEFAULT_DIR = Path(os.environ.get("KEYFENCE_HOME", Path.home() / ".keyfence"))
 MIN_SECRET_LENGTH = 8
 
 
+class VaultError(RuntimeError):
+    pass
+
+
 class Vault:
     def __init__(self, path: Path | None = None, salt: bytes | None = None):
         self.path = Path(path) if path else DEFAULT_DIR / "vault.json"
@@ -22,15 +26,21 @@ class Vault:
         self._load()
 
     def _load(self) -> None:
-        if self.path.exists():
+        if not self.path.exists():
+            if not self._salt:
+                self._salt = pysecrets.token_bytes(32)
+            return
+        try:
             data = json.loads(self.path.read_text())
             self._salt = bytes.fromhex(data["salt"])
             self._hashes = set(data["hashes"])
             self._canaries = dict(data.get("canaries", {}))
             self.min_length = max(
                 MIN_SECRET_LENGTH, int(data.get("min_length", MIN_SECRET_LENGTH)))
-        elif not self._salt:
-            self._salt = pysecrets.token_bytes(32)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise VaultError(
+                f"{self.path} is not a valid keyfence vault ({exc}). Move it aside and "
+                "register your secrets again with `keyfence import` or `keyfence add-secret`.") from exc
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,11 +50,13 @@ class Vault:
             "canaries": dict(sorted(self._canaries.items())),
             "min_length": self.min_length,
         }, indent=2)
-        self.path.write_text(payload)
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(payload)
         try:
-            os.chmod(self.path, 0o600)
+            os.chmod(tmp, 0o600)
         except OSError:
             pass
+        os.replace(tmp, self.path)
 
     def ensure_saved(self) -> None:
         if not self.path.exists():

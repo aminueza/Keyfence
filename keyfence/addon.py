@@ -17,7 +17,7 @@ from keyfence.config import Config  # noqa: E402
 from keyfence.detectors import Finding, scan  # noqa: E402
 from keyfence.notice import add_notice  # noqa: E402
 from keyfence.streaming import SSERestorer, restore  # noqa: E402
-from keyfence.vault import Vault  # noqa: E402
+from keyfence.vault import Vault, VaultError  # noqa: E402
 
 log = logging.getLogger("keyfence")
 ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
@@ -30,6 +30,8 @@ PLACEHOLDER_ID_LENGTH = 10
 class KeyFence:
     def __init__(self):
         self.config = Config.load()
+        self._config_path = Config.path()
+        self._config_mtime = self._mtime(self._config_path)
         self.vault = self._load_vault()
         self._vault_mtime = self._mtime(self.vault.path)
         self.stats = {"scanned": 0, "findings": 0, "blocked": 0, "errors": 0, "canaries": 0}
@@ -56,12 +58,25 @@ class KeyFence:
             self._vault_mtime = mtime
             log.info("vault reloaded: %d secret(s)", self.vault.count())
 
+    def _maybe_reload_config(self) -> None:
+        mtime = self._mtime(self._config_path)
+        if mtime == self._config_mtime:
+            return
+        self._config_mtime = mtime
+        try:
+            self.config = Config.load()
+            log.info("config reloaded: mode=%s | %d hosts | %d rules",
+                     self.config.mode, len(self.config.hosts), len(self.config.scan.rules))
+        except Exception as exc:
+            log.error("config reload failed, keeping the previous one: %s", exc)
+
     def load(self, loader):
         log.info("mode=%s | %d hosts monitored | %d rules | vault with %d secret(s)",
                  self.config.mode, len(self.config.hosts),
                  len(self.config.scan.rules), self.vault.count())
 
     def request(self, flow: http.HTTPFlow) -> None:
+        self._maybe_reload_config()
         host = flow.request.pretty_host
         if not self.config.host_matches(host):
             return
@@ -156,7 +171,11 @@ class KeyFence:
         text = flow.response.get_text(strict=False)
         if not text:
             return
-        restored = restore(text, mapping)
+        if "text/event-stream" in flow.response.headers.get("content-type", ""):
+            restorer = SSERestorer(mapping)
+            restored = (restorer.feed(text.encode("utf-8")) + restorer.feed(b"")).decode("utf-8")
+        else:
+            restored = restore(text, mapping)
         if restored != text:
             flow.response.set_text(restored)
             log.info("placeholders restored in response")

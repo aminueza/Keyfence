@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+Fixes from an end-to-end QA pass:
+
+- A corrupted `vault.json` now produces one clear message from the CLI
+  and from the proxy at startup instead of a traceback, and the vault is
+  written atomically so a running proxy never reads a half-written file.
+- In `placeholder` mode, a compressed SSE response is restored correctly
+  when the placeholder is split across events; the buffered path now uses
+  the same restorer as the streaming path.
+- `config.yaml` is reloaded on a running proxy, like the vault.
+- `keyfence run` and `keyfence exec` refuse to start on a port that is
+  already in use, with a message that names `-p`.
+- `pytest` measures coverage by default, as the docs said it did.
+- Documented that headers and the query string are not scanned, and why.
+
 ## 0.3.1 (2026-09-08)
 
 - `keyfence run` replaces its own process with mitmdump instead of

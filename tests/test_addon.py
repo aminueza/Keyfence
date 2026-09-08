@@ -280,6 +280,47 @@ def test_response_restores_buffered_json(guard):
     assert flow.response.get_text() == f'{{"content":"echo {KEY}"}}'
 
 
+def test_buffered_sse_restores_split_placeholders(guard):
+    kf = guard("placeholder")
+    body = (b'data: {"delta":{"text":"gz key <<SEC"}}\n\n'
+            b'data: {"delta":{"text":"RET_1>> end"}}\n\n')
+    flow = make_response_flow(
+        {"<<SECRET_1>>": KEY},
+        {"content-type": "text/event-stream", "content-encoding": "gzip"}, body=body)
+    kf.responseheaders(flow)
+    assert flow.response.stream is False
+    kf.response(flow)
+    assert KEY.encode() in flow.response.content and b"<<SEC" not in flow.response.content
+
+
+def test_config_is_reloaded_when_file_changes(guard, home, write_config):
+    kf = guard("redact")
+    write_config("mode: block\n")
+    os.utime(home / "config.yaml", (1, 1))
+    flow = make_flow()
+    kf.request(flow)
+    assert flow.response is not None and flow.response.status_code == 403
+
+
+def test_invalid_config_reload_keeps_previous(guard, home, write_config, caplog):
+    kf = guard("redact")
+    write_config("mode: nonsense\n")
+    os.utime(home / "config.yaml", (2, 2))
+    flow = make_flow()
+    with caplog.at_level("ERROR", logger="keyfence"):
+        kf.request(flow)
+    assert "config reload failed" in caplog.text
+    assert kf.config.mode == "redact" and "[REDACTED:github-token]" in flow.request.get_text()
+
+
+def test_corrupted_vault_stops_startup_with_a_message(home, write_config):
+    write_config("mode: redact\n")
+    (home / "vault.json").write_text("x")
+    with pytest.raises(addon_module.VaultError) as exc:
+        KeyFence()
+    assert "keyfence import" in str(exc.value)
+
+
 def test_response_skips_when_streamed_or_unmapped(guard):
     kf = guard("placeholder")
     flow = make_response_flow({"<<SECRET_1>>": KEY}, {}, body=b"<<SECRET_1>>")

@@ -40,11 +40,13 @@ class Config:
     scan: ScanConfig = field(default_factory=ScanConfig)
     audit_log: Path = field(default_factory=lambda: DEFAULT_DIR / "audit.log")
 
+    @staticmethod
+    def path(path: str | os.PathLike | None = None) -> Path:
+        return Path(path or os.environ.get("KEYFENCE_CONFIG", DEFAULT_DIR / "config.yaml"))
+
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Config":
-        cfg_path = Path(
-            path
-            or os.environ.get("KEYFENCE_CONFIG", DEFAULT_DIR / "config.yaml"))
+        cfg_path = cls.path(path)
         cfg = cls()
         if cfg_path.exists():
             data = yaml.safe_load(cfg_path.read_text()) or {}
