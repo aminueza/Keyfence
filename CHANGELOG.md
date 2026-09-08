@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 (2026-09-08)
 
 - A corrupted `vault.json` now produces one clear message from the CLI
   and from the proxy at startup instead of a traceback, and the vault is
