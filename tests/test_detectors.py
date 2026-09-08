@@ -1,6 +1,11 @@
 import pytest
 
-from keyfence.detectors import BUILTIN_RULES, Finding, ScanConfig, _scan_rules, scan, shannon_entropy
+import base64
+import json
+
+from keyfence.detectors import (
+    BUILTIN_RULES, Finding, ScanConfig, _scan_rules, scan, shannon_entropy, string_value_spans,
+)
 from keyfence.rules import load_rules
 from keyfence.vault import Vault
 
@@ -116,6 +121,89 @@ def test_entropy_token_position_is_exact():
     text = f"prefix ({secret}), suffix"
     f = next(f for f in scan(text) if f.kind == "entropy")
     assert text[f.start:f.end] == secret
+
+
+RANDOM = "Zq8xK2mP9vL4nR7tW3yB6cF1dH5jXw2Kp"
+
+
+def entropy_kinds(text, **kwargs):
+    return [f.kind for f in scan(text, config=ScanConfig(**kwargs)) if f.kind == "entropy"]
+
+
+def test_entropy_skips_api_object_ids():
+    text = f"tool_use_id toolu_01{RANDOM} and msg_01{RANDOM} and call_{RANDOM} and chatcmpl-{RANDOM}"
+    assert entropy_kinds(text) == []
+
+
+def test_entropy_skips_base64_encoded_json():
+    blob = base64.b64encode(json.dumps({"user": "x", "session": RANDOM}).encode()).decode()
+    urlsafe = base64.urlsafe_b64encode(json.dumps([{"event": RANDOM}]).encode()).decode()
+    assert blob.startswith("eyJ")
+    assert entropy_kinds(f"payload {blob} and {urlsafe}") == []
+
+
+def test_entropy_still_catches_base64_that_is_not_json():
+    blob = base64.b64encode(f"user:{RANDOM}".encode()).decode()
+    assert entropy_kinds(f"Authorization: Basic {blob}") == ["entropy"]
+
+
+def test_entropy_skips_overlong_tokens():
+    long_token = (RANDOM * 20)[:600]
+    assert entropy_kinds(f"blob {long_token}") == []
+    assert entropy_kinds(f"blob {long_token}", entropy_max_length=1000) == ["entropy"]
+
+
+def test_entropy_skips_data_uris():
+    assert entropy_kinds(f"src=data:image/png;base64,{RANDOM}{RANDOM}") == []
+
+
+def test_entropy_respects_json_key_context():
+    body = json.dumps({"signature": RANDOM, "id": f"x{RANDOM}", "text": f"the value is {RANDOM}"})
+    findings = [f for f in scan(body) if f.kind == "entropy"]
+    assert len(findings) == 1
+    assert body[findings[0].start:findings[0].end] == RANDOM
+    assert findings[0].start > body.index('"text"')
+
+
+def test_entropy_key_context_only_applies_to_json_bodies():
+    assert entropy_kinds(f"signature: {RANDOM}") == ["entropy"]
+
+
+def test_string_value_spans_tracks_keys_through_nesting():
+    body = '{"a": "v1", "list": [{"id": "v2", "text": "v3"}, "v4"], "esc": "q\\"uote", "n": 1}'
+    found = {body[s:e]: key for s, e, key in string_value_spans(body)}
+    assert found == {"v1": "a", "v2": "id", "v3": "text", "v4": "list", 'q\\"uote': "esc"}
+
+
+def test_string_value_spans_on_unbalanced_input_does_not_crash():
+    assert string_value_spans('}}]"loose"') == [(4, 9, None)]
+
+
+def test_realistic_claude_code_body_is_clean():
+    signature = base64.b64encode(bytes(range(256)) * 2).decode()
+    image = base64.b64encode(b"\x89PNG" + bytes(range(200))).decode()
+    body = json.dumps({
+        "model": "claude-fable-5-1",
+        "system": "You are Claude Code.",
+        "messages": [
+            {"role": "user", "content": "run the tests"},
+            {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "I will run pytest", "signature": signature},
+                {"type": "tool_use", "id": f"toolu_01{RANDOM}", "name": "Bash", "input": {"command": "pytest -q"}},
+            ]},
+            {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": f"toolu_01{RANDOM}", "content": "155 passed"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image}},
+            ]},
+        ],
+        "metadata": {"user_id": f"user_{RANDOM}{RANDOM}"},
+    })
+    telemetry = json.dumps({"events": [
+        base64.b64encode(json.dumps({"session": RANDOM, "n": i}).encode()).decode() for i in range(5)
+    ]})
+    cfg = ScanConfig(rules=load_rules())
+    assert scan(body, config=cfg) == []
+    assert scan(telemetry, config=cfg) == []
 
 
 def test_entropy_disabled_by_config():

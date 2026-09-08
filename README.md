@@ -67,7 +67,9 @@ Three checks run on every request body sent to a monitored host:
    strings, plus 221 rules from the
    [gitleaks](https://github.com/gitleaks/gitleaks) ruleset.
 3. **Entropy.** Long strings with high entropy and mixed character classes.
-   Commit hashes, file paths, URLs and UUIDs are excluded.
+   Commit hashes, file paths, URLs, UUIDs, base64-encoded JSON, API object
+   ids such as `toolu_…` or `msg_…`, and JSON fields that hold ids, hashes,
+   signatures or binary data are excluded.
 
 Findings from the three checks are merged. When two overlap, the vault wins
 over patterns and patterns win over entropy.
@@ -147,6 +149,7 @@ Copy `config.example.yaml` to `~/.keyfence/config.yaml`. Options:
 | `scan.entropy` | `true` | entropy check |
 | `scan.entropy_min_length` | `24` | minimum token length for the entropy check |
 | `scan.entropy_threshold` | `4.5` | bits per character |
+| `scan.entropy_max_length` | `512` | tokens longer than this are treated as encoded data |
 | `scan.allowlist` | `[]` | exact values to ignore |
 | `audit_log` | `~/.keyfence/audit.log` | where detections are logged |
 

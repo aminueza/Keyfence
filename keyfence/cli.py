@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+from collections import Counter
 import json
 import os
 import subprocess
@@ -114,8 +115,12 @@ def cmd_status(_args) -> int:
             for line in lines:
                 try:
                     e = json.loads(line)
-                    kinds = ", ".join(f["kind"] for f in e["findings"])
-                    print(f"  {e['ts']}  {e['host']}  [{kinds}]  ({e['mode']})")
+                    counts = Counter(f["kind"] for f in e["findings"])
+                    kinds = ", ".join(
+                        f"{kind} x{n}" if n > 1 else kind for kind, n in counts.most_common())
+                    total = e.get("count", len(e["findings"]))
+                    suffix = f"  {total} total" if total > len(e["findings"]) else ""
+                    print(f"  {e['ts']}  {e['host']}  [{kinds}]{suffix}  ({e['mode']})")
                 except (json.JSONDecodeError, KeyError):
                     pass
     return 0

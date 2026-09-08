@@ -22,6 +22,7 @@ log = logging.getLogger("keyfence")
 ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
 MAPPING_KEY = "keyfence_mapping"
 STREAMED_KEY = "keyfence_streamed"
+AUDIT_PREVIEW_LIMIT = 50
 
 
 class KeyFence:
@@ -152,7 +153,9 @@ class KeyFence:
                 "host": flow.request.pretty_host,
                 "path": flow.request.path.split("?")[0],
                 "mode": self.config.mode,
-                "findings": [{"kind": f.kind, "preview": f.masked} for f in findings],
+                "count": len(findings),
+                "findings": [{"kind": f.kind, "preview": f.masked}
+                             for f in findings[:AUDIT_PREVIEW_LIMIT]],
             }
             with path.open("a") as fh:
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")

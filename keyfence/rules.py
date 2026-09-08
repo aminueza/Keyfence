@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import tomllib
 import warnings
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,11 +24,19 @@ class Rule:
     def applies_to(self, text_lower: str) -> bool:
         return not self.keywords or any(k in text_lower for k in self.keywords)
 
+    def applies_with(self, present: frozenset[str]) -> bool:
+        return not self.keywords or any(k in present for k in self.keywords)
+
     def is_ignored(self, value: str) -> bool:
         low = value.lower()
         if any(word in low for word in self.stopwords):
             return True
         return any(r.search(value) for r in self.ignore_regexes)
+
+
+def present_keywords(text_lower: str, rules: Iterable[Rule]) -> frozenset[str]:
+    keywords = {k for r in rules for k in r.keywords}
+    return frozenset(k for k in keywords if k in text_lower)
 
 
 def compile_regex(regex: str, flags: int = 0) -> re.Pattern:

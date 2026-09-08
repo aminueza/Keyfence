@@ -21,6 +21,7 @@ scan:
   entropy: true           # high-entropy strings that look like secrets
   entropy_min_length: 24
   entropy_threshold: 4.5
+  entropy_max_length: 512   # longer strings are encoded data, not credentials
   allowlist: []           # exact values never treated as secrets
     # - "sk-fake-key-used-in-this-projects-tests"
 

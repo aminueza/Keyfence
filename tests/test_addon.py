@@ -80,8 +80,19 @@ def test_redact_mode(guard, home):
     entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
     assert entry["host"] == "api.openai.com"
     assert entry["path"] == "/v1/chat/completions"
+    assert entry["count"] == 1
     assert entry["findings"][0]["kind"] == "github-token"
     assert KEY not in (home / "audit.log").read_text()
+
+
+def test_audit_log_caps_previews(guard, home, monkeypatch):
+    monkeypatch.setattr(addon_module, "AUDIT_PREVIEW_LIMIT", 1)
+    kf = guard("redact")
+    other = "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    kf.request(make_flow(body=f"{KEY} {other}".encode()))
+    entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
+    assert entry["count"] == 2
+    assert len(entry["findings"]) == 1
 
 
 def test_block_mode(guard):

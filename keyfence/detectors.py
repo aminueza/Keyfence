@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import bisect
 import math
 import re
 from dataclasses import dataclass, field
 
-from .rules import Rule, compile_regex
+from .rules import Rule, compile_regex, present_keywords
 
 
 @dataclass
@@ -80,9 +83,9 @@ def _overlaps(start: int, end: int, spans) -> bool:
 def _scan_rules(text: str, rules: list[Rule]) -> list[Finding]:
     findings: list[Finding] = []
     claimed: list[tuple[int, int]] = []
-    lower = text.lower()
+    present = present_keywords(text.lower(), rules)
     for rule in rules:
-        if not rule.applies_to(lower):
+        if not rule.applies_with(present):
             continue
         for m in rule.pattern.finditer(text):
             value = m.group(rule.secret_group)
@@ -101,8 +104,75 @@ def _scan_rules(text: str, rules: list[Rule]) -> list[Finding]:
 _TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\]+""")
 _WORDISH = re.compile(r"^[A-Za-z]+$")
 _HEXISH = re.compile(r"^[0-9a-fA-F]+$")
-_PATHISH = re.compile(r"^[./~]|://")
+_PATHISH = re.compile(r"^[./~]|://|^data:")
+_BASE64ISH = re.compile(r"^[A-Za-z0-9+/_-]+=*$")
+_DATA_URI = re.compile(r"data:[\w/+.-]+;base64,[A-Za-z0-9+/=_-]+")
 _QUERY_VALUE = re.compile(r"[?&][A-Za-z0-9_.-]*(?:token|key|secret|auth|password|pass|sig)[A-Za-z0-9_.-]*=([^&\s#]{8,})", re.IGNORECASE)
+
+API_ID_PREFIXES = (
+    "toolu_", "srvtoolu_", "mcptoolu_", "msg_", "msgbatch_", "req_", "compl_",
+    "chatcmpl-", "call_", "fc_", "rs_", "resp_", "run_", "step_", "thread_",
+    "asst_", "file-", "file_", "batch_", "gen-", "ws_", "container_", "sess_",
+    "evt_", "trace_", "span_", "cmpl-", "ftjob-", "vs_", "vsf_", "msgi_",
+)
+
+ENTROPY_SKIP_KEYS = frozenset({
+    "id", "tool_use_id", "tool_call_id", "call_id", "signature", "data",
+    "cache_control", "encrypted_content", "previous_response_id", "message_id",
+    "request_id", "session_id", "conversation_id", "user_id", "trace_id",
+    "span_id", "idempotency_key", "sha256", "checksum", "hash", "etag", "digest",
+    "fingerprint", "image", "audio", "thumbnail", "file_id", "container_id",
+    "batch_id", "item_id", "response_id", "parent_id",
+})
+
+
+def _decodes_to_json(token: str) -> bool:
+    if len(token) < 8 or not _BASE64ISH.match(token):
+        return False
+    head = token[:4].replace("-", "+").replace("_", "/")
+    try:
+        decoded = base64.b64decode(head, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    return decoded[:1] in (b"{", b"[")
+
+
+_JSON_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|[{}\[\]]')
+_KEY_FOLLOWS = re.compile(r"\s*:")
+
+
+def string_value_spans(text: str) -> list[tuple[int, int, str | None]]:
+    spans: list[tuple[int, int, str | None]] = []
+    stack: list[list] = []
+    for m in _JSON_TOKEN.finditer(text):
+        tok = m.group()
+        if tok == "{":
+            stack.append(["{", None])
+        elif tok == "[":
+            stack.append(["[", stack[-1][1] if stack else None])
+        elif tok in "}]":
+            if stack:
+                stack.pop()
+        elif stack and stack[-1][0] == "{" and _KEY_FOLLOWS.match(text, m.end()):
+            stack[-1][1] = tok[1:-1]
+        else:
+            spans.append((m.start() + 1, m.end() - 1, stack[-1][1] if stack else None))
+    return spans
+
+
+def _excluded_spans(text: str) -> list[tuple[int, int]]:
+    spans = [m.span() for m in _DATA_URI.finditer(text)]
+    stripped = text.lstrip()
+    if stripped and stripped[0] in "{[":
+        spans.extend(
+            (start, end) for start, end, key in string_value_spans(text)
+            if key in ENTROPY_SKIP_KEYS)
+    return sorted(spans)
+
+
+def _inside(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
+    idx = bisect.bisect_right(spans, (start, end)) - 1
+    return idx >= 0 and spans[idx][0] <= start and end <= spans[idx][1]
 
 
 def shannon_entropy(s: str) -> float:
@@ -115,8 +185,10 @@ def shannon_entropy(s: str) -> float:
     return -sum((c / n) * math.log2(c / n) for c in freq.values())
 
 
-def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5) -> list[Finding]:
+def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5,
+                  max_length: int = 512) -> list[Finding]:
     findings: list[Finding] = []
+    excluded = _excluded_spans(text)
     pos = 0
     for raw in _TOKEN_SPLIT.split(text):
         idx = text.find(raw, pos)
@@ -125,23 +197,26 @@ def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5) -> li
         pos = idx + len(raw) if idx >= 0 else pos
 
         token = raw.strip(".,:=!?")
-        if len(token) < min_length:
+        if len(token) < min_length or len(token) > max_length:
             continue
         if _WORDISH.match(token) or _PATHISH.search(token):
             continue
         if _HEXISH.match(token) and len(token) in (32, 40, 64):
+            continue
+        if token.startswith(API_ID_PREFIXES) or _decodes_to_json(token):
             continue
         has_upper = any(c.isupper() for c in token)
         has_lower = any(c.islower() for c in token)
         has_digit = any(c.isdigit() for c in token)
         if sum([has_upper, has_lower, has_digit]) < 2:
             continue
-        if shannon_entropy(token) >= threshold:
-            start = idx if idx >= 0 else 0
-            off = raw.find(token)
-            findings.append(Finding(
-                kind="entropy", value=token,
-                start=start + off, end=start + off + len(token)))
+        if shannon_entropy(token) < threshold:
+            continue
+        start = (idx if idx >= 0 else 0) + raw.find(token)
+        end = start + len(token)
+        if _inside(start, end, excluded):
+            continue
+        findings.append(Finding(kind="entropy", value=token, start=start, end=end))
     return findings
 
 
@@ -182,6 +257,7 @@ class ScanConfig:
     entropy_enabled: bool = True
     entropy_min_length: int = 24
     entropy_threshold: float = 4.5
+    entropy_max_length: int = 512
     allowlist: list[str] = field(default_factory=list)
     gitleaks: bool = True
     gitleaks_rules: str | None = None
@@ -198,7 +274,8 @@ def scan(text: str, vault=None, config: ScanConfig | None = None) -> list[Findin
         findings.extend(_scan_url_query(text))
     if config.entropy_enabled:
         findings.extend(_scan_entropy(
-            text, config.entropy_min_length, config.entropy_threshold))
+            text, config.entropy_min_length, config.entropy_threshold,
+            config.entropy_max_length))
 
     if config.allowlist:
         allow = set(config.allowlist)

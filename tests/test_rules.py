@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from keyfence.rules import BUNDLED_RULES, Rule, compile_regex, load_rules
+from keyfence.rules import BUNDLED_RULES, Rule, compile_regex, load_rules, present_keywords
 
 
 def test_bundled_rules_load():
@@ -57,6 +57,17 @@ def test_applies_to_uses_keywords():
     assert rule.applies_to("hay needle hay")
     assert not rule.applies_to("hay only")
     assert Rule(name="r", pattern=re.compile("x")).applies_to("anything")
+
+
+def test_present_keywords_handles_overlapping_keywords():
+    short = Rule(name="s", pattern=re.compile("x"), keywords=("key",))
+    long = Rule(name="l", pattern=re.compile("x"), keywords=("apikey",))
+    none = Rule(name="n", pattern=re.compile("x"))
+    present = present_keywords("set apikey=1", [short, long, none])
+    assert present == {"key", "apikey"}
+    assert short.applies_with(present) and long.applies_with(present) and none.applies_with(present)
+    assert not short.applies_with(present_keywords("nothing here", [short]))
+    assert present_keywords("anything", [none]) == frozenset()
 
 
 def test_missing_rules_file_raises(tmp_path):

@@ -60,6 +60,7 @@ class Config:
                 entropy_enabled=scan.get("entropy", True),
                 entropy_min_length=scan.get("entropy_min_length", 24),
                 entropy_threshold=scan.get("entropy_threshold", 4.5),
+                entropy_max_length=scan.get("entropy_max_length", 512),
                 allowlist=scan.get("allowlist") or [],
                 gitleaks=scan.get("gitleaks", True),
                 gitleaks_rules=scan.get("gitleaks_rules"),

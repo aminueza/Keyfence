@@ -78,12 +78,18 @@ def test_import_all_flag(home, tmp_path):
 def test_status(home, write_config, capsys):
     write_config("mode: block\n")
     audit = home / "audit.log"
-    audit.write_text(json.dumps({"ts": "t", "host": "h", "mode": "block",
-                                 "findings": [{"kind": "jwt", "preview": "x"}]}) + "\nnot json\n")
+    audit.write_text(
+        json.dumps({"ts": "t", "host": "h", "mode": "block",
+                    "findings": [{"kind": "jwt", "preview": "x"}]}) + "\nnot json\n"
+        + json.dumps({"ts": "t2", "host": "h", "mode": "redact", "count": 800,
+                      "findings": [{"kind": "entropy", "preview": "a"},
+                                   {"kind": "entropy", "preview": "b"},
+                                   {"kind": "vault", "preview": "c"}]}) + "\n")
     assert cli.main(["status"]) == 0
     out = capsys.readouterr().out
     assert "Mode:            block" in out
     assert "[jwt]" in out
+    assert "[entropy x2, vault]  800 total" in out
     assert "gitleaks rules" in out
 
 
