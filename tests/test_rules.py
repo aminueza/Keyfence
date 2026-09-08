@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from keyfence.rules import BUNDLED_RULES, Rule, compile_regex, load_rules, present_keywords
+from keyfence.rules import BUNDLED_RULES, DEFAULT_DISABLED, Rule, compile_regex, load_rules, present_keywords
 
 
 def test_bundled_rules_load():
@@ -57,6 +57,22 @@ def test_applies_to_uses_keywords():
     assert rule.applies_to("hay needle hay")
     assert not rule.applies_to("hay only")
     assert Rule(name="r", pattern=re.compile("x")).applies_to("anything")
+
+
+def test_generic_api_key_is_disabled_by_default():
+    assert "generic-api-key" in DEFAULT_DISABLED
+    assert "generic-api-key" not in {r.name for r in load_rules()}
+    assert "generic-api-key" in {r.name for r in load_rules(disabled=())}
+
+
+def test_single_capture_group_is_the_secret(tmp_path):
+    path = tmp_path / "rules.toml"
+    path.write_text(
+        '[[rules]]\nid = "one"\nregex = "tok-([a-z0-9]{10})"\n'
+        '[[rules]]\nid = "two"\nregex = "(a)(b)"\n'
+        '[[rules]]\nid = "explicit"\nregex = "(x)(y)"\nsecretGroup = 2\n')
+    groups = {r.name: r.secret_group for r in load_rules(path)}
+    assert groups == {"one": 1, "two": 0, "explicit": 2}
 
 
 def test_present_keywords_handles_overlapping_keywords():

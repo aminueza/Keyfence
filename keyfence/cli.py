@@ -67,7 +67,8 @@ def cmd_scan(args) -> int:
         return 0
     print(f"{len(findings)} secret(s) detected:")
     for f in findings:
-        print(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end})")
+        where = f" in \"{f.key}\"" if f.key else ""
+        print(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
     return 2
 
 

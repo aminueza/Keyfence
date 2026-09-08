@@ -154,7 +154,7 @@ class KeyFence:
                 "path": flow.request.path.split("?")[0],
                 "mode": self.config.mode,
                 "count": len(findings),
-                "findings": [{"kind": f.kind, "preview": f.masked}
+                "findings": [{"kind": f.kind, "preview": f.masked, "key": f.key}
                              for f in findings[:AUDIT_PREVIEW_LIMIT]],
             }
             with path.open("a") as fh:

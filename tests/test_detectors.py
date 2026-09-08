@@ -206,6 +206,41 @@ def test_realistic_claude_code_body_is_clean():
     assert scan(telemetry, config=cfg) == []
 
 
+ENV_BODY = json.dumps({"content": "GITHUB_TOKEN=ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789\nDB_PASSWORD=senha-do-banco-de-teste-2026\n"})
+
+
+def test_values_stop_at_json_escapes():
+    findings = scan(ENV_BODY, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [
+        ("github-token", "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"),
+        ("generic-assignment", "senha-do-banco-de-teste-2026"),
+    ]
+
+
+def test_vault_candidates_stop_at_json_escapes(tmp_path):
+    vault = Vault(path=tmp_path / "vault.json")
+    vault.add("senha-do-banco-de-teste-2026")
+    findings = scan(ENV_BODY, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [
+        ("github-token", "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"),
+        ("vault", "senha-do-banco-de-teste-2026"),
+    ]
+
+
+def test_url_query_value_stops_at_json_escapes():
+    body = json.dumps({"t": "see https://x.com/a?token=AbCdEfGhIjKlMnOpQrStUvWxYz012345\nnext"})
+    findings = scan(body, config=NO_ENTROPY)
+    assert [f.value for f in findings] == ["AbCdEfGhIjKlMnOpQrStUvWxYz012345"]
+
+
+def test_findings_carry_json_key():
+    findings = scan(ENV_BODY, config=NO_ENTROPY)
+    assert {f.key for f in findings} == {"content"}
+    nested = json.dumps({"messages": [{"role": "user", "content": [{"type": "text", "text": f"pw {RANDOM}"}]}]})
+    assert [f.key for f in scan(nested)] == ["text"]
+    assert scan("token: ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", config=NO_ENTROPY)[0].key is None
+
+
 def test_entropy_disabled_by_config():
     text = "value Zq8xK2mP9vL4nR7tW3yB6cF1dH5j here"
     assert scan(text, config=NO_ENTROPY) == []
@@ -298,10 +333,11 @@ def test_builtin_rules_take_priority_over_gitleaks():
 
 
 def test_gitleaks_entropy_threshold_filters_low_entropy_matches():
-    rule = next(r for r in load_rules() if r.name == "generic-api-key")
+    rule = next(r for r in load_rules(disabled=()) if r.name == "generic-api-key")
     assert rule.min_entropy > 0
     assert _scan_rules("api_key = 'aaaaaaaaaaaaaaaaaaaaaaaa'", [rule]) == []
-    assert _scan_rules("api_key = 'Zq8xK2mP9vL4nR7tW3yB6cF1dH5j'", [rule])[0].kind == "generic-api-key"
+    found = _scan_rules("api_key = 'Zq8xK2mP9vL4nR7tW3yB6cF1dH5j'", [rule])
+    assert (found[0].kind, found[0].value) == ("generic-api-key", "Zq8xK2mP9vL4nR7tW3yB6cF1dH5j")
 
 
 def test_builtin_rule_names_are_unique():

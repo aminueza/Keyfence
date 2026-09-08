@@ -7,7 +7,7 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from .rules import Rule, compile_regex, present_keywords
+from .rules import DEFAULT_DISABLED, Rule, compile_regex, present_keywords
 
 
 @dataclass
@@ -16,6 +16,7 @@ class Finding:
     value: str
     start: int
     end: int
+    key: str | None = None
 
     @property
     def masked(self) -> str:
@@ -33,7 +34,7 @@ _GENERIC_ASSIGNMENT = compile_regex(r"""(?ix)
     \b[a-z0-9_-]*(?:api[_-]?key|apikey|secret|passwd|password|senha|auth[_-]?token|
         access[_-]?token|client[_-]?secret|private[_-]?key|db[_-]?pass|token)
     \b\s*[:=]\s*
-    ["']?(?P<val>[^\s"'&]{8,})["']?
+    ["']?(?P<val>[^\s"'&\\]{8,})["']?
     """)
 
 _PLACEHOLDER_VALUES = (
@@ -107,7 +108,7 @@ _HEXISH = re.compile(r"^[0-9a-fA-F]+$")
 _PATHISH = re.compile(r"^[./~]|://|^data:")
 _BASE64ISH = re.compile(r"^[A-Za-z0-9+/_-]+=*$")
 _DATA_URI = re.compile(r"data:[\w/+.-]+;base64,[A-Za-z0-9+/=_-]+")
-_QUERY_VALUE = re.compile(r"[?&][A-Za-z0-9_.-]*(?:token|key|secret|auth|password|pass|sig)[A-Za-z0-9_.-]*=([^&\s#]{8,})", re.IGNORECASE)
+_QUERY_VALUE = re.compile(r"[?&][A-Za-z0-9_.-]*(?:token|key|secret|auth|password|pass|sig)[A-Za-z0-9_.-]*=([^&\s#\\]{8,})", re.IGNORECASE)
 
 API_ID_PREFIXES = (
     "toolu_", "srvtoolu_", "mcptoolu_", "msg_", "msgbatch_", "req_", "compl_",
@@ -160,19 +161,31 @@ def string_value_spans(text: str) -> list[tuple[int, int, str | None]]:
     return spans
 
 
-def _excluded_spans(text: str) -> list[tuple[int, int]]:
-    spans = [m.span() for m in _DATA_URI.finditer(text)]
+def _json_spans(text: str) -> list[tuple[int, int, str | None]]:
     stripped = text.lstrip()
-    if stripped and stripped[0] in "{[":
-        spans.extend(
-            (start, end) for start, end, key in string_value_spans(text)
-            if key in ENTROPY_SKIP_KEYS)
+    if not stripped or stripped[0] not in "{[":
+        return []
+    return string_value_spans(text)
+
+
+def _excluded_spans(text: str, json_spans: list[tuple[int, int, str | None]]) -> list[tuple[int, int]]:
+    spans = [m.span() for m in _DATA_URI.finditer(text)]
+    spans.extend((start, end) for start, end, key in json_spans if key in ENTROPY_SKIP_KEYS)
     return sorted(spans)
 
 
 def _inside(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
     idx = bisect.bisect_right(spans, (start, end)) - 1
     return idx >= 0 and spans[idx][0] <= start and end <= spans[idx][1]
+
+
+def _key_at(start: int, end: int, json_spans: list[tuple[int, int, str | None]]) -> str | None:
+    idx = bisect.bisect_right(json_spans, (start, end, None)) - 1
+    while idx >= 0 and json_spans[idx][0] <= start:
+        if end <= json_spans[idx][1]:
+            return json_spans[idx][2]
+        idx -= 1
+    return None
 
 
 def shannon_entropy(s: str) -> float:
@@ -186,9 +199,9 @@ def shannon_entropy(s: str) -> float:
 
 
 def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5,
-                  max_length: int = 512) -> list[Finding]:
+                  max_length: int = 512, json_spans=None) -> list[Finding]:
     findings: list[Finding] = []
-    excluded = _excluded_spans(text)
+    excluded = _excluded_spans(text, _json_spans(text) if json_spans is None else json_spans)
     pos = 0
     for raw in _TOKEN_SPLIT.split(text):
         idx = text.find(raw, pos)
@@ -237,7 +250,7 @@ def _scan_vault(text: str, vault) -> list[Finding]:
         if len(raw) >= vault.min_length:
             candidates.add(raw)
             candidates.add(raw.strip(".,:=!?&"))
-    for m in re.finditer(r"[:=]\s*([^\s\"']{%d,})" % vault.min_length, text):
+    for m in re.finditer(r"[:=]\s*([^\s\"'\\]{%d,})" % vault.min_length, text):
         candidates.add(m.group(1))
 
     for cand in candidates:
@@ -261,12 +274,14 @@ class ScanConfig:
     allowlist: list[str] = field(default_factory=list)
     gitleaks: bool = True
     gitleaks_rules: str | None = None
+    gitleaks_disabled: list[str] = field(default_factory=lambda: list(DEFAULT_DISABLED))
     rules: list[Rule] = field(default_factory=list)
 
 
 def scan(text: str, vault=None, config: ScanConfig | None = None) -> list[Finding]:
     config = config or ScanConfig()
     findings: list[Finding] = []
+    json_spans = _json_spans(text)
 
     findings.extend(_scan_vault(text, vault))
     if config.patterns_enabled:
@@ -275,7 +290,7 @@ def scan(text: str, vault=None, config: ScanConfig | None = None) -> list[Findin
     if config.entropy_enabled:
         findings.extend(_scan_entropy(
             text, config.entropy_min_length, config.entropy_threshold,
-            config.entropy_max_length))
+            config.entropy_max_length, json_spans))
 
     if config.allowlist:
         allow = set(config.allowlist)
@@ -287,6 +302,8 @@ def scan(text: str, vault=None, config: ScanConfig | None = None) -> list[Findin
     for f in findings:
         if _overlaps(f.start, f.end, ((r.start, r.end) for r in result)):
             continue
+        if json_spans:
+            f.key = _key_at(f.start, f.end, json_spans)
         result.append(f)
     result.sort(key=lambda f: f.start)
     return result

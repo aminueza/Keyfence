@@ -82,6 +82,7 @@ def test_redact_mode(guard, home):
     assert entry["path"] == "/v1/chat/completions"
     assert entry["count"] == 1
     assert entry["findings"][0]["kind"] == "github-token"
+    assert entry["findings"][0]["key"] == "content"
     assert KEY not in (home / "audit.log").read_text()
 
 

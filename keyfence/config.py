@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from .detectors import ScanConfig
-from .rules import load_rules
+from .rules import DEFAULT_DISABLED, load_rules
 from .vault import DEFAULT_DIR
 
 DEFAULT_AI_HOSTS = [
@@ -64,13 +64,14 @@ class Config:
                 allowlist=scan.get("allowlist") or [],
                 gitleaks=scan.get("gitleaks", True),
                 gitleaks_rules=scan.get("gitleaks_rules"),
+                gitleaks_disabled=list(scan.get("gitleaks_disabled", DEFAULT_DISABLED)),
             )
             if data.get("audit_log"):
                 cfg.audit_log = Path(data["audit_log"]).expanduser()
         if cfg.mode not in MODES:
             raise ValueError(f"invalid mode: {cfg.mode!r} (expected one of {', '.join(MODES)})")
         if cfg.scan.gitleaks:
-            cfg.scan.rules = load_rules(cfg.scan.gitleaks_rules)
+            cfg.scan.rules = load_rules(cfg.scan.gitleaks_rules, cfg.scan.gitleaks_disabled)
         return cfg
 
     def host_matches(self, host: str) -> bool:

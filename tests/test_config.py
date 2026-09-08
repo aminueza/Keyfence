@@ -56,6 +56,15 @@ def test_custom_gitleaks_rules_path(write_config, tmp_path):
     assert [r.name for r in Config.load().scan.rules] == ["only"]
 
 
+def test_gitleaks_disabled_list(write_config, home):
+    assert "generic-api-key" not in {r.name for r in Config.load().scan.rules}
+    write_config("scan:\n  gitleaks_disabled: []\n")
+    assert "generic-api-key" in {r.name for r in Config.load().scan.rules}
+    write_config("scan:\n  gitleaks_disabled: [adobe-client-secret]\n")
+    names = {r.name for r in Config.load().scan.rules}
+    assert "adobe-client-secret" not in names and "generic-api-key" in names
+
+
 def test_invalid_mode_raises(write_config):
     write_config("mode: yolo\n")
     with pytest.raises(ValueError):

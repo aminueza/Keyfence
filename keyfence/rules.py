@@ -70,10 +70,11 @@ def _rule_from_gitleaks(raw: dict) -> Rule | None:
     for allow in raw.get("allowlists", []):
         ignore_regexes.extend(allow.get("regexes", []))
         stopwords.extend(allow.get("stopwords", []))
+    secret_group = int(raw.get("secretGroup", 0)) or (1 if pattern.groups == 1 else 0)
     return Rule(
         name=raw["id"],
         pattern=pattern,
-        secret_group=int(raw.get("secretGroup", 0)),
+        secret_group=secret_group,
         min_entropy=float(raw.get("entropy", 0.0)),
         keywords=tuple(k.lower() for k in raw.get("keywords", [])),
         ignore_regexes=_compile_many(ignore_regexes),
@@ -81,12 +82,19 @@ def _rule_from_gitleaks(raw: dict) -> Rule | None:
     )
 
 
-def load_rules(path: str | Path | None = None) -> list[Rule]:
+DEFAULT_DISABLED = ("generic-api-key",)
+
+
+def load_rules(path: str | Path | None = None,
+               disabled: Iterable[str] = DEFAULT_DISABLED) -> list[Rule]:
     source = Path(path) if path else BUNDLED_RULES
+    skip = set(disabled)
     with source.open("rb") as fh:
         data = tomllib.load(fh)
     rules = []
     for raw in data.get("rules", []):
+        if raw.get("id") in skip:
+            continue
         rule = _rule_from_gitleaks(raw)
         if rule is not None:
             rules.append(rule)

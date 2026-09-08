@@ -17,6 +17,11 @@ def test_scan_text_reports_findings(home, capsys):
     assert KEY not in out
 
 
+def test_scan_reports_json_key(home, capsys):
+    assert cli.main(["scan", json.dumps({"content": f"token: {KEY}"})]) == 2
+    assert 'in "content"' in capsys.readouterr().out
+
+
 def test_scan_clean_text(home, capsys):
     assert cli.main(["scan", "nothing here"]) == 0
     assert "No secrets" in capsys.readouterr().out

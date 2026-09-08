@@ -146,6 +146,7 @@ Copy `config.example.yaml` to `~/.keyfence/config.yaml`. Options:
 | `scan.patterns` | `true` | built-in pattern rules |
 | `scan.gitleaks` | `true` | bundled gitleaks rules |
 | `scan.gitleaks_rules` | bundled file | path to your own gitleaks-compatible TOML |
+| `scan.gitleaks_disabled` | `[generic-api-key]` | rule ids to skip |
 | `scan.entropy` | `true` | entropy check |
 | `scan.entropy_min_length` | `24` | minimum token length for the entropy check |
 | `scan.entropy_threshold` | `4.5` | bits per character |
@@ -156,9 +157,11 @@ Copy `config.example.yaml` to `~/.keyfence/config.yaml`. Options:
 Environment variables: `KEYFENCE_HOME` sets the state directory (default
 `~/.keyfence`), `KEYFENCE_CONFIG` sets the config file path.
 
-The audit log has one JSON line per detection with the host, path, mode,
-kind of secret and a masked preview such as `ghp_…6789`. It never contains
-the secret.
+The audit log has one JSON line per request with the host, path, mode, the
+number of findings and, for each of the first 50, its kind, a masked preview
+such as `ghp_…6789` and the JSON key it was found under. It never contains
+the secret. When something is flagged that should not be, the key tells you
+where it came from and `scan.allowlist` silences the exact value.
 
 ## Behaviour worth knowing
 

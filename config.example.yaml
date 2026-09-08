@@ -18,6 +18,8 @@ scan:
   patterns: true          # built-in formats (OpenAI, Anthropic, AWS, GitHub, ...)
   gitleaks: true          # 200+ additional formats from the bundled gitleaks ruleset
   # gitleaks_rules: ~/my-gitleaks.toml   # use your own gitleaks-compatible ruleset
+  gitleaks_disabled:      # rule ids to skip; generic-api-key is noisy on prose and code
+    - generic-api-key
   entropy: true           # high-entropy strings that look like secrets
   entropy_min_length: 24
   entropy_threshold: 4.5
