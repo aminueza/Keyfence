@@ -8,10 +8,26 @@ from keyfence.vault import Vault
 
 def test_proxy_command():
     cmd = runner.proxy_command(9000, extra=["--set", "x=1"])
-    assert cmd[:2] == ["mitmdump", "-q"]
+    assert cmd[0].endswith("mitmdump") or cmd[0].endswith("mitmdump.exe")
+    assert cmd[1] == "-q"
     assert "--listen-port" in cmd and "9000" in cmd
     assert cmd[-2:] == ["--set", "x=1"]
     assert str(runner.ADDON_PATH).endswith("addon.py")
+
+
+def test_mitmdump_path_prefers_interpreter_bindir(tmp_path, monkeypatch):
+    fake = tmp_path / "mitmdump"
+    fake.write_text("")
+    monkeypatch.setattr(runner.sys, "executable", str(tmp_path / "python"))
+    assert runner.mitmdump_path() == str(fake)
+
+
+def test_mitmdump_path_falls_back_to_path_then_bare_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.sys, "executable", str(tmp_path / "python"))
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: "/opt/bin/mitmdump")
+    assert runner.mitmdump_path() == "/opt/bin/mitmdump"
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: None)
+    assert runner.mitmdump_path() == "mitmdump"
 
 
 def test_port_open_false_on_closed_port():

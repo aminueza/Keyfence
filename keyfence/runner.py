@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -18,9 +20,18 @@ PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
 CA_ENV_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
 
 
+def mitmdump_path() -> str:
+    bindir = Path(sys.executable).parent
+    for name in ("mitmdump", "mitmdump.exe"):
+        candidate = bindir / name
+        if candidate.exists():
+            return str(candidate)
+    return shutil.which("mitmdump") or "mitmdump"
+
+
 def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = ()) -> list[str]:
     return [
-        "mitmdump", "-q",
+        mitmdump_path(), "-q",
         "-s", str(addon),
         "--listen-host", "127.0.0.1",
         "--listen-port", str(port),
