@@ -14,18 +14,7 @@ a placeholder and puts the real value back in the response.
 It works at the network level. Claude Code, Cursor, Codex, Aider, curl and
 your own scripts all go through the same proxy. No plugin is needed.
 
-```
-   your machine                                                   internet
-  ┌────────────────┐          ┌───────────────────┐          ┌─────────────────┐
-  │ Claude Code    │ request  │     keyfence      │ request  │ api.anthropic   │
-  │ Cursor, Codex  │ ───────▶ │ scans the request │ ───────▶ │ api.openai      │
-  │ curl, scripts  │          │ removes secrets   │          │ and 12 more     │
-  │                │ ◀─────── │ restores values   │ ◀─────── │                 │
-  └────────────────┘ response └───────────────────┘ response └─────────────────┘
-
-  request:   "the key is sk-ant-api03-…"  ──▶  "the key is <<SECRET_1>>"  ──▶  provider
-  response:  "use sk-ant-api03-…"         ◀──  "use <<SECRET_1>>"         ◀──  provider
-```
+![How keyfence sits between your tools and the provider](https://raw.githubusercontent.com/aminueza/keyfence/main/docs/keyfence-flow.png)
 
 ## Install
 
