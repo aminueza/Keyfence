@@ -15,11 +15,12 @@ def test_proxy_command():
     assert str(runner.ADDON_PATH).endswith("addon.py")
 
 
-def test_local_mode_flags():
-    assert runner.local_mode(None) == []
-    assert runner.local_mode("*") == ["--mode", "regular", "--mode", "local"]
-    assert runner.local_mode("claude,node") == ["--mode", "regular", "--mode", "local:claude,node"]
-    assert "local:claude" in runner.proxy_command(1, local="claude")
+def test_listen_args():
+    assert runner.listen_args(8888, None) == ["--listen-host", "127.0.0.1", "--listen-port", "8888"]
+    assert runner.listen_args(8888, "*") == ["--mode", "regular@127.0.0.1:8888", "--mode", "local"]
+    assert runner.listen_args(1, "claude,node") == ["--mode", "regular@127.0.0.1:1", "--mode", "local:claude,node"]
+    cmd = runner.proxy_command(1, local="claude")
+    assert "local:claude" in cmd and "--listen-port" not in cmd
 
 
 def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):

@@ -29,11 +29,11 @@ def mitmdump_path() -> str:
     return shutil.which("mitmdump") or "mitmdump"
 
 
-def local_mode(names: str | None) -> list[str]:
-    if names is None:
-        return []
-    spec = "local" if names in ("", "*") else f"local:{names}"
-    return ["--mode", "regular", "--mode", spec]
+def listen_args(port: int, local: str | None) -> list[str]:
+    if local is None:
+        return ["--listen-host", "127.0.0.1", "--listen-port", str(port)]
+    spec = "local" if local in ("", "*") else f"local:{local}"
+    return ["--mode", f"regular@127.0.0.1:{port}", "--mode", spec]
 
 
 def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = (),
@@ -41,10 +41,8 @@ def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = ()
     return [
         mitmdump_path(), "-q",
         "-s", str(addon),
-        "--listen-host", "127.0.0.1",
-        "--listen-port", str(port),
+        *listen_args(port, local),
         "--set", "block_global=false",
-        *local_mode(local),
         *extra,
     ]
 
