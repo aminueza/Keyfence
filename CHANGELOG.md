@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-09-08)
 
 - `keyfence run` replaces its own process with mitmdump instead of
   spawning it. Killing `keyfence run` used to leave mitmdump running, and
