@@ -59,7 +59,8 @@ sudo security add-trusted-cert -d -p ssl \
 - [Limitations](https://github.com/aminueza/keyfence/blob/main/docs/limitations.md):
   what keyfence does not cover and what to combine it with.
 - [Development](https://github.com/aminueza/keyfence/blob/main/docs/development.md):
-  tests, coverage gate, integration script.
+  tests, coverage gate, integration script, releasing.
+- [Changelog](https://github.com/aminueza/keyfence/blob/main/CHANGELOG.md)
 
 ## License
 

@@ -1,7 +1,7 @@
 # Benchmark
 
-Measured on 2026-09-08 with keyfence 0.2.0 and gitleaks 8.30.1, on a
-synthetic corpus of 411 positive and 278 negative samples (687 KB).
+Measured on 2026-09-08 with keyfence 0.3.0 and gitleaks 8.30.1, on a
+synthetic corpus of 411 positive and 288 negative samples (709 KB).
 Reproduce with:
 
 ```bash
@@ -23,12 +23,12 @@ Negatives are content that should never be flagged:
 
 | category | samples | what it is |
 |---|---|---|
-| code | 165 | chunks of keyfence's own source and of the Python standard library |
+| code | 170 | chunks of keyfence's own source and of the Python standard library |
 | claude-code-body | 40 | request bodies shaped like Claude Code's, with tool ids, thinking signatures, base64 images and hashes in tool output |
 | telemetry | 20 | batches of base64-encoded JSON events |
 | logs | 20 | log lines with UUIDs, trace ids, commit hashes and IPs |
 | lockfile | 20 | `package-lock.json` entries with `sha512-` integrity hashes and `go.sum` lines |
-| prose | 13 | chunks of this project's documentation |
+| prose | 18 | chunks of this project's documentation |
 
 A positive counts as detected when a finding equals the planted secret or
 overlaps it. A negative counts as a false positive when it has any finding.
@@ -44,9 +44,9 @@ gitleaks binary run over the same samples as files.
 |---|---|---|---|---|---|
 | recall on formatted secrets | 100% | 100% | 100% | 100% | 93% |
 | precision (per sample) | 100% | 100% | 100% | 100% | 100% |
-| negatives with a finding | 1 / 278 | 1 / 278 | 1 / 278 | 1 / 278 | 0 / 278 |
+| negatives with a finding | 1 / 288 | 1 / 288 | 1 / 288 | 1 / 288 | 0 / 288 |
 | total false findings | 2 | 2 | 2 | 2 | 0 |
-| time | 0.3s | 0.6s | 0.6s | 0.8s | 0.0s |
+| time | 0.3s | 0.5s | 0.6s | 0.8s | 0.0s |
 
 Recall by format:
 
@@ -79,10 +79,10 @@ finding):
 | category | samples | builtin patterns | + gitleaks rules | + entropy (default) | default + vault | gitleaks binary |
 |---|---|---|---|---|---|---|
 | claude-code-body | 40 | 0% | 0% | 0% | 0% | 0% |
-| code | 165 | 0% | 0% | 0% | 0% | 0% |
+| code | 170 | 0% | 0% | 0% | 0% | 0% |
 | lockfile | 20 | 0% | 0% | 0% | 0% | 0% |
 | logs | 20 | 0% | 0% | 0% | 0% | 0% |
-| prose | 13 | 8% | 8% | 8% | 8% | 0% |
+| prose | 18 | 6% | 6% | 6% | 6% | 0% |
 | telemetry | 20 | 0% | 0% | 0% | 0% | 0% |
 
 ## Reading the numbers

@@ -71,8 +71,9 @@ create the `pypi` environment in the GitHub repository settings.
 
 To release:
 
-1. Bump `__version__` in `keyfence/__init__.py`.
-2. Commit, then tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
+1. Bump `__version__` in `keyfence/__init__.py` and add a section to
+   `CHANGELOG.md`.
+2. Commit, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 The workflow builds the sdist and wheel, checks that the tag matches the
 package version, and publishes.

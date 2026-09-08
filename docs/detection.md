@@ -39,6 +39,11 @@ appears in the text. Rules with an entropy threshold apply it to the matched
 secret. Rule-level allowlists from the gitleaks file are honoured. Rules with
 a single capture group report that group as the secret, as gitleaks does.
 
+The built-in assignment rule ignores placeholder values such as `changeme`
+or `${VAR}`, values that contain parentheses, and values that are already
+a redaction token, so a model repeating `TOKEN=[REDACTED]` is not flagged
+again.
+
 `generic-api-key` is disabled by default because it matches ordinary prose
 and code. `scan.gitleaks_disabled` controls the list, and
 `scan.gitleaks_rules` points to your own gitleaks-compatible TOML.
