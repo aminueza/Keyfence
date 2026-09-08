@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from .importer import env_values
-from .vault import Vault
+from .vault import DEFAULT_DIR, Vault
 
 ADDON_PATH = Path(__file__).parent / "addon.py"
 CA_CERT = Path(os.environ.get("MITMPROXY_CONFDIR", Path.home() / ".mitmproxy")) / "mitmproxy-ca-cert.pem"
@@ -82,16 +82,21 @@ def run(command: Sequence[str], port: int, everything: bool = False,
         timeout: float = 20.0, ca_cert: Path = CA_CERT) -> int:
     env_vault = build_env_vault(os.environ, everything)
     proxy_env = dict(os.environ, **{ENV_VAULT_VAR: str(env_vault)})
+    DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
+    proxy_log = (DEFAULT_DIR / "proxy.log").open("a")
     try:
-        proxy = subprocess.Popen(proxy_command(port), env=proxy_env)
+        proxy = subprocess.Popen(proxy_command(port), env=proxy_env,
+                                 stdout=proxy_log, stderr=subprocess.STDOUT)
     except FileNotFoundError:
+        proxy_log.close()
         env_vault.unlink(missing_ok=True)
         print("mitmdump not found. Install it with: pip install mitmproxy")
         return 1
     try:
         ready = wait_for(lambda: proxy.poll() is None and port_open(port) and ca_cert.exists(), timeout)
         if not ready:
-            print(f"keyfence proxy did not come up on port {port} within {timeout:.0f}s")
+            print(f"keyfence proxy did not come up on port {port} within {timeout:.0f}s; "
+                  f"see {DEFAULT_DIR / 'proxy.log'}")
             return 1
         return subprocess.call(list(command), env=child_env(os.environ, port, ca_cert))
     finally:
@@ -101,4 +106,5 @@ def run(command: Sequence[str], port: int, everything: bool = False,
                 proxy.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proxy.kill()
+        proxy_log.close()
         env_vault.unlink(missing_ok=True)

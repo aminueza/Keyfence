@@ -103,7 +103,8 @@ def test_run_success(home, monkeypatch, tmp_path):
     seen = {}
     ca = tmp_path / "ca.pem"
     ca.write_text("cert")
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env: seen.update(proxy_cmd=cmd, proxy_env=env) or proxy)
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr: seen.update(proxy_cmd=cmd, proxy_env=env, stdout=stdout) or proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: True)
 
     def fake_call(command, env):
@@ -118,7 +119,8 @@ def test_run_success(home, monkeypatch, tmp_path):
     assert seen["env"]["HTTPS_PROXY"] == "http://127.0.0.1:8899"
     assert runner.ENV_VAULT_VAR in seen["proxy_env"]
     assert proxy.terminated
-    assert not (home / "never").exists()
+    assert seen["stdout"].closed
+    assert (home / "proxy.log").exists()
 
 
 def test_run_when_mitmdump_missing(home, monkeypatch, capsys):
@@ -132,8 +134,9 @@ def test_run_when_mitmdump_missing(home, monkeypatch, capsys):
 
 def test_run_times_out_and_kills_stuck_proxy(home, monkeypatch, tmp_path, capsys):
     proxy = FakeProxy(alive_after_terminate=True)
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env: proxy)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr: proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: False)
     assert runner.run(["echo"], 8899, ca_cert=tmp_path / "missing.pem", timeout=0.05) == 1
     assert "did not come up" in capsys.readouterr().out
+    assert (home / "proxy.log").exists()
     assert proxy.terminated and proxy.killed
