@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import getpass
-from collections import Counter
 import json
 import os
+import re
+import secrets
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 from . import runner
@@ -50,6 +52,24 @@ def cmd_import(args) -> int:
         total += added
         print(f"environment: {added} new secret(s)")
     print(f"Done. {total} new secret(s); vault now holds {vault.count()} (hashes only).")
+    return 0
+
+
+def cmd_canary(args) -> int:
+    path = Path(args.file)
+    name = args.name
+    existing = path.read_text(errors="replace") if path.exists() else ""
+    if re.search(rf"^\s*(?:export\s+)?{re.escape(name)}\s*=", existing, re.MULTILINE):
+        print(f"{path} already defines {name}. Pick another name with --name.")
+        return 1
+    value = secrets.token_urlsafe(24)
+    vault = Vault()
+    vault.add_canary(value, str(path.resolve()))
+    prefix = "" if not existing or existing.endswith("\n") else "\n"
+    with path.open("a") as fh:
+        fh.write(f"{prefix}{name}={value}\n")
+    print(f"Canary planted in {path} as {name} and registered in the vault (hash only).")
+    print("If it ever shows up in a request, keyfence logs a 'canary' detection with this file's path.")
     return 0
 
 
@@ -102,7 +122,7 @@ def cmd_status(_args) -> int:
     print(f"Mode:            {cfg.mode}")
     print(f"Hosts:           {len(cfg.hosts)} monitored"
           + (" (intercepting ALL hosts)" if cfg.intercept_all_hosts else ""))
-    print(f"Vault:           {vault.count()} secret(s) in {vault.path}")
+    print(f"Vault:           {vault.count()} secret(s), {vault.canary_count()} canary(ies) in {vault.path}")
     print(f"Rules:           {len(cfg.scan.rules)} gitleaks rules"
           + ("" if cfg.scan.gitleaks else " (disabled)"))
     print(f"Entropy:         {'on' if cfg.scan.entropy_enabled else 'off'}"
@@ -141,6 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("--env", action="store_true", help="also import values from environment variables")
     p_import.add_argument("--all", action="store_true", help="import every value, not only secret-looking ones")
 
+    p_canary = sub.add_parser(
+        "canary", help="plant a fake secret in a file; keyfence reports if a tool ever sends it")
+    p_canary.add_argument("file", nargs="?", default=".env", help="file to append to (default: .env)")
+    p_canary.add_argument("--name", default="INTERNAL_API_TOKEN", help="variable name to use")
+
     p_scan = sub.add_parser("scan", help="test detection on text, a file or stdin")
     p_scan.add_argument("text", nargs="?", help="text to scan")
     p_scan.add_argument("-f", "--file", help="file to scan")
@@ -164,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     return {
         "add-secret": cmd_add_secret,
         "import": cmd_import,
+        "canary": cmd_canary,
         "scan": cmd_scan,
         "run": cmd_run,
         "exec": cmd_exec,

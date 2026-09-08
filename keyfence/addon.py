@@ -24,6 +24,7 @@ ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
 MAPPING_KEY = "keyfence_mapping"
 STREAMED_KEY = "keyfence_streamed"
 AUDIT_PREVIEW_LIMIT = 50
+PLACEHOLDER_ID_LENGTH = 10
 
 
 class KeyFence:
@@ -31,7 +32,7 @@ class KeyFence:
         self.config = Config.load()
         self.vault = self._load_vault()
         self._vault_mtime = self._mtime(self.vault.path)
-        self.stats = {"scanned": 0, "findings": 0, "blocked": 0, "errors": 0}
+        self.stats = {"scanned": 0, "findings": 0, "blocked": 0, "errors": 0, "canaries": 0}
 
     @staticmethod
     def _mtime(path: Path) -> float:
@@ -42,6 +43,7 @@ class KeyFence:
 
     def _load_vault(self) -> Vault:
         vault = Vault()
+        vault.ensure_saved()
         extra = os.environ.get(ENV_VAULT_VAR)
         if extra and Path(extra).exists():
             vault.merge(Vault(path=Path(extra)))
@@ -83,6 +85,10 @@ class KeyFence:
 
         self.stats["findings"] += len(findings)
         self._audit(flow, findings)
+        tripped = sorted({self.vault.canary_label(f.value) for f in findings if f.kind == "canary"})
+        if tripped:
+            self.stats["canaries"] += len(tripped)
+            log.warning("CANARY tripped -> %s: %s was read and sent", host, ", ".join(tripped))
 
         if self.config.mode == "block":
             self.stats["blocked"] += 1
@@ -95,10 +101,9 @@ class KeyFence:
 
         mapping: dict[str, str] = {}
         new_text = text
-        ordered = sorted(findings, key=lambda f: f.start)
-        for index, f in reversed(list(enumerate(ordered, start=1))):
+        for f in sorted(findings, key=lambda f: f.start, reverse=True):
             if self.config.mode == "placeholder":
-                token = f"<<SECRET_{index}>>"
+                token = self._placeholder(f.value, mapping)
                 mapping[token] = f.value
             else:
                 token = f"[REDACTED:{f.kind}]"
@@ -112,6 +117,15 @@ class KeyFence:
             flow.request.headers["accept-encoding"] = "identity"
         log.warning("%s -> %s: %d secret(s) removed from request",
                     self.config.mode.upper(), host, len(findings))
+
+    def _placeholder(self, value: str, mapping: dict[str, str]) -> str:
+        digest = self.vault.placeholder_digest(value)
+        length = PLACEHOLDER_ID_LENGTH
+        token = f"<<SECRET_{digest[:length]}>>"
+        while token in mapping and mapping[token] != value:
+            length += 2
+            token = f"<<SECRET_{digest[:length]}>>"
+        return token
 
     @staticmethod
     def _blocked_response(message: str) -> http.Response:
@@ -147,6 +161,12 @@ class KeyFence:
             flow.response.set_text(restored)
             log.info("placeholders restored in response")
 
+    def _audit_finding(self, f: Finding) -> dict:
+        entry = {"kind": f.kind, "preview": f.masked, "key": f.key}
+        if f.kind == "canary":
+            entry["label"] = self.vault.canary_label(f.value)
+        return entry
+
     def _audit(self, flow: http.HTTPFlow, findings: list[Finding]) -> None:
         try:
             path = Path(self.config.audit_log)
@@ -157,8 +177,7 @@ class KeyFence:
                 "path": flow.request.path.split("?")[0],
                 "mode": self.config.mode,
                 "count": len(findings),
-                "findings": [{"kind": f.kind, "preview": f.masked, "key": f.key}
-                             for f in findings[:AUDIT_PREVIEW_LIMIT]],
+                "findings": [self._audit_finding(f) for f in findings[:AUDIT_PREVIEW_LIMIT]],
             }
             with path.open("a") as fh:
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")

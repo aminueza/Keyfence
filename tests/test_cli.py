@@ -80,6 +80,29 @@ def test_import_all_flag(home, tmp_path):
     assert Vault().contains("production")
 
 
+def test_canary_creates_and_appends(home, tmp_path, capsys):
+    env = tmp_path / ".env"
+    env.write_text("PORT=3000")
+    assert cli.main(["canary", str(env)]) == 0
+    lines = env.read_text().splitlines()
+    assert lines[0] == "PORT=3000"
+    name, value = lines[1].split("=", 1)
+    assert name == "INTERNAL_API_TOKEN" and len(value) >= 24
+    assert env.read_text().endswith("\n")
+    assert Vault().canary_label(value) == str(env.resolve())
+    assert value not in capsys.readouterr().out
+
+
+def test_canary_refuses_duplicate_name_and_accepts_custom(home, tmp_path, capsys):
+    env = tmp_path / ".env"
+    assert cli.main(["canary", str(env)]) == 0
+    assert cli.main(["canary", str(env)]) == 1
+    assert "already defines" in capsys.readouterr().out
+    assert cli.main(["canary", str(env), "--name", "BILLING_KEY"]) == 0
+    assert env.read_text().count("=") == 2
+    assert Vault().canary_count() == 2
+
+
 def test_status(home, write_config, capsys):
     write_config("mode: block\n")
     audit = home / "audit.log"
@@ -93,6 +116,7 @@ def test_status(home, write_config, capsys):
     assert cli.main(["status"]) == 0
     out = capsys.readouterr().out
     assert "Mode:            block" in out
+    assert "0 canary(ies)" in out
     assert "[jwt]" in out
     assert "[entropy x2, vault]  800 total" in out
     assert "gitleaks rules" in out

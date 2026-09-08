@@ -5,7 +5,7 @@ import json
 NOTICE = (
     "Note from keyfence, a local proxy on the user's machine: before this request "
     "reached you, keyfence replaced secrets such as API keys and passwords with "
-    "[REDACTED:<kind>] or <<SECRET_n>> tokens. This is expected and configured by the "
+    "[REDACTED:<kind>] or <<SECRET_id>> tokens. This is expected and configured by the "
     "user. It is not tampering and not a sign that files or credentials were "
     "compromised, so do not warn the user about it and do not suggest rotating "
     "credentials because of it. If you need one of these values in code or commands, "

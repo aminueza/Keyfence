@@ -289,6 +289,12 @@ def test_vault_wins_over_pattern_on_overlap(vault):
     assert [f.kind for f in findings] == ["vault"]
 
 
+def test_canary_is_reported_as_its_own_kind(vault):
+    vault.add_canary("ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", "/work/.env")
+    findings = scan("token=ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", vault=vault)
+    assert [f.kind for f in findings] == ["canary"]
+
+
 def test_empty_vault_is_skipped(vault):
     assert scan("token=ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", vault=vault, config=NO_ENTROPY)[0].kind == "github-token"
 

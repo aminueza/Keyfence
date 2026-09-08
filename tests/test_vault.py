@@ -71,6 +71,51 @@ def test_merge_rejects_different_salt(tmp_path):
         main.merge(other)
 
 
+def test_canary_is_stored_with_label_and_detected(tmp_path):
+    v = Vault(path=tmp_path / "vault.json")
+    assert v.add_canary("canary-value-0123456789", "/work/.env")
+    assert v.contains("canary-value-0123456789")
+    assert v.canary_label("canary-value-0123456789") == "/work/.env"
+    assert v.canary_label("something-else-entirely") is None
+    assert v.count() == 0 and v.canary_count() == 1 and not v.is_empty()
+    reloaded = Vault(path=tmp_path / "vault.json")
+    assert reloaded.canary_label("canary-value-0123456789") == "/work/.env"
+    assert "canary-value-0123456789" not in (tmp_path / "vault.json").read_text()
+
+
+def test_short_canary_is_refused(tmp_path):
+    assert Vault(path=tmp_path / "vault.json").add_canary("tiny", "x") is False
+
+
+def test_merge_carries_canaries(tmp_path):
+    main = Vault(path=tmp_path / "main.json")
+    other = Vault(path=tmp_path / "other.json", salt=main.salt)
+    other.add_canary("canary-value-0123456789", "/work/.env")
+    main.merge(other)
+    assert main.canary_label("canary-value-0123456789") == "/work/.env"
+
+
+def test_ensure_saved_writes_empty_vault_once(tmp_path):
+    path = tmp_path / "vault.json"
+    v = Vault(path=path)
+    v.ensure_saved()
+    assert path.exists()
+    salt = v.salt
+    v.ensure_saved()
+    assert Vault(path=path).salt == salt
+
+
+def test_placeholder_digest_is_stable_and_separate(tmp_path):
+    path = tmp_path / "vault.json"
+    v = Vault(path=path)
+    v.ensure_saved()
+    a = v.placeholder_digest("secret-value-one")
+    assert a == Vault(path=path).placeholder_digest("secret-value-one")
+    assert a != v.placeholder_digest("secret-value-two")
+    assert a != v._digest("secret-value-one")
+    assert len(a) == 64
+
+
 def test_chmod_failure_is_ignored(tmp_path, monkeypatch):
     def boom(*_args, **_kwargs):
         raise OSError("no chmod")

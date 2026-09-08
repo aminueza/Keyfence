@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 import pytest
 from mitmproxy import http
@@ -65,7 +66,7 @@ def test_clean_body_passes_untouched(guard):
     flow = make_flow(body=b'{"content":"explain entropy"}')
     kf.request(flow)
     assert flow.request.content == b'{"content":"explain entropy"}'
-    assert kf.stats == {"scanned": 1, "findings": 0, "blocked": 0, "errors": 0}
+    assert kf.stats == {"scanned": 1, "findings": 0, "blocked": 0, "errors": 0, "canaries": 0}
 
 
 def test_redact_mode(guard, home):
@@ -133,14 +134,64 @@ def test_block_mode(guard):
     assert kf.stats["blocked"] == 1
 
 
+TOKEN_RE = re.compile(r"<<SECRET_[0-9a-f]{10}>>")
+
+
 def test_placeholder_mode_sets_mapping_and_identity_encoding(guard):
     kf = guard("placeholder")
     other = "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
     flow = make_flow(body=f"first {KEY} then {other}".encode())
     kf.request(flow)
-    assert flow.request.get_text() == "first <<SECRET_1>> then <<SECRET_2>>"
-    assert flow.metadata[MAPPING_KEY] == {"<<SECRET_1>>": KEY, "<<SECRET_2>>": other}
+    text = flow.request.get_text()
+    tokens = TOKEN_RE.findall(text)
+    assert len(tokens) == 2 and tokens[0] != tokens[1]
+    assert text == f"first {tokens[0]} then {tokens[1]}"
+    assert flow.metadata[MAPPING_KEY] == {tokens[0]: KEY, tokens[1]: other}
     assert flow.request.headers["accept-encoding"] == "identity"
+
+
+def test_placeholders_are_deterministic_across_requests_and_order(guard, home):
+    kf = guard("placeholder")
+    other = "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    first = make_flow(body=f"{KEY} {other}".encode())
+    second = make_flow(body=f"{other} then {KEY} and {KEY}".encode())
+    kf.request(first)
+    kf.request(second)
+    inverse = {v: k for k, v in first.metadata[MAPPING_KEY].items()}
+    assert second.request.get_text() == f"{inverse[other]} then {inverse[KEY]} and {inverse[KEY]}"
+    restarted = KeyFence()
+    third = make_flow(body=KEY.encode())
+    restarted.request(third)
+    assert third.request.get_text() == inverse[KEY]
+
+
+def test_placeholder_collisions_get_longer_ids(guard, monkeypatch):
+    kf = guard("placeholder")
+    digests = {KEY: "a" * 10 + "bb" + "0" * 52, "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv": "a" * 10 + "cc" + "0" * 52}
+    monkeypatch.setattr(kf.vault, "placeholder_digest", lambda value: digests[value])
+    flow = make_flow(body=f"{KEY} sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv".encode())
+    kf.request(flow)
+    mapping = flow.metadata[MAPPING_KEY]
+    assert set(mapping) == {"<<SECRET_" + "a" * 10 + ">>", "<<SECRET_" + "a" * 10 + "bb>>"}
+    assert set(mapping.values()) == set(digests)
+
+
+def test_canary_is_logged_and_audited(guard, home, caplog):
+    Vault().add_canary("canary-value-0123456789", "/work/.env")
+    kf = guard("redact")
+    flow = make_flow(body=b"INTERNAL_API_TOKEN=canary-value-0123456789")
+    with caplog.at_level("WARNING", logger="keyfence"):
+        kf.request(flow)
+    assert "CANARY tripped" in caplog.text and "/work/.env" in caplog.text
+    assert flow.request.get_text() == "INTERNAL_API_TOKEN=[REDACTED:canary]"
+    entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
+    assert entry["findings"][0] == {"kind": "canary", "preview": "cana…6789 (23 chars)", "key": None, "label": "/work/.env"}
+    assert kf.stats["canaries"] == 1
+
+
+def test_proxy_start_persists_vault_salt(guard, home):
+    guard("redact")
+    assert (home / "vault.json").exists()
 
 
 def test_detector_crash_fails_closed(guard, monkeypatch):

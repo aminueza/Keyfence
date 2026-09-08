@@ -255,12 +255,12 @@ def _scan_vault(text: str, vault) -> list[Finding]:
 
     for cand in candidates:
         if vault.contains(cand):
+            kind = "canary" if vault.canary_label(cand) is not None else "vault"
             for m in re.finditer(re.escape(cand), text):
                 span = (m.start(), m.end())
                 if span not in seen_spans:
                     seen_spans.add(span)
-                    findings.append(Finding(
-                        kind="vault", value=cand, start=span[0], end=span[1]))
+                    findings.append(Finding(kind=kind, value=cand, start=span[0], end=span[1]))
     return findings
 
 
@@ -296,7 +296,7 @@ def scan(text: str, vault=None, config: ScanConfig | None = None) -> list[Findin
         allow = set(config.allowlist)
         findings = [f for f in findings if f.value not in allow]
 
-    priority = {"vault": 0, "entropy": 2}
+    priority = {"canary": 0, "vault": 0, "entropy": 2}
     findings.sort(key=lambda f: (priority.get(f.kind, 1), f.start))
     result: list[Finding] = []
     for f in findings:

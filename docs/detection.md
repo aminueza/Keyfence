@@ -14,6 +14,19 @@ The vault file (`~/.keyfence/vault.json`) holds only the salt and the
 hashes. Values shorter than 8 characters are refused because they would
 match ordinary words.
 
+### Canaries
+
+`keyfence canary .env` appends a line such as `INTERNAL_API_TOKEN=<random>`
+to the file and registers the value in the vault as a canary, together with
+the file's path. The value is fake and useless, so it can only reach a
+request if a tool read that file and sent its contents. When that happens
+the finding has kind `canary`, the audit entry carries the file path under
+`label`, and the proxy logs `CANARY tripped`. The value is redacted or
+blocked like any other secret.
+
+Use it to check what your agents actually read: plant one in each file that
+should never reach a model and watch the audit log.
+
 ## 2. Patterns
 
 Built-in rules cover OpenAI, Anthropic, AWS, GitHub, GitLab, Slack, Google,

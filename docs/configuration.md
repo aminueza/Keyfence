@@ -39,7 +39,7 @@ Default hosts: `api.openai.com`, `api.anthropic.com`,
 ## The system prompt notice
 
 When keyfence changes a request it appends a short note to the system
-prompt: the redaction tokens are expected and configured by the user, they
+prompt: the `[REDACTED:…]` and `<<SECRET_id>>` tokens are expected and configured by the user, they
 are not tampering, the model should not warn the user or suggest rotating
 credentials, and placeholders must be written exactly as shown so they can
 be restored. Without the note, models tend to treat the tokens as evidence
@@ -58,6 +58,12 @@ touched. Set `notice: false` to disable.
 - Secret values are never written to disk. The vault stores hashes, the
   audit log stores masked previews, and the `exec` environment snapshot is a
   temporary hash file removed on exit.
+- Placeholders are deterministic. The id in `<<SECRET_id>>` is derived from
+  an HMAC of the value with the vault salt, so the same secret gets the same
+  placeholder in every request and every session on that machine. The
+  model sees a consistent transcript, and prompt caches built on earlier
+  turns stay valid when a new secret shows up. On a collision the id is
+  lengthened.
 - Responses that contain no placeholders are streamed without buffering.
 - When a request contains placeholders, keyfence sets
   `Accept-Encoding: identity` so the response can be rewritten as it

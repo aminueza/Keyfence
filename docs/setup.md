@@ -41,6 +41,7 @@ Linux and Windows: see the
 |---|---|
 | `keyfence import [files] [--env] [--all]` | register secrets from files or the environment |
 | `keyfence add-secret` | register one secret typed at a hidden prompt |
+| `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
 | `keyfence exec [-p PORT] [--all-env] -- <cmd>` | run a command through the proxy |
 | `keyfence run [-p PORT]` | run the proxy in the foreground on port 8888 |
 | `keyfence scan 'text'`, `keyfence scan -f FILE` | test detection on text, a file or stdin |

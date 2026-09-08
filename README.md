@@ -24,6 +24,7 @@ Python 3.12 or newer. mitmproxy comes as a dependency.
 ```bash
 keyfence import              # register your secrets from .env and credential files (hashes only)
 keyfence exec -- claude      # run a tool through the proxy
+keyfence canary .env         # plant a fake secret; if a tool ever sends it, you will know
 ```
 
 On first run mitmproxy creates a CA certificate in `~/.mitmproxy/`. Trust it
@@ -41,7 +42,7 @@ sudo security add-trusted-cert -d -p ssl \
 |---|---|
 | `block` | request gets a 403 and is not sent |
 | `redact` (default) | secret becomes `[REDACTED:<kind>]` |
-| `placeholder` | secret becomes `<<SECRET_n>>` and the real value is restored in the response, streaming included |
+| `placeholder` | secret becomes `<<SECRET_id>>` and the real value is restored in the response, streaming included |
 
 ## Documentation
 
