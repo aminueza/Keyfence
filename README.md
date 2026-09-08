@@ -4,183 +4,215 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)
 
-**A local proxy that keeps your API keys, passwords and secrets out of LLM
-requests. Works with Claude Code, Cursor, Codex, Aider, curl, anything.**
+keyfence is a local HTTP proxy that stops secrets from reaching LLM APIs.
 
-Coding agents read `.env` files, credential stores and logs, and happily ship
-whatever they find to the model. keyfence sits between your tools and the
-provider and scans every request *before it leaves your machine*. Secrets get
-blocked, redacted, or swapped for placeholders that are restored in the
-response, so the model never sees them but your workflow keeps working.
+It checks every request sent to an AI provider before the request leaves
+your machine. If the request contains an API key, a password or another
+secret, keyfence blocks the request, redacts the secret, or replaces it with
+a placeholder and puts the real value back in the response.
+
+It works at the network level. Claude Code, Cursor, Codex, Aider, curl and
+your own scripts all go through the same proxy. No plugin is needed.
 
 ```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│ Claude Code │     │     keyfence      │     │ api.anthropic…  │
-│ Cursor, CLI ├────▶│   (local proxy)   ├────▶│ api.openai…     │
-│ scripts ... │     │  scans and cleans │     │ ...             │
-└─────────────┘     └──────────────────┘     └─────────────────┘
-                    secrets never get past here
+   your machine                                                   internet
+  ┌────────────────┐          ┌───────────────────┐          ┌─────────────────┐
+  │ Claude Code    │ request  │     keyfence      │ request  │ api.anthropic   │
+  │ Cursor, Codex  │ ───────▶ │ scans the request │ ───────▶ │ api.openai      │
+  │ curl, scripts  │          │ removes secrets   │          │ and 12 more     │
+  │                │ ◀─────── │ restores values   │ ◀─────── │                 │
+  └────────────────┘ response └───────────────────┘ response └─────────────────┘
+
+  request:   "the key is sk-ant-api03-…"  ──▶  "the key is <<SECRET_1>>"  ──▶  provider
+  response:  "use sk-ant-api03-…"         ◀──  "use <<SECRET_1>>"         ◀──  provider
 ```
 
-Interception happens at the network layer, so there is nothing to plug into
-your editor or agent.
-
-## Quick start
+## Install
 
 ```bash
 pip install keyfence
-
-# 1. Teach keyfence YOUR secrets. Only salted hashes are stored, never values.
-keyfence import              # reads .env*, ~/.aws/credentials, ~/.netrc, ~/.npmrc, ...
-
-# 2. Run your tool through the fence. Proxy and CA are wired in automatically,
-#    and every secret-looking environment variable is protected for the session.
-keyfence exec -- claude
 ```
 
-The first run creates a local CA certificate in `~/.mitmproxy/`. Trust it once
-so the proxy can inspect HTTPS (macOS shown; see the mitmproxy docs for other
-systems):
+Requires Python 3.12 or newer. mitmproxy is installed as a dependency.
+
+## Usage
+
+```bash
+keyfence import              # register your secrets (hashes only)
+keyfence exec -- claude      # run a tool through the proxy
+```
+
+`keyfence import` reads `.env` files in the current directory and these
+files in your home directory: `.aws/credentials`, `.netrc`, `.npmrc`,
+`.pypirc`, `.git-credentials`, `.docker/config.json`. It stores a salted
+HMAC-SHA256 hash of each value. It never stores the values themselves.
+
+`keyfence exec` starts the proxy, sets the proxy and CA environment
+variables for the command, and runs it. Values of environment variables
+with names like `*_KEY`, `*_TOKEN`, `*_SECRET` or `*_PASSWORD` are also
+protected for the session. The proxy stops when the command exits.
+
+### Trust the CA certificate
+
+mitmproxy creates a certificate authority in `~/.mitmproxy/` on first run.
+Your tools need to trust it so the proxy can read HTTPS traffic. On macOS:
 
 ```bash
 sudo security add-trusted-cert -d -p ssl \
   -k /Library/Keychains/System.keychain ~/.mitmproxy/mitmproxy-ca-cert.pem
 ```
 
-## What makes it different
+For Linux and Windows see the
+[mitmproxy certificate docs](https://docs.mitmproxy.org/stable/concepts-certificates/).
 
-- **It knows *your* secrets.** `keyfence import` and `keyfence exec` register
-  the actual values from your `.env` files, credential stores and environment
-  as HMAC-SHA256 hashes. A database password with no recognisable format is
-  caught just as reliably as an AWS key.
-- **Fail-closed.** If the detector ever crashes, the request is refused with a
-  403. A bug in keyfence can never turn into a leak.
-- **Placeholders survive streaming.** In `placeholder` mode the model sees
-  `<<SECRET_1>>`, and the real value is put back in the response token by
-  token, even when the placeholder is split across SSE events.
-- **220+ formats out of the box.** Built-in rules for the major providers plus
-  the bundled [gitleaks](https://github.com/gitleaks/gitleaks) ruleset. Bring
-  your own gitleaks-compatible TOML if you want.
-- **Small and auditable.** About a thousand lines of Python on top of
-  mitmproxy. No models to download, no cloud, no telemetry.
+## How detection works
 
-## Three layers of detection
+Three checks run on every request body sent to a monitored host:
 
-1. **Vault**: hashes of the secrets you registered. Catches any exact value,
-   whatever its shape.
-2. **Known formats**: OpenAI, Anthropic, AWS, GitHub, GitLab, Slack, Google,
-   Stripe, Twilio, SendGrid, npm, PyPI, Hugging Face, JWTs, PEM private keys,
-   generic `password=` / `api_key:` assignments, secrets in URL query strings,
-   and the full gitleaks ruleset.
-3. **Entropy**: long high-entropy strings that look like secrets, with filters
-   for commit hashes, paths, URLs and UUIDs.
+1. **Vault.** Every token in the request is hashed and compared with the
+   hashes you registered. This catches any exact value, whatever its
+   format, including database passwords and internal tokens.
+2. **Patterns.** Built-in rules for OpenAI, Anthropic, AWS, GitHub, GitLab,
+   Slack, Google, Stripe, Twilio, SendGrid, npm, PyPI, Hugging Face, JWTs,
+   PEM private keys, `password=` style assignments and secrets in URL query
+   strings, plus 221 rules from the
+   [gitleaks](https://github.com/gitleaks/gitleaks) ruleset.
+3. **Entropy.** Long strings with high entropy and mixed character classes.
+   Commit hashes, file paths, URLs and UUIDs are excluded.
 
-## Three modes (`mode` in the config)
+Findings from the three checks are merged. When two overlap, the vault wins
+over patterns and patterns win over entropy.
 
-| mode | what happens |
+## Modes
+
+Set `mode` in the config file.
+
+| mode | behaviour |
 |---|---|
-| `block` | request is refused with 403; nothing leaves the machine |
-| `redact` *(default)* | secret becomes `[REDACTED:kind]` and the request goes through |
-| `placeholder` | secret becomes `<<SECRET_n>>` on the way out and is restored in the response, so code the model writes still works |
+| `block` | the request gets a 403 response and is not sent |
+| `redact` (default) | the secret is replaced with `[REDACTED:<kind>]` and the request is sent |
+| `placeholder` | the secret is replaced with `<<SECRET_n>>`, the request is sent, and the real value is restored in the response |
+
+`placeholder` mode keeps generated code working: the model writes
+`<<SECRET_1>>` and your tool receives the real value. Restoration works for
+streamed responses too, even when a placeholder is split across SSE events.
 
 ## Commands
 
-| command | purpose |
+| command | description |
 |---|---|
-| `keyfence import [files] [--env] [--all]` | register secrets from `.env` files, credential stores or the environment (hashes only) |
-| `keyfence add-secret` | register one secret interactively |
-| `keyfence exec [-p PORT] [--all-env] -- <cmd>` | start the proxy, run `<cmd>` through it, protect the environment, stop the proxy |
-| `keyfence run [-p PORT]` | start the proxy in the foreground for tools you configure manually |
-| `keyfence scan 'text'` / `-f file` / stdin | test detection without a proxy |
-| `keyfence status` | configuration, vault size, rule count and recent detections |
+| `keyfence import [files] [--env] [--all]` | register secrets from files or the environment |
+| `keyfence add-secret` | register one secret typed at a hidden prompt |
+| `keyfence exec [-p PORT] [--all-env] -- <cmd>` | run a command through the proxy |
+| `keyfence run [-p PORT]` | run the proxy in the foreground on port 8888 |
+| `keyfence scan 'text'`, `keyfence scan -f FILE` | test detection on text, a file or stdin |
+| `keyfence status` | show config, vault size, rule count and recent detections |
 
-### Manual proxy setup (instead of `exec`)
+`--all` and `--all-env` register every value longer than 8 characters, not
+only the ones that look like secrets.
+
+## Manual proxy setup
+
+If you do not use `keyfence exec`, run the proxy and point your tools at it:
 
 ```bash
-keyfence run                      # port 8888 by default
+keyfence run
 
 export HTTPS_PROXY=http://127.0.0.1:8888
 export HTTP_PROXY=http://127.0.0.1:8888
-export NODE_EXTRA_CA_CERTS=~/.mitmproxy/mitmproxy-ca-cert.pem   # Node tools (Claude Code)
+export NODE_EXTRA_CA_CERTS=~/.mitmproxy/mitmproxy-ca-cert.pem   # Node tools, e.g. Claude Code
 export SSL_CERT_FILE=~/.mitmproxy/mitmproxy-ca-cert.pem         # Python tools
 export REQUESTS_CA_BUNDLE=~/.mitmproxy/mitmproxy-ca-cert.pem
 ```
 
-For GUI apps, set the system proxy to `127.0.0.1:8888` in
-Settings → Network → Wi-Fi → Details → Proxies.
+For desktop apps, set the system proxy to `127.0.0.1:8888`.
 
 ## Docker
 
 ```bash
-docker compose up -d                              # proxy on 127.0.0.1:8888
+docker compose up -d
 docker compose run --rm keyfence import /data/.env
 docker compose run --rm keyfence status
 docker compose logs -f
 ```
 
-State lives in `./data/`: `vault.json` (hashes), `config.yaml`, `audit.log`
-and the CA certificate under `certs/`. Trust `./data/certs/mitmproxy-ca-cert.pem`
-the same way as above. The vault is reloaded automatically, so `import` and
-`add-secret` take effect without a restart.
+The container writes its state to `./data/`: `vault.json`, `config.yaml`,
+`audit.log` and the CA certificate in `certs/`. Trust
+`./data/certs/mitmproxy-ca-cert.pem` as shown above. The proxy reloads the
+vault when the file changes, so `import` and `add-secret` do not need a
+restart.
 
 ## Configuration
 
-Copy `config.example.yaml` to `~/.keyfence/config.yaml`. You can change the
-mode, add hosts, tune entropy, disable the gitleaks rules or point to your own
-ruleset, and allowlist exact values. The major AI providers are monitored by
-default; `intercept_all_hosts: true` scans everything.
+Copy `config.example.yaml` to `~/.keyfence/config.yaml`. Options:
 
-Environment variables: `KEYFENCE_HOME` (state directory, default
-`~/.keyfence`) and `KEYFENCE_CONFIG` (config file path).
+| key | default | description |
+|---|---|---|
+| `mode` | `redact` | `block`, `redact` or `placeholder` |
+| `hosts` | 14 AI provider hosts | hosts to monitor; wildcards allowed |
+| `extra_hosts` | `[]` | hosts to add to the default list |
+| `intercept_all_hosts` | `false` | scan every host, not only AI providers |
+| `scan.patterns` | `true` | built-in pattern rules |
+| `scan.gitleaks` | `true` | bundled gitleaks rules |
+| `scan.gitleaks_rules` | bundled file | path to your own gitleaks-compatible TOML |
+| `scan.entropy` | `true` | entropy check |
+| `scan.entropy_min_length` | `24` | minimum token length for the entropy check |
+| `scan.entropy_threshold` | `4.5` | bits per character |
+| `scan.allowlist` | `[]` | exact values to ignore |
+| `audit_log` | `~/.keyfence/audit.log` | where detections are logged |
 
-Every detection is appended to `~/.keyfence/audit.log` with the **kind** and a
-masked preview (`ghp_…6789`), never the secret itself.
+Environment variables: `KEYFENCE_HOME` sets the state directory (default
+`~/.keyfence`), `KEYFENCE_CONFIG` sets the config file path.
 
-## Guarantees
+The audit log has one JSON line per detection with the host, path, mode,
+kind of secret and a masked preview such as `ghp_…6789`. It never contains
+the secret.
 
-- Secret values are never written to disk by keyfence: the vault holds salted
-  HMAC-SHA256 hashes, the audit log holds masked previews, the `exec`
-  environment snapshot is a temporary hash file deleted on exit.
-- A detector failure blocks the request instead of letting it through.
-- Responses that need no restoration are streamed untouched.
+## Behaviour worth knowing
 
-## Limitations (please read)
+- If the detector raises an exception, the request gets a 403. A bug in
+  keyfence cannot let a secret through.
+- Secret values are never written to disk. The vault stores hashes, the
+  audit log stores masked previews, and the `exec` environment snapshot is a
+  temporary hash file removed on exit.
+- Responses that contain no placeholders are streamed without buffering.
+- When a request contains placeholders, keyfence sets
+  `Accept-Encoding: identity` so the response can be rewritten as it
+  streams.
 
-The target is **accidental leakage**, which is the overwhelming majority of
-real incidents. Out of scope:
+## Limitations
 
-- **Certificate pinning**: apps that pin the server certificate refuse the
-  proxy. They fail rather than leak, but they will not work through it.
-- **Obfuscation**: a secret in base64, split in pieces or encrypted passes.
-  No scanner solves this; a deliberately malicious app is outside the threat
+- Apps that pin the server certificate refuse the proxy. They fail instead
+  of leaking, but they do not work through keyfence.
+- Secrets that are base64 encoded, split into pieces or encrypted are not
+  detected. A program that hides secrets on purpose is outside the threat
   model.
-- **Apps that ignore proxies**: anything that does not honour `HTTPS_PROXY`
-  or the system proxy bypasses keyfence. Transparent capture by process name
-  (mitmproxy local mode) is on the roadmap.
-- **Local models** (Ollama etc.): traffic that never leaves the machine never
-  passes the proxy, and never leaks either.
-- **Streaming with a partial placeholder at the very end of a message**: the
-  last few characters are passed through unchanged rather than guessed.
+- Programs that ignore `HTTPS_PROXY` and the system proxy bypass keyfence.
+  Transparent capture by process name is planned.
+- Local models such as Ollama do not go through the proxy. Their traffic
+  also does not leave the machine.
+- If a streamed response ends in the middle of a placeholder, the last
+  characters are passed through as they are.
 
-## Defense in depth (recommended alongside)
+## Other measures
 
-- Deny reads at the source: in Claude Code, permission rules or hooks that
-  refuse `Read` on `.env`, `*.pem`, `**/credentials*`.
-- Keep no plaintext on disk: Keychain, 1Password or a vault, injected as
-  environment variables only into the process that needs them (and then
-  `keyfence exec` protects them).
-- `.gitignore` plus git hooks (gitleaks, trufflehog) for the git path.
+keyfence is the last line. It works best together with:
+
+- Permission rules or hooks in your agent that deny reading `.env`,
+  `*.pem` and `**/credentials*`.
+- Secrets kept in a password manager or vault and passed as environment
+  variables only to the process that needs them.
+- Git hooks such as gitleaks or trufflehog for the commit path.
 
 ## Development
 
 ```bash
 pip install -e '.[dev]'
-pytest                            # unit tests, coverage gate at 90%
-bash tests/integration_test.sh    # end-to-end against a real mitmproxy
+pytest                            # unit tests, coverage must stay above 90%
+bash tests/integration_test.sh    # end-to-end test against a real mitmproxy
 ```
 
-## Credits and license
+## License
 
-Bundled detection rules come from [gitleaks](https://github.com/gitleaks/gitleaks)
-(MIT, see `keyfence/rules/GITLEAKS-LICENSE`). Interception is powered by
-[mitmproxy](https://mitmproxy.org/). keyfence itself is MIT licensed.
+MIT. The bundled rules come from gitleaks, also MIT; see
+`keyfence/rules/GITLEAKS-LICENSE`.
