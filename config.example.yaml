@@ -1,0 +1,27 @@
+# Copy to ~/.keyfence/config.yaml and adjust.
+
+# What to do when a secret is found in a request to an AI provider:
+#   block       -> refuse the request (403); nothing leaves your machine
+#   redact      -> replace the secret with [REDACTED:<kind>] and let it through
+#   placeholder -> replace with <<SECRET_n>> on the way out and restore the real
+#                  value in the response (streaming included)
+mode: redact
+
+# Extra hosts to monitor (the major AI providers are already included)
+extra_hosts:
+  # - api.my-company.com
+
+# true = scan ALL HTTPS traffic, not only AI providers (slower)
+intercept_all_hosts: false
+
+scan:
+  patterns: true          # built-in formats (OpenAI, Anthropic, AWS, GitHub, ...)
+  gitleaks: true          # 200+ additional formats from the bundled gitleaks ruleset
+  # gitleaks_rules: ~/my-gitleaks.toml   # use your own gitleaks-compatible ruleset
+  entropy: true           # high-entropy strings that look like secrets
+  entropy_min_length: 24
+  entropy_threshold: 4.5
+  allowlist: []           # exact values never treated as secrets
+    # - "sk-fake-key-used-in-this-projects-tests"
+
+# audit_log: ~/.keyfence/audit.log

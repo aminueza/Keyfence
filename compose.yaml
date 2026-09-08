@@ -1,0 +1,12 @@
+services:
+  keyfence:
+    build: .
+    image: keyfence:latest
+    container_name: keyfence
+    ports:
+      - "127.0.0.1:8888:8888"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    stdin_open: true
+    tty: true

@@ -1,0 +1,79 @@
+import json
+import os
+import stat
+
+import pytest
+
+from keyfence.vault import MIN_SECRET_LENGTH, Vault
+
+
+def test_add_and_contains(tmp_path):
+    v = Vault(path=tmp_path / "vault.json")
+    assert v.add("meu-segredo-super-confidencial-999")
+    assert v.contains("meu-segredo-super-confidencial-999")
+    assert not v.contains("other-value-entirely")
+    assert v.count() == 1
+
+
+def test_never_stores_plaintext(tmp_path):
+    v = Vault(path=tmp_path / "vault.json")
+    v.add("meu-segredo-super-confidencial-999")
+    raw = (tmp_path / "vault.json").read_text()
+    assert "meu-segredo-super-confidencial-999" not in raw
+    assert stat.S_IMODE(os.stat(tmp_path / "vault.json").st_mode) == 0o600
+
+
+def test_rejects_short_secrets(tmp_path):
+    v = Vault(path=tmp_path / "vault.json")
+    assert v.add("abc") is False
+    assert v.is_empty()
+
+
+def test_add_many_counts_only_new(tmp_path):
+    v = Vault(path=tmp_path / "vault.json")
+    assert v.add_many(["first-secret-value", "second-secret-value", "tiny"]) == 2
+    assert v.add_many(["first-secret-value"]) == 0
+
+
+def test_persists_and_reloads(tmp_path):
+    path = tmp_path / "vault.json"
+    Vault(path=path).add("persisted-secret-value")
+    reloaded = Vault(path=path)
+    assert reloaded.contains("persisted-secret-value")
+
+
+def test_min_length_from_file_never_below_default(tmp_path):
+    path = tmp_path / "vault.json"
+    path.write_text(json.dumps({"salt": "00" * 32, "hashes": [], "min_length": 3}))
+    assert Vault(path=path).min_length == MIN_SECRET_LENGTH
+
+
+def test_explicit_salt_is_used(tmp_path):
+    v = Vault(path=tmp_path / "vault.json", salt=b"\x01" * 32)
+    assert v.salt == b"\x01" * 32
+
+
+def test_merge_adopts_salt_when_empty(tmp_path):
+    main = Vault(path=tmp_path / "main.json")
+    other = Vault(path=tmp_path / "other.json", salt=b"\x02" * 32)
+    other.add("shared-secret-value")
+    main.merge(other)
+    assert main.salt == other.salt
+    assert main.contains("shared-secret-value")
+
+
+def test_merge_rejects_different_salt(tmp_path):
+    main = Vault(path=tmp_path / "main.json")
+    main.add("existing-secret-value")
+    other = Vault(path=tmp_path / "other.json", salt=b"\x02" * 32)
+    other.add("shared-secret-value")
+    with pytest.raises(ValueError):
+        main.merge(other)
+
+
+def test_chmod_failure_is_ignored(tmp_path, monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise OSError("no chmod")
+    monkeypatch.setattr("keyfence.vault.os.chmod", boom)
+    v = Vault(path=tmp_path / "vault.json")
+    assert v.add("persisted-secret-value")

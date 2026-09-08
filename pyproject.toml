@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keyfence"
+dynamic = ["version"]
+description = "Local proxy that keeps your API keys, passwords and secrets out of LLM requests."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mitmproxy>=10.0",
+    "PyYAML>=6.0",
+]
+keywords = ["llm", "secrets", "proxy", "redaction", "security", "claude-code", "coding-agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Security",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5"]
+
+[project.scripts]
+keyfence = "keyfence.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "keyfence.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["keyfence*"]
+
+[tool.setuptools.package-data]
+keyfence = ["rules/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["keyfence"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
