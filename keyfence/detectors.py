@@ -74,6 +74,7 @@ BUILTIN_RULES: list[Rule] = [
              compile_regex(_PLACEHOLDER_VALUES, re.IGNORECASE),
              compile_regex(r"(?i)^(?:\$\{|\$[a-z_]|<|your|chang|exemplo|example)"),
              compile_regex(r"[()]"),
+             compile_regex(r"^\[REDACTED"),
          )),
 ]
 
@@ -214,7 +215,7 @@ def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5,
         pos = idx + len(raw) if idx >= 0 else pos
 
         token = raw.strip(".,:=!?")
-        if len(token) < min_length or len(token) > max_length:
+        if len(token) < min_length or len(token) > max_length or not token.isascii():
             continue
         if _WORDISH.match(token) or _PATHISH.search(token):
             continue

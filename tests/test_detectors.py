@@ -178,6 +178,17 @@ def test_entropy_skips_lockfile_hashes_and_code_expressions():
     assert entropy_kinds(f"value {RANDOM}==") == ["entropy"]
 
 
+def test_entropy_ignores_non_ascii_runs():
+    text = "Open…。Use日本語のテキストは空白がないので長い一つのトークンになる。Use"
+    assert entropy_kinds(text) == []
+    assert entropy_kinds(f"ascii {RANDOM} here") == ["entropy"]
+
+
+def test_generic_assignment_ignores_already_redacted_values():
+    text = "GITHUB_TOKEN=[REDACTED]\nDB_PASSWORD=[REDACTED:vault]\napi_key: <<SECRET_0123456789>>"
+    assert scan(text, config=NO_ENTROPY) == []
+
+
 def test_generic_assignment_ignores_code_expressions():
     assert scan("token = self._placeholder(f.value, mapping)", config=NO_ENTROPY) == []
     assert scan("token = raw.strip('.,:=!?')", config=NO_ENTROPY) == []

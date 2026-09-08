@@ -51,7 +51,8 @@ flagged. This catches random secrets with no known format.
 
 Excluded from the entropy check:
 
-- words, file paths, URLs and `data:` URIs
+- words, file paths, URLs, `data:` URIs and anything with non-ASCII
+  characters
 - hex strings of 32, 40 or 64 characters (hashes and checksums)
 - base64 that decodes to JSON (telemetry and event payloads)
 - API object ids such as `toolu_…`, `msg_…`, `call_…`, `chatcmpl-…`
