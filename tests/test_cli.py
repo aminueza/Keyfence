@@ -147,13 +147,86 @@ def test_run_without_mitmdump(home, monkeypatch, capsys):
 def test_exec_delegates_to_runner(home, monkeypatch):
     seen = {}
 
-    def fake_run(command, port, everything):
+    def fake_run(command, port, everything, local):
         seen.update(command=command, port=port, everything=everything)
         return 3
 
     monkeypatch.setattr(cli.runner, "run", fake_run)
     assert cli.main(["exec", "-p", "9002", "--all-env", "--", "claude", "--verbose"]) == 3
     assert seen == {"command": ["claude", "--verbose"], "port": 9002, "everything": True}
+
+
+def test_exec_passes_local_flag(home, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli.runner, "run", lambda command, port, everything, local: seen.update(local=local) or 0)
+    assert cli.main(["exec", "--local", "--", "claude"]) == 0
+    assert seen["local"] == ""
+    assert cli.main(["exec", "--local", "claude,node", "--", "claude"]) == 0
+    assert seen["local"] == "claude,node"
+    assert cli.main(["exec", "--", "claude"]) == 0
+    assert seen["local"] is None
+
+
+def test_run_with_local_mode(home, monkeypatch, capsys):
+    seen = {}
+    monkeypatch.setattr(cli.subprocess, "call", lambda cmd: seen.update(cmd=cmd) or 0)
+    assert cli.main(["run", "--local"]) == 0
+    assert "--mode" in seen["cmd"] and "local" in seen["cmd"]
+    assert "all processes" in capsys.readouterr().out
+    assert cli.main(["run", "--local", "claude"]) == 0
+    assert "local:claude" in seen["cmd"]
+
+
+def test_hook_command_blocks_via_stdin(home, monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "/w/.env"}})))
+    assert cli.main(["hook", "claude-code"]) == 2
+    assert "keyfence blocked" in capsys.readouterr().err
+
+
+def test_install_hooks_project_and_remove(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    settings = tmp_path / ".claude" / "settings.json"
+    assert settings.exists()
+    assert "Hook installed" in capsys.readouterr().out
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    assert "already present" in capsys.readouterr().out
+    assert cli.main(["install-hooks", "claude-code", "--project", "--remove"]) == 0
+    assert "Hook removed" in capsys.readouterr().out
+    assert cli.main(["install-hooks", "claude-code", "--project", "--remove"]) == 0
+    assert "No keyfence hook" in capsys.readouterr().out
+
+
+def test_install_hooks_global_uses_home(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    assert cli.main(["install-hooks", "claude-code"]) == 0
+    assert (tmp_path / ".claude" / "settings.json").exists()
+    assert "all projects" in capsys.readouterr().out
+
+
+def test_export_jsonl_and_otlp(home, write_config, monkeypatch, capsys):
+    write_config("mode: redact\n")
+    (home / "audit.log").write_text(
+        json.dumps({"ts": "2026-09-08T10:00:00-0300", "host": "h", "path": "/p", "mode": "redact", "count": 1,
+                    "findings": [{"kind": "vault", "preview": "x", "key": None}]}) + "\n"
+        + json.dumps({"ts": "2026-09-08T11:00:00-0300", "host": "h2", "path": "/p", "mode": "redact", "count": 1,
+                      "findings": [{"kind": "jwt", "preview": "y", "key": None}]}) + "\n")
+    assert cli.main(["export"]) == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert len(lines) == 2 and json.loads(lines[1])["host"] == "h2"
+    assert cli.main(["export", "--since", "2026-09-08T10:00:00-0300"]) == 0
+    assert len(capsys.readouterr().out.strip().splitlines()) == 1
+
+    sent = []
+    monkeypatch.setattr(cli.export, "send_otlp", lambda url, entries, headers: sent.append((url, len(entries), headers)) or len(entries))
+    assert cli.main(["export", "--otlp", "http://c:4318", "--header", "Authorization=Bearer t"]) == 0
+    assert sent[-1] == ("http://c:4318", 2, {"Authorization": "Bearer t"})
+    assert (home / "export.cursor").read_text().strip() == "2026-09-08T11:00:00-0300"
+    assert cli.main(["export", "--otlp", "http://c:4318"]) == 0
+    assert sent[-1][1] == 0
+    assert cli.main(["export", "--otlp", "http://c:4318", "--all"]) == 0
+    assert sent[-1][1] == 2
+    assert "Sent 2 entries" in capsys.readouterr().out
 
 
 def test_exec_without_command(home, capsys):

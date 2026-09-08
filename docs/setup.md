@@ -42,8 +42,11 @@ Linux and Windows: see the
 | `keyfence import [files] [--env] [--all]` | register secrets from files or the environment |
 | `keyfence add-secret` | register one secret typed at a hidden prompt |
 | `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
-| `keyfence exec [-p PORT] [--all-env] -- <cmd>` | run a command through the proxy |
-| `keyfence run [-p PORT]` | run the proxy in the foreground on port 8888 |
+| `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through the proxy |
+| `keyfence run [-p PORT] [--local [NAMES]]` | run the proxy in the foreground on port 8888 |
+| `keyfence install-hooks claude-code [--project] [--remove]` | stop Claude Code from reading secret files at all |
+| `keyfence hook claude-code` | the hook itself; Claude Code runs it, you do not |
+| `keyfence export [--since TS] [--otlp URL] [--header K=V] [--all]` | print the audit log as JSONL or send it to a collector |
 | `keyfence scan 'text'`, `keyfence scan -f FILE` | test detection on text, a file or stdin |
 | `keyfence status` | show config, vault size, rule count and recent detections |
 
@@ -65,6 +68,63 @@ command's terminal; detections are in the audit log and `keyfence status`.
 
 To upgrade an isolated install: `uv tool upgrade keyfence` or
 `pipx upgrade keyfence`.
+
+## Capturing tools that ignore proxy variables
+
+Some programs do not read `HTTPS_PROXY`. On macOS and Windows, `--local`
+makes mitmproxy capture their traffic at the operating system level, by
+process name, with no proxy variables involved:
+
+```bash
+keyfence run --local                 # every process
+keyfence run --local claude,cursor   # only these process names
+keyfence exec --local -- claude      # the command's own process name
+```
+
+The first time, mitmproxy installs its redirector: on macOS it copies
+"Mitmproxy Redirector.app" to `/Applications` and macOS asks you to allow
+the network extension in System Settings, under General, Login Items &
+Extensions, Network Extensions. Until you allow it, `--local` captures
+nothing and the proxy works as before. Tools captured this way do not get
+the CA through environment variables, so the certificate has to be trusted
+system-wide (the `security add-trusted-cert` step above). Linux is not
+supported by mitmproxy's local mode.
+
+## Blocking secret files in Claude Code
+
+The proxy stops secrets from leaving the machine. The hook stops Claude
+Code from reading them in the first place:
+
+```bash
+keyfence install-hooks claude-code            # all projects (~/.claude/settings.json)
+keyfence install-hooks claude-code --project  # this project (./.claude/settings.json)
+keyfence install-hooks claude-code --remove
+```
+
+It adds a `PreToolUse` hook for Read, Edit, Write, MultiEdit, NotebookEdit
+and Bash that refuses `.env` files, private keys, `.netrc`, `.npmrc`,
+`.pypirc`, `.git-credentials`, `credentials*`, `secrets.*`, `*.tfvars`,
+service account files, anything under `.ssh`, `.aws/credentials`,
+`.docker/config.json` and `.kube/config`. `.env.example` and `*.pub` are
+allowed. Bash commands that mention such a path are refused too. The
+refusal message tells the model to ask you instead or to use
+`keyfence import`. Existing hooks in the settings file are kept.
+
+## Exporting the audit log
+
+```bash
+keyfence export                                  # JSONL on stdout
+keyfence export --since 2026-09-08T00:00:00-0300
+keyfence export --otlp http://localhost:4318 --header "Authorization=Bearer …"
+```
+
+`--otlp` sends the entries as OTLP/HTTP log records to `/v1/logs` on the
+collector, with `service.name=keyfence` and attributes `keyfence.host`,
+`keyfence.path`, `keyfence.mode`, `keyfence.count`, `keyfence.kinds` and,
+for canaries, `keyfence.canary`. Canary hits are `ERROR`, everything else
+`WARN`. A cursor in `~/.keyfence/export.cursor` makes repeated runs send
+only new entries; `--all` ignores it. Run it from cron or a launchd job to
+feed a team collector.
 
 ## Manual proxy setup
 

@@ -32,7 +32,9 @@ that secret scanners, including GitHub push protection, do not flag them.
 | `keyfence/streaming.py` | placeholder restoration inside SSE streams |
 | `keyfence/notice.py` | system prompt notice for changed requests |
 | `keyfence/importer.py` | secret extraction from `.env`, credential files and the environment |
-| `keyfence/runner.py` | `keyfence exec`: proxy lifecycle and child environment |
+| `keyfence/runner.py` | `keyfence exec`: proxy lifecycle, child environment, local capture mode |
+| `keyfence/hooks.py` | Claude Code hook: sensitive path rules and settings.json install |
+| `keyfence/export.py` | audit log export as JSONL and OTLP/HTTP log records |
 | `keyfence/vault.py` | salted hash store |
 | `keyfence/config.py` | YAML config |
 | `keyfence/cli.py` | command line |

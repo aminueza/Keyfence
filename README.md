@@ -25,6 +25,7 @@ Python 3.12 or newer. mitmproxy comes as a dependency.
 keyfence import              # register your secrets from .env and credential files (hashes only)
 keyfence exec -- claude      # run a tool through the proxy
 keyfence canary .env         # plant a fake secret; if a tool ever sends it, you will know
+keyfence install-hooks claude-code   # stop Claude Code from reading secret files at all
 ```
 
 On first run mitmproxy creates a CA certificate in `~/.mitmproxy/`. Trust it

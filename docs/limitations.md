@@ -10,8 +10,9 @@ real incidents. Out of scope:
   encrypted are not detected. A program that hides secrets on purpose is
   outside the threat model.
 - **Programs that ignore proxies.** Anything that does not honour
-  `HTTPS_PROXY` or the system proxy bypasses keyfence. Transparent capture
-  by process name is planned.
+  `HTTPS_PROXY` or the system proxy bypasses keyfence unless you use
+  `--local`, which needs mitmproxy's redirector approved in the operating
+  system and works on macOS and Windows only.
 - **Local models.** Ollama and similar do not go through the proxy. Their
   traffic also does not leave the machine.
 - **Streams ending mid-placeholder.** If a streamed response ends in the
@@ -25,8 +26,9 @@ real incidents. Out of scope:
 
 keyfence is the last line. It works best together with:
 
-- Permission rules or hooks in your agent that deny reading `.env`,
-  `*.pem` and `**/credentials*`.
+- A hook in your agent that denies reading `.env`, `*.pem` and
+  `**/credentials*`. For Claude Code, `keyfence install-hooks claude-code`
+  installs one.
 - Secrets kept in a password manager or vault and passed as environment
   variables only to the process that needs them, where `keyfence exec`
   protects them.

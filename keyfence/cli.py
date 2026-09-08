@@ -11,7 +11,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import runner
+from . import export, hooks, runner
 from .config import Config
 from .detectors import scan
 from .importer import default_paths, env_values, import_files
@@ -94,13 +94,17 @@ def cmd_scan(args) -> int:
 
 def cmd_run(args) -> int:
     print(f"Starting keyfence on http://127.0.0.1:{args.port}")
+    if args.local is not None:
+        target = "all processes" if args.local in ("", "*") else f"processes named {args.local}"
+        print(f"Local capture on for {target}: no proxy variables needed, "
+              "but the CA certificate must be trusted system-wide.")
     print("Point your tools at it, e.g.:")
     print(f"  export HTTPS_PROXY=http://127.0.0.1:{args.port}")
     print(f"  export HTTP_PROXY=http://127.0.0.1:{args.port}")
     print("or run them through it directly: keyfence exec -- <command>")
     print("(Ctrl+C to stop)\n")
     try:
-        return subprocess.call(runner.proxy_command(args.port))
+        return subprocess.call(runner.proxy_command(args.port, local=args.local))
     except FileNotFoundError:
         print("mitmdump not found. Install it with: pip install mitmproxy")
         return 1
@@ -111,9 +115,56 @@ def cmd_exec(args) -> int:
     if command and command[0] == "--":
         command = command[1:]
     if not command:
-        print("usage: keyfence exec [-p PORT] [--all-env] -- <command> [args...]")
+        print("usage: keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <command> [args...]")
         return 1
-    return runner.run(command, args.port, everything=args.all_env)
+    return runner.run(command, args.port, everything=args.all_env, local=args.local)
+
+
+def cmd_hook(args) -> int:
+    if args.agent != "claude-code":
+        print(f"unknown agent: {args.agent}")
+        return 1
+    return hooks.run_hook()
+
+
+def cmd_install_hooks(args) -> int:
+    if args.agent != "claude-code":
+        print(f"unknown agent: {args.agent}")
+        return 1
+    path = hooks.settings_path(args.project)
+    if args.remove:
+        changed = hooks.uninstall(path)
+        print(f"Hook removed from {path}." if changed else f"No keyfence hook in {path}.")
+        return 0
+    changed = hooks.install(path)
+    scope = "this project" if args.project else "all projects"
+    if changed:
+        print(f"Hook installed in {path} for {scope}.")
+        print("Claude Code will refuse to read .env files, private keys and credential files.")
+    else:
+        print(f"Hook already present in {path}.")
+    return 0
+
+
+def cmd_export(args) -> int:
+    cfg = Config.load()
+    log = Path(cfg.audit_log)
+    cursor = DEFAULT_DIR / "export.cursor"
+    since = None
+    if args.since:
+        since = export.parse_ts(args.since)
+    elif not args.all and args.otlp:
+        since = export.read_cursor(cursor)
+    entries = list(export.read_entries(log, since))
+    if args.otlp:
+        headers = dict(h.split("=", 1) for h in args.header)
+        sent = export.send_otlp(args.otlp, entries, headers)
+        export.write_cursor(cursor, entries)
+        print(f"Sent {sent} entr{'y' if sent == 1 else 'ies'} to {args.otlp}.")
+        return 0
+    for entry in entries:
+        print(json.dumps(entry, ensure_ascii=False))
+    return 0
 
 
 def cmd_status(_args) -> int:
@@ -172,12 +223,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_run = sub.add_parser("run", help="start the proxy")
     p_run.add_argument("-p", "--port", type=int, default=8888)
+    p_run.add_argument("--local", nargs="?", const="*", metavar="NAMES",
+                       help="also capture traffic without proxy variables (macOS/Windows); "
+                            "optional comma-separated process names, default all")
 
     p_exec = sub.add_parser("exec", help="run a command with the proxy already wired in")
     p_exec.add_argument("-p", "--port", type=int, default=8888)
     p_exec.add_argument("--all-env", action="store_true",
                         help="treat every environment variable value as a secret, not only secret-looking names")
+    p_exec.add_argument("--local", nargs="?", const="", metavar="NAMES",
+                        help="also capture the command's traffic without proxy variables "
+                             "(macOS/Windows); default: the command's own process name")
     p_exec.add_argument("argv", nargs=argparse.REMAINDER, metavar="command")
+
+    p_hook = sub.add_parser("hook", help="agent hook entry point; reads the tool call from stdin")
+    p_hook.add_argument("agent", choices=["claude-code"])
+
+    p_hooks = sub.add_parser("install-hooks", help="install the hook that stops an agent from reading secret files")
+    p_hooks.add_argument("agent", choices=["claude-code"])
+    p_hooks.add_argument("--project", action="store_true", help="install in ./.claude instead of ~/.claude")
+    p_hooks.add_argument("--remove", action="store_true", help="remove the hook")
+
+    p_export = sub.add_parser("export", help="print the audit log as JSONL or send it to an OTLP collector")
+    p_export.add_argument("--since", help="only entries after this timestamp (YYYY-MM-DDTHH:MM:SS+ZZZZ)")
+    p_export.add_argument("--all", action="store_true", help="ignore the export cursor")
+    p_export.add_argument("--otlp", metavar="URL", help="OTLP/HTTP endpoint, e.g. http://localhost:4318")
+    p_export.add_argument("--header", action="append", default=[], metavar="K=V", help="extra HTTP header")
 
     sub.add_parser("status", help="show configuration and recent detections")
     return parser
@@ -193,6 +264,9 @@ def main(argv: list[str] | None = None) -> int:
         "scan": cmd_scan,
         "run": cmd_run,
         "exec": cmd_exec,
+        "hook": cmd_hook,
+        "install-hooks": cmd_install_hooks,
+        "export": cmd_export,
         "status": cmd_status,
     }[args.command](args)
 

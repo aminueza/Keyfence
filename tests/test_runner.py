@@ -15,6 +15,25 @@ def test_proxy_command():
     assert str(runner.ADDON_PATH).endswith("addon.py")
 
 
+def test_local_mode_flags():
+    assert runner.local_mode(None) == []
+    assert runner.local_mode("*") == ["--mode", "regular", "--mode", "local"]
+    assert runner.local_mode("claude,node") == ["--mode", "regular", "--mode", "local:claude,node"]
+    assert "local:claude" in runner.proxy_command(1, local="claude")
+
+
+def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
+    seen = {}
+    ca = tmp_path / "ca.pem"
+    ca.write_text("cert")
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or FakeProxy())
+    monkeypatch.setattr(runner, "port_open", lambda port: True)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
+    assert runner.run(["/usr/local/bin/claude", "-p"], 8899, ca_cert=ca, timeout=1, local="") == 0
+    assert "local:claude" in seen["cmd"]
+
+
 def test_mitmdump_path_prefers_interpreter_bindir(tmp_path, monkeypatch):
     fake = tmp_path / "mitmdump"
     fake.write_text("")

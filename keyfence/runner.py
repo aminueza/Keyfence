@@ -29,13 +29,22 @@ def mitmdump_path() -> str:
     return shutil.which("mitmdump") or "mitmdump"
 
 
-def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = ()) -> list[str]:
+def local_mode(names: str | None) -> list[str]:
+    if names is None:
+        return []
+    spec = "local" if names in ("", "*") else f"local:{names}"
+    return ["--mode", "regular", "--mode", spec]
+
+
+def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = (),
+                  local: str | None = None) -> list[str]:
     return [
         mitmdump_path(), "-q",
         "-s", str(addon),
         "--listen-host", "127.0.0.1",
         "--listen-port", str(port),
         "--set", "block_global=false",
+        *local_mode(local),
         *extra,
     ]
 
@@ -79,13 +88,15 @@ def build_env_vault(environ: Mapping[str, str], everything: bool = False) -> Pat
 
 
 def run(command: Sequence[str], port: int, everything: bool = False,
-        timeout: float = 20.0, ca_cert: Path = CA_CERT) -> int:
+        timeout: float = 20.0, ca_cert: Path = CA_CERT, local: str | None = None) -> int:
     env_vault = build_env_vault(os.environ, everything)
     proxy_env = dict(os.environ, **{ENV_VAULT_VAR: str(env_vault)})
     DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
     proxy_log = (DEFAULT_DIR / "proxy.log").open("a")
+    if local == "":
+        local = Path(command[0]).name
     try:
-        proxy = subprocess.Popen(proxy_command(port), env=proxy_env,
+        proxy = subprocess.Popen(proxy_command(port, local=local), env=proxy_env,
                                  stdout=proxy_log, stderr=subprocess.STDOUT)
     except FileNotFoundError:
         proxy_log.close()
