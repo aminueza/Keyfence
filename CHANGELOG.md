@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3 (2026-09-09)
 
 - Two `keyfence import` or `add-secret` commands running at the same time
   could lose one of the secrets and crash with a traceback. Vault updates
