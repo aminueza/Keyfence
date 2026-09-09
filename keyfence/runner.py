@@ -74,9 +74,31 @@ def child_env(base: Mapping[str, str], port: int, ca_cert: Path) -> dict[str, st
     return env
 
 
+ENV_VAULT_DIR = "env"
+STALE_AFTER = 60.0
+
+
+def sweep_stale_env_vaults(directory: Path, max_age: float = STALE_AFTER) -> int:
+    if not directory.is_dir():
+        return 0
+    cutoff = time.time() - max_age
+    removed = 0
+    for path in directory.glob("keyfence-env-*"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def build_env_vault(environ: Mapping[str, str], everything: bool = False) -> Vault:
     main = Vault()
-    fd, name = tempfile.mkstemp(prefix="keyfence-env-", suffix=".json")
+    directory = DEFAULT_DIR / ENV_VAULT_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    sweep_stale_env_vaults(directory)
+    fd, name = tempfile.mkstemp(prefix="keyfence-env-", suffix=".json", dir=directory)
     os.close(fd)
     path = Path(name)
     path.unlink()

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- The `keyfence exec` environment snapshot lives under
+  `~/.keyfence/env/`, and each `exec` removes snapshots older than a
+  minute, so a command killed before the proxy came up leaves nothing
+  behind for long.
+- A command waiting for the vault lock says so on stderr, waits up to 30
+  seconds, and then fails with instructions instead of hanging silently.
+- The vault lock works on Windows through `msvcrt.locking`.
+
 ## 0.3.3 (2026-09-09)
 
 - Two `keyfence import` or `add-secret` commands running at the same time

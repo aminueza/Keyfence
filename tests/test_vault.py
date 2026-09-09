@@ -175,6 +175,65 @@ def test_concurrent_writers_lose_nothing(tmp_path):
     assert all(final.contains(f"worker-{n}-secret-{i:03d}") for n in range(4) for i in range(30))
 
 
+def test_contended_lock_warns_then_proceeds(tmp_path, capsys, monkeypatch):
+    import threading
+    from keyfence import vault as vault_module
+    monkeypatch.setattr(vault_module, "LOCK_POLL", 0.01)
+    path = tmp_path / "vault.json"
+    holder = Vault(path=path)
+    release = threading.Event()
+    entered = threading.Event()
+
+    def hold():
+        with holder._locked():
+            entered.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=hold)
+    thread.start()
+    entered.wait(5)
+    threading.Timer(0.2, release.set).start()
+    Vault(path=path).add("value-added-under-contention")
+    thread.join()
+    assert "waiting for another keyfence command" in capsys.readouterr().err
+    assert Vault(path=path).contains("value-added-under-contention")
+
+
+def test_lock_held_too_long_gives_up_with_instructions(tmp_path, monkeypatch):
+    from keyfence import vault as vault_module
+    monkeypatch.setattr(vault_module, "LOCK_TIMEOUT", 0.05)
+    monkeypatch.setattr(vault_module, "LOCK_POLL", 0.01)
+    monkeypatch.setattr(vault_module, "_try_lock", lambda handle: False)
+    with pytest.raises(VaultError) as exc:
+        Vault(path=tmp_path / "vault.json").add("value-that-never-lands")
+    assert "delete that file" in str(exc.value)
+
+
+def test_windows_lock_branch_is_exercised(tmp_path, monkeypatch):
+    from keyfence import vault as vault_module
+
+    class FakeMsvcrt:
+        LK_NBLCK, LK_UNLCK = 1, 2
+        calls = []
+
+        @classmethod
+        def locking(cls, fd, mode, nbytes):
+            cls.calls.append(mode)
+
+    monkeypatch.setattr(vault_module, "fcntl", None)
+    monkeypatch.setattr(vault_module, "msvcrt", FakeMsvcrt)
+    Vault(path=tmp_path / "vault.json").add("value-on-fake-windows")
+    assert FakeMsvcrt.calls == [1, 2]
+
+
+def test_no_lock_backend_still_works(tmp_path, monkeypatch):
+    from keyfence import vault as vault_module
+    monkeypatch.setattr(vault_module, "fcntl", None)
+    monkeypatch.setattr(vault_module, "msvcrt", None)
+    v = Vault(path=tmp_path / "vault.json")
+    assert v.add("value-without-any-lock")
+
+
 def test_two_fresh_vaults_agree_on_the_salt(tmp_path):
     path = tmp_path / "vault.json"
     a, b = Vault(path=path), Vault(path=path)

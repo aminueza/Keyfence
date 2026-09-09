@@ -7,7 +7,9 @@ import json
 import os
 import re
 import secrets as pysecrets
+import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -15,11 +17,36 @@ try:
     import fcntl
 except ImportError:
     fcntl = None
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 
 DEFAULT_DIR = Path(os.environ.get("KEYFENCE_HOME", Path.home() / ".keyfence"))
 MIN_SECRET_LENGTH = 8
 MAX_MIN_LENGTH = 256
+LOCK_TIMEOUT = 30.0
+LOCK_POLL = 0.1
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _try_lock(handle) -> bool:
+    try:
+        if fcntl is not None:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        elif msvcrt is not None:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        return True
+    except OSError:
+        return False
+
+
+def _unlock(handle) -> None:
+    with contextlib.suppress(OSError):
+        if fcntl is not None:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        elif msvcrt is not None:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 class VaultError(RuntimeError):
@@ -94,16 +121,22 @@ class Vault:
                 path.unlink()
 
     @contextlib.contextmanager
-    def _locked(self):
+    def _locked(self, timeout: float | None = None):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.lock_path, "a+") as lock:
-            if fcntl is not None:
-                fcntl.flock(lock, fcntl.LOCK_EX)
+            if not _try_lock(lock):
+                print("waiting for another keyfence command to finish...", file=sys.stderr, flush=True)
+                deadline = time.monotonic() + (LOCK_TIMEOUT if timeout is None else timeout)
+                while not _try_lock(lock):
+                    if time.monotonic() >= deadline:
+                        raise VaultError(
+                            f"{self.lock_path} is held by another process. If no keyfence "
+                            "command is running, delete that file and try again.")
+                    time.sleep(LOCK_POLL)
             try:
                 yield
             finally:
-                if fcntl is not None:
-                    fcntl.flock(lock, fcntl.LOCK_UN)
+                _unlock(lock)
 
     def _update(self, mutate: Callable[[], int]) -> int:
         with self._locked():

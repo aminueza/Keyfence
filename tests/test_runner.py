@@ -1,4 +1,5 @@
 import json
+import os
 import socket
 import subprocess
 
@@ -98,6 +99,7 @@ def test_build_env_vault_shares_salt_with_main(home):
     main.add("main-secret-value-1")
     built = runner.build_env_vault({"GITHUB_TOKEN": "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", "HOME": "/x"})
     path = built.path
+    assert path.parent == home / "env"
     try:
         data = json.loads(path.read_text())
         assert bytes.fromhex(data["salt"]) == main.salt
@@ -107,6 +109,24 @@ def test_build_env_vault_shares_salt_with_main(home):
     finally:
         built.remove_files()
     assert not path.exists() and not built.lock_path.exists()
+
+
+def test_stale_env_vaults_are_swept_on_next_exec(home):
+    directory = home / "env"
+    directory.mkdir()
+    old = directory / "keyfence-env-old.json"
+    old.write_text("{}")
+    os.utime(old, (1, 1))
+    fresh = directory / "keyfence-env-fresh.json"
+    fresh.write_text("{}")
+    other = directory / "unrelated.txt"
+    other.write_text("x")
+    assert runner.sweep_stale_env_vaults(directory) == 1
+    assert not old.exists() and fresh.exists() and other.exists()
+    assert runner.sweep_stale_env_vaults(home / "missing") == 0
+    built = runner.build_env_vault({"HOME": "/x"})
+    assert built.path.parent == directory
+    built.remove_files()
 
 
 class FakeProxy:

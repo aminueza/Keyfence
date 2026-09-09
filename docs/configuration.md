@@ -75,7 +75,10 @@ touched. Set `notice: false` to disable.
   stops the proxy at startup with a message, and makes a running proxy
   fail closed until the file is fixed or moved aside.
 - The vault is written atomically and updates take a file lock
-  (`vault.json.lock` next to it), so the running proxy never reads a
-  half-written file and two commands registering secrets at the same time
-  both land. An emptied or removed `config.yaml` is ignored by a running
-  proxy; only a file that parses replaces the configuration in force.
+  (`vault.json.lock` next to it, `flock` on POSIX and `msvcrt.locking` on
+  Windows), so the running proxy never reads a half-written file and two
+  commands registering secrets at the same time both land. A command that
+  finds the lock taken says so on stderr and waits up to 30 seconds, then
+  gives up with instructions. An emptied or removed `config.yaml` is
+  ignored by a running proxy; only a file that parses replaces the
+  configuration in force.
