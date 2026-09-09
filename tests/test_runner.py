@@ -96,7 +96,8 @@ def test_child_env(tmp_path):
 def test_build_env_vault_shares_salt_with_main(home):
     main = Vault()
     main.add("main-secret-value-1")
-    path = runner.build_env_vault({"GITHUB_TOKEN": "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", "HOME": "/x"})
+    built = runner.build_env_vault({"GITHUB_TOKEN": "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", "HOME": "/x"})
+    path = built.path
     try:
         data = json.loads(path.read_text())
         assert bytes.fromhex(data["salt"]) == main.salt
@@ -104,7 +105,8 @@ def test_build_env_vault_shares_salt_with_main(home):
         assert env_vault.contains("ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789")
         assert not env_vault.contains("main-secret-value-1")
     finally:
-        path.unlink()
+        built.remove_files()
+    assert not path.exists() and not built.lock_path.exists()
 
 
 class FakeProxy:

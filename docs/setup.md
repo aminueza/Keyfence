@@ -62,9 +62,11 @@ from environment variables.
 `keyfence exec` starts the proxy, sets `HTTPS_PROXY`, `HTTP_PROXY` and the CA
 variables for the command, snapshots environment variables with secret-like
 names into a temporary vault, runs the command, and stops the proxy when it
-exits. `--all-env` snapshots every environment variable value. The proxy's
-own output goes to `~/.keyfence/proxy.log` so it does not mix with the
-command's terminal; detections are in the audit log and `keyfence status`.
+exits. `--all-env` snapshots every environment variable value. The snapshot
+is a temporary hash file that the proxy reads once at startup and deletes,
+so nothing is left behind however the command ends. The proxy's own output
+goes to `~/.keyfence/proxy.log` so it does not mix with the command's
+terminal; detections are in the audit log and `keyfence status`.
 
 To upgrade an isolated install: `uv tool upgrade keyfence` or
 `pipx upgrade keyfence`.

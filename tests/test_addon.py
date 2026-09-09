@@ -225,6 +225,11 @@ def test_env_vault_is_merged(guard, home, monkeypatch):
     monkeypatch.setenv(ENV_VAULT_VAR, str(env_vault.path))
     kf = guard("redact")
     assert kf.vault.count() == 2
+    assert not env_vault.path.exists() and not env_vault.lock_path.exists()
+    main.add("later-secret-value-3")
+    os.utime(home / "vault.json", (1, 1))
+    kf._maybe_reload_vault()
+    assert kf.vault.count() == 3 and kf.vault.contains("env-only-secret-value")
     flow = make_flow(body=b"x=env-only-secret-value y=main-vault-secret-value")
     kf.request(flow)
     assert flow.request.get_text() == "x=[REDACTED:vault] y=[REDACTED:vault]"
@@ -313,12 +318,34 @@ def test_invalid_config_reload_keeps_previous(guard, home, write_config, caplog)
     assert kf.config.mode == "redact" and "[REDACTED:github-token]" in flow.request.get_text()
 
 
-def test_corrupted_vault_stops_startup_with_a_message(home, write_config):
+def test_corrupted_vault_stops_startup_with_a_message(home, write_config, monkeypatch, capsys):
     write_config("mode: redact\n")
     (home / "vault.json").write_text("x")
     with pytest.raises(addon_module.VaultError) as exc:
         KeyFence()
     assert "keyfence import" in str(exc.value)
+    monkeypatch.setattr(addon_module.os, "_exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+    with pytest.raises(SystemExit) as stop:
+        addon_module.build()
+    assert stop.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("keyfence: ") and "Traceback" not in err
+
+
+def test_missing_or_empty_config_keeps_previous(guard, home, write_config, caplog):
+    kf = guard("block", 'extra_hosts: ["example.test"]\n')
+    (home / "config.yaml").write_text("")
+    os.utime(home / "config.yaml", (3, 3))
+    flow = make_flow(host="example.test")
+    with caplog.at_level("WARNING", logger="keyfence"):
+        kf.request(flow)
+    assert flow.response is not None and flow.response.status_code == 403
+    assert "missing or empty" in caplog.text
+    (home / "config.yaml").unlink()
+    second = make_flow(host="example.test")
+    kf.request(second)
+    assert second.response is not None and second.response.status_code == 403
+    assert kf.config.mode == "block"
 
 
 def test_response_skips_when_streamed_or_unmapped(guard):

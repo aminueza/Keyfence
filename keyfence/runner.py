@@ -74,7 +74,7 @@ def child_env(base: Mapping[str, str], port: int, ca_cert: Path) -> dict[str, st
     return env
 
 
-def build_env_vault(environ: Mapping[str, str], everything: bool = False) -> Path:
+def build_env_vault(environ: Mapping[str, str], everything: bool = False) -> Vault:
     main = Vault()
     fd, name = tempfile.mkstemp(prefix="keyfence-env-", suffix=".json")
     os.close(fd)
@@ -82,7 +82,7 @@ def build_env_vault(environ: Mapping[str, str], everything: bool = False) -> Pat
     path.unlink()
     env_vault = Vault(path=path, salt=main.salt)
     env_vault.add_many(env_values(environ, main.min_length, everything))
-    return path
+    return env_vault
 
 
 def run(command: Sequence[str], port: int, everything: bool = False,
@@ -91,7 +91,7 @@ def run(command: Sequence[str], port: int, everything: bool = False,
         print(f"Port {port} is already in use. Pick another one with -p.")
         return 1
     env_vault = build_env_vault(os.environ, everything)
-    proxy_env = dict(os.environ, **{ENV_VAULT_VAR: str(env_vault)})
+    proxy_env = dict(os.environ, **{ENV_VAULT_VAR: str(env_vault.path)})
     DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
     proxy_log = (DEFAULT_DIR / "proxy.log").open("a")
     if local == "":
@@ -101,7 +101,7 @@ def run(command: Sequence[str], port: int, everything: bool = False,
                                  stdout=proxy_log, stderr=subprocess.STDOUT)
     except FileNotFoundError:
         proxy_log.close()
-        env_vault.unlink(missing_ok=True)
+        env_vault.remove_files()
         print("mitmdump not found. Install it with: pip install mitmproxy")
         return 1
     try:
@@ -119,4 +119,4 @@ def run(command: Sequence[str], port: int, everything: bool = False,
             except subprocess.TimeoutExpired:
                 proxy.kill()
         proxy_log.close()
-        env_vault.unlink(missing_ok=True)
+        env_vault.remove_files()

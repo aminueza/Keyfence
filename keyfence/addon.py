@@ -46,10 +46,20 @@ class KeyFence:
     def _load_vault(self) -> Vault:
         vault = Vault()
         vault.ensure_saved()
-        extra = os.environ.get(ENV_VAULT_VAR)
-        if extra and Path(extra).exists():
-            vault.merge(Vault(path=Path(extra)))
+        if not hasattr(self, "_env_vault"):
+            self._env_vault = self._consume_env_vault()
+        if self._env_vault is not None:
+            vault.merge(self._env_vault)
         return vault
+
+    @staticmethod
+    def _consume_env_vault() -> Vault | None:
+        extra = os.environ.get(ENV_VAULT_VAR)
+        if not extra or not Path(extra).exists():
+            return None
+        env_vault = Vault(path=Path(extra))
+        env_vault.remove_files()
+        return env_vault
 
     def _maybe_reload_vault(self) -> None:
         mtime = self._mtime(self.vault.path)
@@ -63,6 +73,10 @@ class KeyFence:
         if mtime == self._config_mtime:
             return
         self._config_mtime = mtime
+        if not self._config_path.exists() or self._config_path.stat().st_size == 0:
+            log.warning("config file %s is missing or empty, keeping the previous configuration",
+                        self._config_path)
+            return
         try:
             self.config = Config.load()
             log.info("config reloaded: mode=%s | %d hosts | %d rules",
@@ -204,4 +218,12 @@ class KeyFence:
             log.warning("could not write audit log: %s", exc)
 
 
-addons = [KeyFence()]
+def build() -> KeyFence:
+    try:
+        return KeyFence()
+    except VaultError as exc:
+        print(f"keyfence: {exc}", file=sys.stderr, flush=True)
+        os._exit(1)
+
+
+addons = [build()]

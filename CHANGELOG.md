@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Two `keyfence import` or `add-secret` commands running at the same time
+  could lose one of the secrets and crash with a traceback. Vault updates
+  now take a file lock, re-read the file under it, and write through a
+  uniquely named temporary file.
+- The vault file is validated after parsing: wrong field types or an
+  out-of-range `min_length` are reported as a corrupted vault instead of
+  silently disabling detection.
+- A running proxy keeps its configuration when `config.yaml` is emptied
+  or removed; it only reloads a file that parses.
+- The proxy prints one line and exits when the vault is corrupted at
+  startup, instead of two chained tracebacks.
+- `keyfence exec` no longer leaves its temporary environment vault behind
+  when killed: the proxy reads it once at startup and deletes it.
+
 ## 0.3.2 (2026-09-08)
 
 - A corrupted `vault.json` now produces one clear message from the CLI

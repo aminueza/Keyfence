@@ -129,8 +129,60 @@ def test_save_is_atomic_and_leaves_no_temp_file(tmp_path):
     path = tmp_path / "vault.json"
     v = Vault(path=path)
     v.add("persisted-secret-value")
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["vault.json"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["vault.json", "vault.json.lock"]
     assert json.loads(path.read_text())["hashes"]
+    v.remove_files()
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("content", [
+    '{"salt": "%s", "hashes": "notalist"}' % ("00" * 32),
+    '{"salt": "%s", "hashes": {"a": 1}}' % ("00" * 32),
+    '{"salt": "%s", "hashes": [], "min_length": 999999999}' % ("00" * 32),
+    '{"salt": "%s", "hashes": [], "min_length": true}' % ("00" * 32),
+    '{"salt": "%s", "hashes": ["short"]}' % ("00" * 32),
+    '{"salt": "%s", "hashes": [], "canaries": {"x": "y"}}' % ("00" * 32),
+    '{"salt": "0011", "hashes": []}',
+])
+def test_wrong_field_types_are_rejected(tmp_path, content):
+    path = tmp_path / "vault.json"
+    path.write_text(content)
+    with pytest.raises(VaultError):
+        Vault(path=path)
+
+
+def test_concurrent_writers_lose_nothing(tmp_path):
+    import threading
+    path = tmp_path / "vault.json"
+    errors = []
+
+    def worker(n):
+        try:
+            v = Vault(path=path)
+            for i in range(30):
+                v.add(f"worker-{n}-secret-{i:03d}")
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    final = Vault(path=path)
+    assert final.count() == 120
+    assert all(final.contains(f"worker-{n}-secret-{i:03d}") for n in range(4) for i in range(30))
+
+
+def test_two_fresh_vaults_agree_on_the_salt(tmp_path):
+    path = tmp_path / "vault.json"
+    a, b = Vault(path=path), Vault(path=path)
+    a.add("first-secret-value-1")
+    b.add("second-secret-value-2")
+    final = Vault(path=path)
+    assert final.contains("first-secret-value-1") and final.contains("second-secret-value-2")
+    assert a.salt == b.salt == final.salt
 
 
 def test_chmod_failure_is_ignored(tmp_path, monkeypatch):
