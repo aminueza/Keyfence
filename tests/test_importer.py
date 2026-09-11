@@ -116,6 +116,7 @@ def test_default_paths(tmp_path, monkeypatch):
     (fake_home / ".aws" / "credentials").write_text("[default]\n")
     monkeypatch.setattr("keyfence.importer.Path.home", classmethod(lambda cls: fake_home))
     monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
     paths = default_paths(tmp_path)
     names = [p.name for p in paths]
     assert names[:2] == [".env", ".env.local"]

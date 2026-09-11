@@ -2,6 +2,7 @@ import json
 import os
 import socket
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -11,7 +12,7 @@ from keyfence.vault import Vault
 
 def test_proxy_command():
     cmd = runner.proxy_command(9000, extra=["--set", "x=1"])
-    assert cmd[0].endswith("mitmdump") or cmd[0].endswith("mitmdump.exe")
+    assert Path(cmd[0]).name.lower() in ("mitmdump", "mitmdump.exe")
     assert cmd[1] == "-q"
     assert "--listen-port" in cmd and "9000" in cmd
     assert cmd[-2:] == ["--set", "x=1"]

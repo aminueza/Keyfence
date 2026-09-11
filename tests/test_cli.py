@@ -182,7 +182,7 @@ def test_run_replaces_the_process_with_mitmdump(home, monkeypatch, capsys):
     monkeypatch.setattr(cli.os, "execvp", fake_exec)
     with pytest.raises(SystemExit):
         cli.main(["run", "-p", "9001"])
-    assert seen["program"].endswith("mitmdump") and "9001" in seen["argv"]
+    assert seen["program"].lower().rstrip(".exe").endswith("mitmdump") and "9001" in seen["argv"]
     assert "keyfence exec" in capsys.readouterr().out
 
 
