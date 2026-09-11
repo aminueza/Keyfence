@@ -16,8 +16,9 @@
   `/plugin marketplace add aminueza/keyfence`.
 - `SECURITY.md`, a CycloneDX SBOM on every CI run, and unit tests on
   Windows.
-- README leads with `uv tool install` and `keyfence exec`; the system-wide
-  certificate trust is documented as the exception it is.
+- README leads with `uv tool install` and `keyfence exec`, shows the demo
+  as an animation, and documents the system-wide certificate trust as the
+  exception it is.
 
 ## 0.3.4 (2026-09-11)
 

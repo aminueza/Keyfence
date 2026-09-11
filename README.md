@@ -19,6 +19,8 @@ uv tool install keyfence     # or: pipx install keyfence, or pip install keyfenc
 keyfence demo                # shows what each mode does to a fake request, no network
 ```
 
+![keyfence demo: the same request in audit, redact, placeholder and block mode](https://raw.githubusercontent.com/aminueza/keyfence/main/docs/keyfence-demo.gif)
+
 ## Use it
 
 ```bash

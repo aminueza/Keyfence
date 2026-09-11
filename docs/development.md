@@ -62,6 +62,18 @@ python bench/run.py --json     # machine-readable
 The corpus is generated from a fixed seed, so nothing secret-looking is
 committed. Results are kept in `docs/benchmark.md`.
 
+## Images
+
+`docs/keyfence-flow.svg` is the source of the README diagram; render it
+with resvg (`pip install resvg-py`) at 2x to `docs/keyfence-flow.png`.
+`docs/keyfence-demo.gif` is rendered from the real `keyfence demo` output
+by `tools/demo_gif.py` (needs Pillow and the macOS Menlo and Helvetica Neue
+fonts):
+
+```bash
+python tools/demo_gif.py docs/keyfence-demo.gif
+```
+
 ## Releasing
 
 Releases are published to PyPI by the `Release` workflow through PyPI
