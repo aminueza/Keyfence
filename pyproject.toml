@@ -35,7 +35,7 @@ Issues = "https://github.com/aminueza/keyfence/issues"
 dev = ["pytest>=8", "pytest-cov>=5"]
 
 [project.scripts]
-keyfence = "keyfence.cli:main"
+keyfence = "keyfence.entry:main"
 
 [tool.setuptools.dynamic]
 version = { attr = "keyfence.__version__" }

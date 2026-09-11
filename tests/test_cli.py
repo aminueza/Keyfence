@@ -122,6 +122,20 @@ def test_cli_import_does_not_load_mitmproxy():
     assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "False"
 
 
+def test_entry_hook_fast_path_loads_only_hooks(home, monkeypatch, capsys):
+    import subprocess, sys
+    from keyfence import entry
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "/w/.env"}})))
+    assert entry.main(["hook", "claude-code"]) == 2
+    assert "keyfence blocked" in capsys.readouterr().err
+    assert entry.main(["hook", "other"]) == 1
+    assert entry.main(["scan", "clean text"]) == 0
+    code = ("import sys, json, io; sys.stdin = io.StringIO(json.dumps({'tool_name':'Read','tool_input':{'file_path':'a.py'}}));"
+            "import keyfence.entry as e; rc = e.main(['hook','claude-code']);"
+            "print(rc, any(m in sys.modules for m in ('yaml','keyfence.cli','keyfence.config','mitmproxy')))")
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "0 False"
+
+
 def test_import_all_flag(home, tmp_path):
     env = tmp_path / ".env"
     env.write_text("NODE_ENV=production\n")
@@ -328,6 +342,7 @@ def test_missing_command_errors():
 
 def test_module_entrypoint(home, monkeypatch):
     monkeypatch.setattr("sys.argv", ["keyfence", "scan", "clean"])
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("keyfence", run_name="__main__")
     assert exc.value.code == 0

@@ -12,8 +12,10 @@
   same rule as file import; `--all` registers everything; combining
   `--from` with file paths or `--env` is an error; a CLI that does not
   return JSON gives a one-line error.
-- `keyfence hook` starts faster: the CLI no longer imports mitmproxy
-  unless a command needs it.
+- `keyfence hook` starts in a fraction of the time: the console script
+  serves it from a minimal entry point that imports only the hook module,
+  and the rest of the CLI no longer imports mitmproxy unless a command
+  needs it.
 - `MITMPROXY_CONFDIR` is passed to mitmdump, so the CA keyfence looks for
   and the CA mitmproxy uses are the same.
 - `--record` files are created with mode 0600.
