@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.4 (2026-09-11)
 
 - The `keyfence exec` environment snapshot lives under
   `~/.keyfence/env/`, and each `exec` removes snapshots older than a
