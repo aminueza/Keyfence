@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import sys
 import tempfile
 from pathlib import Path
 
@@ -40,7 +42,8 @@ def _content(body: str) -> str:
 def run(out=None) -> int:
     from .addon import KeyFence, MAPPING_KEY
 
-    write = (out or __import__("sys").stdout).write
+    write = (out or sys.stdout).write
+    logging.getLogger("keyfence").disabled = True
     with tempfile.TemporaryDirectory() as tmp:
         vault = Vault(path=Path(tmp) / "vault.json")
         vault.add(DEMO_PASSWORD)
@@ -79,4 +82,5 @@ def run(out=None) -> int:
         write(f"Every run above was recorded in the audit log: {len(entries)} entries, kinds {', '.join(kinds)}, "
               "previews only, never the values.\n")
         write("\nTry it for real: keyfence import, then keyfence exec -- claude\n")
+    logging.getLogger("keyfence").disabled = False
     return 0
