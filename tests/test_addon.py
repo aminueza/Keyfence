@@ -123,6 +123,32 @@ def test_clean_request_gets_no_notice(guard):
     assert flow.request.content == body
 
 
+def test_audit_mode_logs_and_changes_nothing(guard, home, caplog):
+    kf = guard("audit")
+    flow = make_flow()
+    with caplog.at_level("WARNING", logger="keyfence"):
+        kf.request(flow)
+    assert flow.request.content == BODY
+    assert flow.response is None and MAPPING_KEY not in flow.metadata
+    assert "AUDIT -> api.openai.com: 1 secret(s) sent unchanged" in caplog.text
+    entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
+    assert entry["mode"] == "audit" and entry["findings"][0]["kind"] == "github-token"
+
+
+def test_injected_config_and_vault_are_not_reloaded(home, write_config):
+    from keyfence.config import Config
+    write_config("mode: block\n")
+    cfg = Config(mode="redact", audit_log=home / "demo-audit.log")
+    vault = Vault(path=home / "other.json")
+    kf = KeyFence(config=cfg, vault=vault)
+    (home / "config.yaml").write_text("mode: block\n")
+    os.utime(home / "config.yaml", (5, 5))
+    flow = make_flow()
+    kf.request(flow)
+    assert flow.response is None and "[REDACTED:github-token]" in flow.request.get_text()
+    assert (home / "demo-audit.log").exists()
+
+
 def test_block_mode(guard):
     kf = guard("block")
     flow = make_flow()

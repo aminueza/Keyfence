@@ -1,54 +1,79 @@
 # keyfence
 
 [![CI](https://github.com/aminueza/keyfence/actions/workflows/ci.yml/badge.svg)](https://github.com/aminueza/keyfence/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/keyfence.svg)](https://pypi.org/project/keyfence/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/aminueza/keyfence/blob/main/LICENSE)
-![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)
 
 A local proxy that stops secrets from reaching LLM APIs. It checks every
 request to an AI provider before it leaves your machine and blocks, redacts
-or placeholder-swaps API keys, passwords and other secrets. Works with Claude
-Code, Cursor, Codex, Aider, curl and anything else that speaks HTTP.
+or placeholder-swaps API keys, passwords and other secrets. Coding agents
+read `.env` files and credential stores and send what they find to the
+model; keyfence makes sure the values never arrive.
 
 ![How keyfence sits between your tools and the provider](https://raw.githubusercontent.com/aminueza/keyfence/main/docs/keyfence-flow.png)
 
-## Install
+## Try it in one minute
 
 ```bash
-pip install keyfence
+uv tool install keyfence     # or: pipx install keyfence, or pip install keyfence
+keyfence demo                # shows what each mode does to a fake request, no network
 ```
 
-Python 3.12 or newer. mitmproxy comes as a dependency.
-
-## Use
+## Use it
 
 ```bash
-keyfence import              # register your secrets from .env and credential files (hashes only)
-keyfence exec -- claude      # run a tool through the proxy
-keyfence canary .env         # plant a fake secret; if a tool ever sends it, you will know
-keyfence install-hooks claude-code   # stop Claude Code from reading secret files at all
+keyfence import              # register your own secrets: .env files and credential stores, hashes only
+keyfence exec -- claude      # run Claude Code through the proxy
 ```
 
-On first run mitmproxy creates a CA certificate in `~/.mitmproxy/`. Trust it
-once so HTTPS can be inspected (macOS shown, other systems in the
-[setup guide](https://github.com/aminueza/keyfence/blob/main/docs/setup.md)):
+That is the whole setup for Claude Code, Codex, Aider, curl and anything
+built on the Python or Node SDKs: `keyfence exec` starts the proxy, points
+the command at it and hands it the CA certificate, then stops the proxy when
+the command exits. No `sudo`, nothing changes on your system.
+
+Not sure it is working? `keyfence doctor` checks every piece and says what
+to fix. `keyfence status` shows what has been caught.
+
+Two more layers, both optional:
 
 ```bash
-sudo security add-trusted-cert -d -p ssl \
-  -k /Library/Keychains/System.keychain ~/.mitmproxy/mitmproxy-ca-cert.pem
+keyfence install-hooks claude-code   # Claude Code refuses to read secret files at all
+keyfence canary .env                 # plant a fake secret; if a tool ever sends it, you will know
 ```
 
 ## Modes
 
+Set `mode` in `~/.keyfence/config.yaml`.
+
 | mode | behaviour |
 |---|---|
-| `block` | request gets a 403 and is not sent |
+| `audit` | log what would have been caught, change nothing; start here to see what your tools send |
 | `redact` (default) | secret becomes `[REDACTED:<kind>]` |
 | `placeholder` | secret becomes `<<SECRET_id>>` and the real value is restored in the response, streaming included |
+| `block` | request gets a 403 and is not sent |
+
+## What it catches
+
+Your own secrets, whatever their format, once registered with
+`keyfence import` (from `.env` files, `~/.aws/credentials`, `~/.netrc`,
+`~/.npmrc`, `~/.docker/config.json`, or `--from op|vault|doppler|aws`);
+240 known formats through built-in rules and the bundled gitleaks ruleset;
+and high-entropy strings that look like secrets. Only salted hashes are
+stored. Details and numbers in the [benchmark](https://github.com/aminueza/keyfence/blob/main/docs/benchmark.md).
+
+## Verified with
+
+Claude Code (through `exec`, `--local` and the hook), the Anthropic and
+OpenAI HTTP APIs, curl, Python and Node clients. Cursor, Copilot and other
+editors route through their own backends; their hosts are on the default
+list, but they have not been tested end to end. If you try one, an issue
+with the result helps.
 
 ## Documentation
 
-- [Setup](https://github.com/aminueza/keyfence/blob/main/docs/setup.md): CA
-  certificate, manual proxy setup, Docker, all commands.
+- [Setup](https://github.com/aminueza/keyfence/blob/main/docs/setup.md):
+  install options, GUI apps and system-wide trust, capturing tools that
+  ignore proxies, Docker, all commands.
 - [Detection](https://github.com/aminueza/keyfence/blob/main/docs/detection.md):
   the vault, pattern rules, entropy check, what is excluded, the audit log.
 - [Configuration](https://github.com/aminueza/keyfence/blob/main/docs/configuration.md):
@@ -58,9 +83,12 @@ sudo security add-trusted-cert -d -p ssl \
   gitleaks, reproducible with `python bench/run.py`.
 - [Limitations](https://github.com/aminueza/keyfence/blob/main/docs/limitations.md):
   what keyfence does not cover and what to combine it with.
-- [Development](https://github.com/aminueza/keyfence/blob/main/docs/development.md):
-  tests, coverage gate, integration script, releasing.
-- [Changelog](https://github.com/aminueza/keyfence/blob/main/CHANGELOG.md)
+- [Claude Code plugin](https://github.com/aminueza/keyfence/blob/main/plugin/README.md):
+  the hook and two skills, installable with `/plugin marketplace add aminueza/keyfence`.
+- [Security](https://github.com/aminueza/keyfence/blob/main/SECURITY.md):
+  what the proxy sees, what it stores, how releases are built.
+- [Development](https://github.com/aminueza/keyfence/blob/main/docs/development.md)
+  and [Changelog](https://github.com/aminueza/keyfence/blob/main/CHANGELOG.md).
 
 ## License
 

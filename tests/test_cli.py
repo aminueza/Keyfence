@@ -73,6 +73,35 @@ def test_import_nothing_found(home, monkeypatch, capsys):
     assert "Nothing to import" in capsys.readouterr().out
 
 
+def test_import_from_secret_manager(home, monkeypatch, capsys):
+    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: ["manager-secret-value-1", "tiny"])
+    assert cli.main(["import", "--from", "doppler", "--path", "app/prd"]) == 0
+    out = capsys.readouterr().out
+    assert "doppler: 2 value(s) read, 1 new secret(s)" in out
+    assert Vault().contains("manager-secret-value-1")
+
+    def failing(source, path):
+        raise cli.sources.SourceError("op is not installed")
+
+    monkeypatch.setattr(cli.sources, "fetch", failing)
+    assert cli.main(["import", "--from", "op"]) == 1
+    assert "op is not installed" in capsys.readouterr().err
+
+
+def test_doctor_and_demo_commands(home, monkeypatch, capsys):
+    monkeypatch.setattr(cli.runner, "port_open", lambda port: False)
+    assert cli.main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "keyfence:" in out and "audit log:" in out
+    monkeypatch.setattr(cli.doctor, "check_mitmdump", lambda: cli.doctor.Check(cli.doctor.FAIL, "mitmdump", "gone"))
+    assert cli.main(["doctor"]) == 1
+    capsys.readouterr()
+    assert cli.main(["demo"]) == 0
+    out = capsys.readouterr().out
+    assert "mode: audit" in out and "mode: block" in out and "HTTP 403" in out
+    assert cli.demo.DEMO_PASSWORD not in out.split("mode: redact")[1].split("mode: placeholder")[0]
+
+
 def test_import_all_flag(home, tmp_path):
     env = tmp_path / ".env"
     env.write_text("NODE_ENV=production\n")

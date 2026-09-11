@@ -1,6 +1,8 @@
 # Copy to ~/.keyfence/config.yaml and adjust.
 
 # What to do when a secret is found in a request to an AI provider:
+#   audit       -> log it and send the request unchanged; use it to see what
+#                  your tools send before turning on redaction
 #   block       -> refuse the request (403); nothing leaves your machine
 #   redact      -> replace the secret with [REDACTED:<kind>] and let it through
 #   placeholder -> replace with <<SECRET_n>> on the way out and restore the real

@@ -10,7 +10,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import export, hooks, runner
+from . import demo, doctor, export, hooks, runner, sources
 from .config import Config
 from .detectors import scan
 from .importer import default_paths, env_values, import_files
@@ -34,6 +34,16 @@ def cmd_add_secret(_args) -> int:
 
 def cmd_import(args) -> int:
     vault = Vault()
+    if args.source:
+        try:
+            values = sources.fetch(args.source, args.path)
+        except sources.SourceError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        added = vault.add_many(values)
+        print(f"{args.source}: {len(values)} value(s) read, {added} new secret(s); "
+              f"vault now holds {vault.count()} (hashes only).")
+        return 0
     paths = [Path(p).expanduser() for p in args.paths] or default_paths()
     missing = [p for p in paths if not p.is_file()]
     for p in missing:
@@ -149,6 +159,16 @@ def cmd_install_hooks(args) -> int:
     return 0
 
 
+def cmd_doctor(args) -> int:
+    checks = doctor.run_checks(args.port)
+    print(doctor.render(checks))
+    return 1 if any(c.status == doctor.FAIL for c in checks) else 0
+
+
+def cmd_demo(_args) -> int:
+    return demo.run()
+
+
 def cmd_export(args) -> int:
     cfg = Config.load()
     log = Path(cfg.audit_log)
@@ -214,6 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("paths", nargs="*", help="files to read (default: .env* and common credential files)")
     p_import.add_argument("--env", action="store_true", help="also import values from environment variables")
     p_import.add_argument("--all", action="store_true", help="import every value, not only secret-looking ones")
+    p_import.add_argument("--from", dest="source", choices=sources.SOURCES,
+                          help="read from a secret manager CLI instead of files: op (1Password), vault, doppler, aws")
+    p_import.add_argument("--path", help="vault name (op), secret path (vault, aws) or project/config (doppler)")
 
     p_canary = sub.add_parser(
         "canary", help="plant a fake secret in a file; keyfence reports if a tool ever sends it")
@@ -247,6 +270,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_hooks.add_argument("--project", action="store_true", help="install in ./.claude instead of ~/.claude")
     p_hooks.add_argument("--remove", action="store_true", help="remove the hook")
 
+    p_doctor = sub.add_parser("doctor", help="check the installation and say what is missing")
+    p_doctor.add_argument("-p", "--port", type=int, default=8888)
+
+    sub.add_parser("demo", help="show what each mode does to a fake request, without any network")
+
     p_export = sub.add_parser("export", help="print the audit log as JSONL or send it to an OTLP collector")
     p_export.add_argument("--since", help="only entries after this timestamp (YYYY-MM-DDTHH:MM:SS+ZZZZ)")
     p_export.add_argument("--all", action="store_true", help="ignore the export cursor")
@@ -277,6 +305,8 @@ def _dispatch(args) -> int:
         "exec": cmd_exec,
         "hook": cmd_hook,
         "install-hooks": cmd_install_hooks,
+        "doctor": cmd_doctor,
+        "demo": cmd_demo,
         "export": cmd_export,
         "status": cmd_status,
     }[args.command](args)

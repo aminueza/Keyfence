@@ -28,11 +28,13 @@ PLACEHOLDER_ID_LENGTH = 10
 
 
 class KeyFence:
-    def __init__(self):
-        self.config = Config.load()
+    def __init__(self, config: Config | None = None, vault: Vault | None = None):
+        self.config = config or Config.load()
         self._config_path = Config.path()
         self._config_mtime = self._mtime(self._config_path)
-        self.vault = self._load_vault()
+        self._env_vault = None
+        self._fixed = config is not None or vault is not None
+        self.vault = vault or self._load_vault()
         self._vault_mtime = self._mtime(self.vault.path)
         self.stats = {"scanned": 0, "findings": 0, "blocked": 0, "errors": 0, "canaries": 0}
 
@@ -46,7 +48,7 @@ class KeyFence:
     def _load_vault(self) -> Vault:
         vault = Vault()
         vault.ensure_saved()
-        if not hasattr(self, "_env_vault"):
+        if self._env_vault is None:
             self._env_vault = self._consume_env_vault()
         if self._env_vault is not None:
             vault.merge(self._env_vault)
@@ -62,6 +64,8 @@ class KeyFence:
         return env_vault
 
     def _maybe_reload_vault(self) -> None:
+        if self._fixed:
+            return
         mtime = self._mtime(self.vault.path)
         if mtime != self._vault_mtime:
             self.vault = self._load_vault()
@@ -69,6 +73,8 @@ class KeyFence:
             log.info("vault reloaded: %d secret(s)", self.vault.count())
 
     def _maybe_reload_config(self) -> None:
+        if self._fixed:
+            return
         mtime = self._mtime(self._config_path)
         if mtime == self._config_mtime:
             return
@@ -118,6 +124,12 @@ class KeyFence:
         if tripped:
             self.stats["canaries"] += len(tripped)
             log.warning("CANARY tripped -> %s: %s was read and sent", host, ", ".join(tripped))
+
+        if self.config.mode == "audit":
+            kinds = sorted({f.kind for f in findings})
+            log.warning("AUDIT -> %s: %d secret(s) sent unchanged (%s)",
+                        host, len(findings), ", ".join(kinds))
+            return
 
         if self.config.mode == "block":
             self.stats["blocked"] += 1

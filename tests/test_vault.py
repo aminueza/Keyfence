@@ -20,7 +20,8 @@ def test_never_stores_plaintext(tmp_path):
     v.add("meu-segredo-super-confidencial-999")
     raw = (tmp_path / "vault.json").read_text()
     assert "meu-segredo-super-confidencial-999" not in raw
-    assert stat.S_IMODE(os.stat(tmp_path / "vault.json").st_mode) == 0o600
+    if os.name == "posix":
+        assert stat.S_IMODE(os.stat(tmp_path / "vault.json").st_mode) == 0o600
 
 
 def test_rejects_short_secrets(tmp_path):

@@ -73,8 +73,18 @@ def test_invalid_mode_raises(write_config):
         Config.load()
 
 
+def test_audit_mode_is_valid(write_config):
+    write_config("mode: audit\n")
+    assert Config.load().mode == "audit"
+
+
 @pytest.mark.parametrize("host,expected", [
     ("api.openai.com", True),
+    ("api.githubcopilot.com", True),
+    ("us-central1-aiplatform.googleapis.com", True),
+    ("aiplatform.googleapis.com", True),
+    ("myproj.services.ai.azure.com", True),
+    ("models.inference.ai.azure.com", True),
     ("API.OPENAI.COM", True),
     ("sub.api.openai.com", True),
     ("bedrock-runtime.us-east-1.amazonaws.com", True),

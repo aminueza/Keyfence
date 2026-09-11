@@ -1,0 +1,15 @@
+{
+  "name": "keyfence",
+  "description": "keyfence: keep API keys and secrets out of LLM requests. Hook and skills for Claude Code.",
+  "owner": {
+    "name": "Amanda Souza",
+    "url": "https://github.com/aminueza"
+  },
+  "plugins": [
+    {
+      "name": "keyfence",
+      "source": "./plugin",
+      "description": "Stop Claude Code from reading secret files, and check that the keyfence proxy is protecting your API traffic."
+    }
+  ]
+}

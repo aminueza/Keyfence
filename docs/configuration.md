@@ -5,8 +5,8 @@ optional.
 
 | key | default | description |
 |---|---|---|
-| `mode` | `redact` | `block`, `redact` or `placeholder` |
-| `hosts` | 14 AI provider hosts | hosts to monitor; wildcards allowed |
+| `mode` | `redact` | `audit` (log only, change nothing), `redact`, `placeholder` or `block` |
+| `hosts` | 20 AI provider hosts | hosts to monitor; wildcards allowed |
 | `extra_hosts` | `[]` | hosts to add to the default list |
 | `intercept_all_hosts` | `false` | scan every host, not only AI providers |
 | `notice` | `true` | add the system prompt notice when a request was changed |
@@ -25,7 +25,18 @@ Default hosts: `api.openai.com`, `api.anthropic.com`,
 `generativelanguage.googleapis.com`, `api.mistral.ai`, `api.groq.com`,
 `api.cohere.com`, `api.together.xyz`, `api.deepseek.com`, `api.x.ai`,
 `openrouter.ai`, `api.perplexity.ai`, `api.fireworks.ai`,
-`bedrock-runtime.*.amazonaws.com`, `*.openai.azure.com`. Subdomains match.
+`bedrock-runtime.*.amazonaws.com`, `*.openai.azure.com`,
+`*.services.ai.azure.com`, `*.cognitiveservices.azure.com`,
+`models.inference.ai.azure.com`, `api.githubcopilot.com`,
+`aiplatform.googleapis.com`, `*-aiplatform.googleapis.com`. Subdomains
+match. Editors with their own backend (Cursor, Windsurf) are not on the
+list: add their hosts with `extra_hosts` if you verify they carry JSON
+request bodies, and tell us.
+
+`audit` mode records findings in the audit log and on the console exactly
+as the other modes do, and sends the request untouched, without the system
+prompt notice. It is the way to see what your tools send before you turn
+on redaction.
 
 ## Environment variables
 

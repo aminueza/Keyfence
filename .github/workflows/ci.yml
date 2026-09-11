@@ -20,6 +20,8 @@ jobs:
         include:
           - os: macos-latest
             python: "3.13"
+          - os: windows-latest
+            python: "3.13"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -59,7 +61,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install build
+      - run: pip install build cyclonedx-bom
       - run: python -m build
       - run: pip install dist/*.whl && keyfence --help
       - run: python -c "import zipfile,glob; names=zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert 'keyfence/rules/gitleaks.toml' in names, names"
+      - run: cyclonedx-py environment --output-format json --output-file sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+      - run: npx --yes @anthropic-ai/claude-code plugin validate ./plugin

@@ -26,9 +26,15 @@ DEFAULT_AI_HOSTS = [
     "api.fireworks.ai",
     "bedrock-runtime.*.amazonaws.com",
     "*.openai.azure.com",
+    "*.services.ai.azure.com",
+    "*.cognitiveservices.azure.com",
+    "models.inference.ai.azure.com",
+    "api.githubcopilot.com",
+    "aiplatform.googleapis.com",
+    "*-aiplatform.googleapis.com",
 ]
 
-MODES = ("block", "redact", "placeholder")
+MODES = ("audit", "block", "redact", "placeholder")
 
 
 @dataclass

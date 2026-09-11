@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- `mode: audit`: log what would be caught and send the request unchanged.
+- `keyfence doctor` checks mitmdump, the CA certificate and its system
+  trust, config, vault, proxy, shell environment, local capture, the Claude
+  Code hook and the audit log, and says what to fix.
+- `keyfence demo` shows what each mode does to a fake request, offline.
+- `keyfence import --from op|vault|doppler|aws` registers secrets read from
+  1Password, HashiCorp Vault, Doppler or AWS Secrets Manager.
+- Default hosts include GitHub Copilot, Vertex AI, Azure AI Foundry and
+  GitHub Models.
+- A Claude Code plugin under `plugin/` ships the hook and the
+  `/keyfence:status` and `/keyfence:setup` skills; install with
+  `/plugin marketplace add aminueza/keyfence`.
+- `SECURITY.md`, a CycloneDX SBOM on every CI run, and unit tests on
+  Windows.
+- README leads with `uv tool install` and `keyfence exec`; the system-wide
+  certificate trust is documented as the exception it is.
+
 ## 0.3.4 (2026-09-11)
 
 - The `keyfence exec` environment snapshot lives under

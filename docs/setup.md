@@ -3,27 +3,38 @@
 ## Install
 
 ```bash
-pip install keyfence
+uv tool install keyfence
 ```
 
-Isolated installs work too and keep mitmproxy out of your global
-site-packages:
+`uv` fetches a suitable Python on its own, so this works on a machine with
+no Python installed. `pipx install keyfence` and `pip install keyfence`
+(Python 3.12 or newer) work too. To upgrade: `uv tool upgrade keyfence` or
+`pipx upgrade keyfence`.
+
+## First run
 
 ```bash
-uv tool install keyfence
-pipx install keyfence
+keyfence demo                # what each mode does, offline
+keyfence import              # register your secrets, hashes only
+keyfence exec -- claude      # run a tool through the proxy
+keyfence doctor              # check every piece of the setup
 ```
 
-## Trust the CA certificate
+Start with `mode: audit` in `~/.keyfence/config.yaml` if you want to see
+what your tools send before changing anything; `keyfence status` lists what
+would have been caught. Switch to `redact` when you are comfortable.
+
+## The CA certificate
 
 mitmproxy creates a certificate authority in `~/.mitmproxy/` the first time
 the proxy starts. Tools need to trust it so the proxy can read HTTPS traffic.
 
 `keyfence exec` passes the certificate to the child process through
 `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and
-`CURL_CA_BUNDLE`, so Node, Python and curl based tools work without a
-system-wide trust step. Desktop apps and tools that ignore those variables
-need the certificate in the system store:
+`CURL_CA_BUNDLE`, so Claude Code, Codex, Aider, curl and anything on the
+Python or Node SDKs work with no further step. Only desktop apps and tools
+that ignore those variables, and `--local` capture, need the certificate in
+the system store:
 
 macOS:
 
@@ -40,6 +51,9 @@ Linux and Windows: see the
 | command | description |
 |---|---|
 | `keyfence import [files] [--env] [--all]` | register secrets from files or the environment |
+| `keyfence import --from op\|vault\|doppler\|aws [--path P]` | register secrets read from a secret manager CLI |
+| `keyfence doctor [-p PORT]` | check mitmdump, CA, config, vault, proxy, shell, local mode, hook and audit log |
+| `keyfence demo` | show what each mode does to a fake request, offline |
 | `keyfence add-secret` | register one secret typed at a hidden prompt |
 | `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
 | `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through the proxy |
@@ -58,6 +72,14 @@ are registered: names containing key, token, secret, password and similar, or
 values with high entropy. Passwords inside connection URLs are extracted too.
 `--all` registers every value longer than 8 characters. `--env` adds values
 from environment variables.
+
+`keyfence import --from` reads a secret manager through its own CLI, which
+must be installed and logged in: `op` (1Password, `--path` is the vault
+name, all concealed fields of every item), `vault` (HashiCorp,
+`--path secret/myapp`, KV v1 or v2), `doppler` (`--path project/config`,
+otherwise the current scope) and `aws` (Secrets Manager, `--path` is the
+secret id; JSON secrets contribute every value). Every value read is
+registered; only hashes are stored.
 
 `keyfence exec` starts the proxy, sets `HTTPS_PROXY`, `HTTP_PROXY` and the CA
 variables for the command, snapshots environment variables with secret-like
@@ -103,6 +125,14 @@ Code from reading them in the first place:
 keyfence install-hooks claude-code            # all projects (~/.claude/settings.json)
 keyfence install-hooks claude-code --project  # this project (./.claude/settings.json)
 keyfence install-hooks claude-code --remove
+```
+
+The same hook ships as a Claude Code plugin, together with `/keyfence:status`
+and `/keyfence:setup`. Inside Claude Code:
+
+```
+/plugin marketplace add aminueza/keyfence
+/plugin install keyfence@keyfence
 ```
 
 It adds a `PreToolUse` hook for Read, Edit, Write, MultiEdit, NotebookEdit
