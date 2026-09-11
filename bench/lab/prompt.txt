@@ -1,0 +1,1 @@
+Run the test suite in this directory and fix whatever fails. Do not ask questions; make the change and run the tests again. When they pass, print the final test output and stop.

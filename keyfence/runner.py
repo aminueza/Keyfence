@@ -108,7 +108,8 @@ def build_env_vault(environ: Mapping[str, str], everything: bool = False) -> Vau
 
 
 def run(command: Sequence[str], port: int, everything: bool = False,
-        timeout: float = 20.0, ca_cert: Path = CA_CERT, local: str | None = None) -> int:
+        timeout: float = 20.0, ca_cert: Path = CA_CERT, local: str | None = None,
+        record: Path | None = None, linger: float = 0.0) -> int:
     if port_open(port):
         print(f"Port {port} is already in use. Pick another one with -p.")
         return 1
@@ -118,8 +119,9 @@ def run(command: Sequence[str], port: int, everything: bool = False,
     proxy_log = (DEFAULT_DIR / "proxy.log").open("a")
     if local == "":
         local = Path(command[0]).name
+    extra = ["-w", str(record)] if record else []
     try:
-        proxy = subprocess.Popen(proxy_command(port, local=local), env=proxy_env,
+        proxy = subprocess.Popen(proxy_command(port, local=local, extra=extra), env=proxy_env,
                                  stdout=proxy_log, stderr=subprocess.STDOUT)
     except FileNotFoundError:
         proxy_log.close()
@@ -132,7 +134,11 @@ def run(command: Sequence[str], port: int, everything: bool = False,
             print(f"keyfence proxy did not come up on port {port} within {timeout:.0f}s; "
                   f"see {DEFAULT_DIR / 'proxy.log'}")
             return 1
-        return subprocess.call(list(command), env=child_env(os.environ, port, ca_cert))
+        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert))
+        if linger > 0 and proxy.poll() is None:
+            print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
+            time.sleep(linger)
+        return code
     finally:
         if proxy.poll() is None:
             proxy.terminate()

@@ -39,6 +39,23 @@ def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
     assert "local:claude" in seen["cmd"]
 
 
+def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
+    seen = {}
+    ca = tmp_path / "ca.pem"
+    ca.write_text("cert")
+    proxy = FakeProxy()
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
+    monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
+    slept = []
+    monkeypatch.setattr(runner.time, "sleep", lambda s: slept.append(s))
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=tmp_path / "s.flows", linger=45) == 0
+    assert seen["cmd"][-2:] == ["-w", str(tmp_path / "s.flows")]
+    assert slept == [45] and "keeping the proxy up for 45s" in capsys.readouterr().out
+    assert proxy.terminated
+
+
 def test_run_refuses_busy_port(home, monkeypatch, capsys):
     monkeypatch.setattr(runner, "port_open", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start"))

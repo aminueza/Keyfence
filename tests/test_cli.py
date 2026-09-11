@@ -199,7 +199,7 @@ def test_run_without_mitmdump(home, monkeypatch, capsys):
 def test_exec_delegates_to_runner(home, monkeypatch):
     seen = {}
 
-    def fake_run(command, port, everything, local):
+    def fake_run(command, port, everything, local, record, linger):
         seen.update(command=command, port=port, everything=everything)
         return 3
 
@@ -208,9 +208,18 @@ def test_exec_delegates_to_runner(home, monkeypatch):
     assert seen == {"command": ["claude", "--verbose"], "port": 9002, "everything": True}
 
 
+def test_exec_passes_record_and_linger(home, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli.runner, "run", lambda command, port, everything, local, record, linger: seen.update(record=record, linger=linger) or 0)
+    assert cli.main(["exec", "--record", "s.flows", "--linger", "30", "--", "claude"]) == 0
+    assert seen["record"] == cli.Path("s.flows") and seen["linger"] == 30.0
+    assert cli.main(["exec", "--", "claude"]) == 0
+    assert seen["record"] is None and seen["linger"] == 0.0
+
+
 def test_exec_passes_local_flag(home, monkeypatch):
     seen = {}
-    monkeypatch.setattr(cli.runner, "run", lambda command, port, everything, local: seen.update(local=local) or 0)
+    monkeypatch.setattr(cli.runner, "run", lambda command, port, everything, local, record, linger: seen.update(local=local) or 0)
     assert cli.main(["exec", "--local", "--", "claude"]) == 0
     assert seen["local"] == ""
     assert cli.main(["exec", "--local", "claude,node", "--", "claude"]) == 0

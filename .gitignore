@@ -15,3 +15,4 @@ bench/corpus/
 .env
 .env.*
 !.env.example
+lab-out/

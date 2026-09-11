@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- `keyfence exec --record FILE` saves the raw traffic as a mitmproxy flows
+  file, and `--linger SECONDS` keeps the proxy up after the command exits
+  to capture what is sent afterwards.
+- `bench/lab/`: a reproducible agent traffic lab. A toy project with
+  generated fake secrets and a canary, a runner that wraps any agent
+  command in `keyfence exec` with audit mode, and a report that produces
+  the comparison table, per-run JSON and a bytes-by-destination chart.
+
 ## 0.4.0 (2026-09-11)
 
 - `mode: audit`: log what would be caught and send the request unchanged.

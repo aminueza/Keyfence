@@ -128,9 +128,10 @@ def cmd_exec(args) -> int:
     if command and command[0] == "--":
         command = command[1:]
     if not command:
-        print("usage: keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <command> [args...]")
+        print("usage: keyfence exec [-p PORT] [--all-env] [--local [NAMES]] [--record FILE] [--linger SECONDS] -- <command> [args...]")
         return 1
-    return runner.run(command, args.port, everything=args.all_env, local=args.local)
+    return runner.run(command, args.port, everything=args.all_env, local=args.local,
+                      record=Path(args.record) if args.record else None, linger=args.linger)
 
 
 def cmd_hook(args) -> int:
@@ -261,6 +262,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_exec.add_argument("--local", nargs="?", const="", metavar="NAMES",
                         help="also capture the command's traffic without proxy variables "
                              "(macOS/Windows); default: the command's own process name")
+    p_exec.add_argument("--record", metavar="FILE",
+                        help="save the raw traffic to a mitmproxy flows file (contains full request and response bodies)")
+    p_exec.add_argument("--linger", type=float, default=0.0, metavar="SECONDS",
+                        help="keep the proxy up this long after the command exits, to see what is sent afterwards")
     p_exec.add_argument("argv", nargs=argparse.REMAINDER, metavar="command")
 
     p_hook = sub.add_parser("hook", help="agent hook entry point; reads the tool call from stdin")
