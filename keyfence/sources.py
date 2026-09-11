@@ -6,6 +6,8 @@ import subprocess
 from collections.abc import Callable
 
 SOURCES = ("op", "vault", "doppler", "aws")
+OP_CATEGORIES = "API Credential,Login,Password,Secure Note,Database,Server"
+Pair = tuple[str, str]
 
 
 class SourceError(RuntimeError):
@@ -24,67 +26,72 @@ def _run(command: list[str]) -> str:
     return done.stdout
 
 
-def _strings(obj) -> list[str]:
+def _json(text: str, what: str):
+    try:
+        return json.loads(text or "null")
+    except ValueError:
+        raise SourceError(f"{what} did not return JSON; check that the CLI is logged in and up to date") from None
+
+
+def _pairs(obj, key: str = "") -> list[Pair]:
     if isinstance(obj, str):
-        return [obj]
+        return [(key, obj)] if obj else []
     if isinstance(obj, dict):
-        return [s for v in obj.values() for s in _strings(v)]
+        return [p for k, v in obj.items() for p in _pairs(v, str(k))]
     if isinstance(obj, list):
-        return [s for v in obj for s in _strings(v)]
+        return [p for v in obj for p in _pairs(v, key)]
     return []
 
 
-OP_CATEGORIES = "API Credential,Login,Password,Secure Note,Database,Server"
-
-
-def from_op(path: str | None, run: Callable = _run) -> list[str]:
+def from_op(path: str | None, run: Callable = _run) -> list[Pair]:
     command = ["op", "item", "list", "--format", "json", "--categories", OP_CATEGORIES]
     if path:
         command += ["--vault", path]
-    items = json.loads(run(command) or "[]")
-    values: list[str] = []
+    items = _json(run(command), "op item list") or []
+    pairs: list[Pair] = []
     for item in items:
-        detail = json.loads(run(["op", "item", "get", item["id"], "--format", "json", "--reveal"]) or "{}")
+        detail = _json(run(["op", "item", "get", item["id"], "--format", "json", "--reveal"]), "op item get") or {}
         for field in detail.get("fields", []):
             if field.get("type") == "CONCEALED" and field.get("value"):
-                values.append(field["value"])
-    return values
+                pairs.append(("password", field["value"]))
+    return pairs
 
 
-def from_vault(path: str | None, run: Callable = _run) -> list[str]:
+def from_vault(path: str | None, run: Callable = _run) -> list[Pair]:
     if not path:
         raise SourceError("--path is required for vault, e.g. --path secret/myapp")
-    data = json.loads(run(["vault", "kv", "get", "-format=json", path]) or "{}").get("data", {})
+    data = (_json(run(["vault", "kv", "get", "-format=json", path]), "vault kv get") or {}).get("data", {})
     if isinstance(data.get("data"), dict):
         data = data["data"]
-    return _strings(data)
+    return _pairs(data)
 
 
-def from_doppler(path: str | None, run: Callable = _run) -> list[str]:
+def from_doppler(path: str | None, run: Callable = _run) -> list[Pair]:
     command = ["doppler", "secrets", "download", "--no-file", "--format", "json"]
     if path:
         project, _, config = path.partition("/")
         command += ["--project", project]
         if config:
             command += ["--config", config]
-    return _strings(json.loads(run(command) or "{}"))
+    return _pairs(_json(run(command), "doppler secrets download") or {})
 
 
-def from_aws(path: str | None, run: Callable = _run) -> list[str]:
+def from_aws(path: str | None, run: Callable = _run) -> list[Pair]:
     if not path:
         raise SourceError("--path is required for aws, e.g. --path prod/db")
     raw = run(["aws", "secretsmanager", "get-secret-value", "--secret-id", path,
                "--query", "SecretString", "--output", "text"]).strip()
     try:
-        return _strings(json.loads(raw))
+        parsed = json.loads(raw)
     except ValueError:
-        return [raw] if raw else []
+        return [("secret", raw)] if raw else []
+    return _pairs(parsed, "secret") if isinstance(parsed, (dict, list)) else [("secret", raw)]
 
 
 FETCHERS = {"op": from_op, "vault": from_vault, "doppler": from_doppler, "aws": from_aws}
 
 
-def fetch(source: str, path: str | None, run: Callable = _run) -> list[str]:
+def fetch(source: str, path: str | None, run: Callable = _run) -> list[Pair]:
     try:
         fetcher = FETCHERS[source]
     except KeyError:

@@ -28,18 +28,22 @@ publishing anything.
 
 Install keyfence and trust its CA system-wide first (see
 [docs/setup.md](../../docs/setup.md)); native agents such as Codex CLI do not
-read the CA from environment variables.
+read the CA from environment variables. `pytest` must be on the PATH the
+agent inherits, since the prompt asks it to run the tests. The workspace is
+created in the system temp directory so the agent's `pytest` does not pick
+up this repository's `pyproject.toml`.
 
 ```bash
 python bench/lab/run.py --label smoke --agent "bash $PWD/bench/lab/fake_agent.sh" --linger 5
-python bench/lab/run.py --label claude-code --agent 'claude -p --allowedTools Read,Edit,Bash "{prompt}"' --runs 3
+python bench/lab/run.py --label claude-code --agent 'claude -p "{prompt}" --allowedTools Read,Edit,Bash' --runs 3
 python bench/lab/run.py --label codex --agent 'codex exec --full-auto "{prompt}"' --runs 3
 python bench/lab/run.py --label aider --agent 'aider --yes --message "{prompt}"' --runs 3
 python bench/lab/run.py --label gemini --agent 'gemini -y -p "{prompt}"' --runs 3
 python bench/lab/report.py lab-out
 ```
 
-`{prompt}` is replaced by the contents of `prompt.txt`. Each run uses seed
+`{prompt}` is replaced by the contents of `prompt.txt`; keep it before
+`--allowedTools`, which takes a list and would swallow it. Each run uses seed
 `--seed + i`, so the fake secrets differ between runs but are the same for
 everyone who uses the same seed. Cursor and Windsurf go through their own
 backends; add their hosts to `extra_hosts` in the run's config to test

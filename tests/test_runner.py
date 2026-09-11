@@ -39,6 +39,12 @@ def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
     assert "local:claude" in seen["cmd"]
 
 
+def test_confdir_is_passed_to_mitmdump(tmp_path):
+    assert "--set" in runner.proxy_command(1, confdir=None) and "confdir=" not in " ".join(runner.proxy_command(1, confdir=None))
+    cmd = runner.proxy_command(1, confdir=tmp_path / "conf")
+    assert cmd[cmd.index("--set", cmd.index("--set") + 1) + 1] == f"confdir={tmp_path / 'conf'}"
+
+
 def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     seen = {}
     ca = tmp_path / "ca.pem"
@@ -50,8 +56,11 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
     slept = []
     monkeypatch.setattr(runner.time, "sleep", lambda s: slept.append(s))
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=tmp_path / "s.flows", linger=45) == 0
-    assert seen["cmd"][-2:] == ["-w", str(tmp_path / "s.flows")]
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=tmp_path / "rec" / "s.flows", linger=45) == 0
+    assert seen["cmd"][-2:] == ["-w", str(tmp_path / "rec" / "s.flows")]
+    if os.name == "posix":
+        import stat
+        assert stat.S_IMODE((tmp_path / "rec" / "s.flows").stat().st_mode) == 0o600
     assert slept == [45] and "keeping the proxy up for 45s" in capsys.readouterr().out
     assert proxy.terminated
 

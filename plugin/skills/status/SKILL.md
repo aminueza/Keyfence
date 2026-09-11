@@ -1,7 +1,7 @@
 ---
 description: Show whether the keyfence proxy is protecting this session and what it has caught recently.
 disable-model-invocation: true
-allowed-tools: Bash(keyfence *)
+allowed-tools: Bash(keyfence doctor*), Bash(keyfence status*)
 ---
 
 Run `keyfence doctor` and `keyfence status` with the Bash tool. Report, in a

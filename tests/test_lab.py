@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -9,12 +10,13 @@ from mitmproxy.test import tflow, tutils
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bench.lab import report, secrets  # noqa: E402
-from bench.lab.run import agent_binary, prepare_home, prepare_workspace  # noqa: E402
+from bench.lab import run as run_module  # noqa: E402
+from bench.lab.run import agent_binary, one_run, prepare_home, prepare_workspace  # noqa: E402
 
 
 def test_agent_binary_skips_shells_and_flags():
     assert agent_binary("bash /x/fake_agent.sh") == "fake_agent.sh"
-    assert agent_binary('claude -p --allowedTools Read "{prompt}"') == "claude"
+    assert agent_binary('claude -p "{prompt}" --allowedTools Read,Edit,Bash') == "claude"
     assert agent_binary("env FOO=1 python3 -m aider --message x") == "aider"
     assert agent_binary("uvx codex exec") == "codex"
     assert agent_binary("") == "unknown"
@@ -39,6 +41,32 @@ def test_prepare_workspace_and_home(tmp_path):
     assert secrets.fake_secrets(3)["GITHUB_TOKEN"] in (ws / ".env").read_text()
     home = prepare_home(tmp_path)
     assert (home / "config.yaml").read_text().startswith("mode: audit")
+    (home / "audit.log").write_text("stale\n")
+    (home / "vault.json").write_text("{}")
+    assert sorted(p.name for p in prepare_home(tmp_path).iterdir()) == ["config.yaml"]
+
+
+def test_one_run_resolves_paths_and_keeps_workspace_outside_out(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((list(args), kwargs))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(run_module.subprocess, "run", fake_run)
+    monkeypatch.chdir(tmp_path)
+    run_dir = one_run("fake", "bash agent.sh", Path("out"), 5, 8877, 0.0, "fix it")
+    assert run_dir == tmp_path / "out" / "fake" / "run-5"
+    assert json.loads((run_dir / "meta.json").read_text())["seed"] == 5
+    exec_call = next(args for args, _ in calls if args[:2] == ["keyfence", "exec"])
+    assert Path(exec_call[exec_call.index("--record") + 1]) == run_dir / "session.flows"
+    assert str(run_dir / "exit") in exec_call[-1] and str(run_dir / "ended") in exec_call[-1]
+    workspaces = {Path(kw["cwd"]) for _, kw in calls if kw.get("cwd")}
+    assert len(workspaces) == 1
+    workspace = workspaces.pop()
+    assert workspace.is_absolute() and not workspace.is_relative_to(tmp_path) and not workspace.exists()
+    homes = {kw["env"]["KEYFENCE_HOME"] for _, kw in calls if kw.get("env")}
+    assert homes == {str(run_dir / "keyfence-home")}
 
 
 def test_categorize_and_normalize():

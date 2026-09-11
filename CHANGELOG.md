@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- The Claude Code hook now catches commands on any line of a multi-line
+  Bash call, after leading whitespace, inside `$( )` and backticks, and
+  file names in any letter case. Before, `cd /tmp` followed by `env` on
+  the next line passed.
+- `keyfence demo` no longer reads or writes the real keyfence home; the
+  mitmproxy addon is only instantiated when mitmproxy loads the script.
+- `keyfence import --from` keeps only values that look like secrets, the
+  same rule as file import; `--all` registers everything; combining
+  `--from` with file paths or `--env` is an error; a CLI that does not
+  return JSON gives a one-line error.
+- `keyfence hook` starts faster: the CLI no longer imports mitmproxy
+  unless a command needs it.
+- `MITMPROXY_CONFDIR` is passed to mitmdump, so the CA keyfence looks for
+  and the CA mitmproxy uses are the same.
+- `--record` files are created with mode 0600.
+- The plugin skills can run only the keyfence subcommands they need.
 - `keyfence exec --record FILE` saves the raw traffic as a mitmproxy flows
   file, and `--linger SECONDS` keeps the proxy up after the command exits
   to capture what is sent afterwards.

@@ -25,34 +25,45 @@ def test_op_reads_concealed_fields_of_every_item():
         (["op", "item", "get", "a"], json.dumps({"fields": [{"type": "CONCEALED", "value": "secret-one-value"}, {"type": "STRING", "value": "user"}]})),
         (["op", "item", "get", "b"], json.dumps({"fields": [{"type": "CONCEALED", "value": ""}, {"type": "CONCEALED", "value": "secret-two-value"}]})),
     ])
-    assert sources.fetch("op", "Personal", run) == ["secret-one-value", "secret-two-value"]
+    assert sources.fetch("op", "Personal", run) == [("password", "secret-one-value"), ("password", "secret-two-value")]
     assert run.calls[0] == ["op", "item", "list", "--format", "json", "--categories", sources.OP_CATEGORIES, "--vault", "Personal"]
     assert run.calls[1][-1] == "--reveal"
 
 
-def test_vault_reads_kv_v2_and_v1():
-    v2 = fake_runner([(["vault", "kv", "get"], json.dumps({"data": {"data": {"pw": "vault-secret-value", "n": 1}, "metadata": {}}}))])
-    assert sources.fetch("vault", "secret/app", v2) == ["vault-secret-value"]
+def test_vault_reads_kv_v2_and_v1_with_keys():
+    v2 = fake_runner([(["vault", "kv", "get"], json.dumps({"data": {"data": {"pw": "vault-secret-value", "host": "db.internal", "n": 1}, "metadata": {}}}))])
+    assert sorted(sources.fetch("vault", "secret/app", v2)) == [("host", "db.internal"), ("pw", "vault-secret-value")]
     v1 = fake_runner([(["vault", "kv", "get"], json.dumps({"data": {"pw": "v1-secret-value"}}))])
-    assert sources.fetch("vault", "secret/app", v1) == ["v1-secret-value"]
+    assert sources.fetch("vault", "secret/app", v1) == [("pw", "v1-secret-value")]
     with pytest.raises(sources.SourceError):
         sources.fetch("vault", None, v1)
 
 
 def test_doppler_uses_project_and_config():
     run = fake_runner([(["doppler", "secrets", "download"], json.dumps({"DB_PASSWORD": "doppler-secret-value", "PORT": "3000"}))])
-    assert sorted(sources.fetch("doppler", "myapp/prd", run)) == ["3000", "doppler-secret-value"]
+    assert sorted(sources.fetch("doppler", "myapp/prd", run)) == [("DB_PASSWORD", "doppler-secret-value"), ("PORT", "3000")]
     assert run.calls[0][-4:] == ["--project", "myapp", "--config", "prd"]
     assert "--project" not in fake_runner([(["doppler"], "{}")]).calls
 
 
 def test_aws_handles_json_and_plain_secrets():
     js = fake_runner([(["aws", "secretsmanager"], json.dumps({"username": "u", "password": "aws-secret-value"}) + "\n")])
-    assert sorted(sources.fetch("aws", "prod/db", js)) == ["aws-secret-value", "u"]
+    assert sorted(sources.fetch("aws", "prod/db", js)) == [("password", "aws-secret-value"), ("username", "u")]
     plain = fake_runner([(["aws", "secretsmanager"], "just-a-plain-token-value\n")])
-    assert sources.fetch("aws", "prod/token", plain) == ["just-a-plain-token-value"]
+    assert sources.fetch("aws", "prod/token", plain) == [("secret", "just-a-plain-token-value")]
+    number = fake_runner([(["aws", "secretsmanager"], "12345\n")])
+    assert sources.fetch("aws", "prod/n", number) == [("secret", "12345")]
     with pytest.raises(sources.SourceError):
         sources.fetch("aws", None, plain)
+
+
+def test_non_json_output_is_a_clean_error():
+    broken = fake_runner([(["vault", "kv", "get"], "Error: not logged in\n")])
+    with pytest.raises(sources.SourceError) as exc:
+        sources.fetch("vault", "secret/app", broken)
+    assert "did not return JSON" in str(exc.value)
+    empty = fake_runner([(["doppler"], "")])
+    assert sources.fetch("doppler", None, empty) == []
 
 
 def test_unknown_source():

@@ -19,17 +19,16 @@ SENSITIVE_PATHS = (
 )
 SAFE_NAMES = (".env.example", ".env.sample", ".env.template", ".env.dist", "*.pub")
 FILE_TOOLS = {"Read", "Edit", "Write", "MultiEdit", "NotebookEdit"}
-_PATH_TOKEN = re.compile(r"""(?<![\w-])(?:~|\.{0,2}/)?[\w.~/@-]*(?:\.env(?:\.\w+)?|\.pem|\.key|\.p12|\.pfx|\.jks|\.ppk|\.kdbx|\.tfvars|\.netrc|\.npmrc|\.pypirc|\.git-credentials|credentials(?:\.\w+)?|id_rsa|id_ed25519|id_ecdsa|\.ssh/[\w.-]+|\.aws/credentials|\.docker/config\.json|\.kube/config)(?![\w-])""")
+_PATH_TOKEN = re.compile(r"""(?<![\w-])(?:~|\.{0,2}/)?[\w.~/@-]*(?:\.env(?:\.\w+)?|\.pem|\.key|\.p12|\.pfx|\.jks|\.ppk|\.kdbx|\.tfvars|\.netrc|\.npmrc|\.pypirc|\.git-credentials|credentials(?:\.\w+)?|id_rsa|id_ed25519|id_ecdsa|\.ssh/[\w.-]+|\.aws/credentials|\.docker/config\.json|\.kube/config)(?![\w-])""", re.IGNORECASE)
+_START = r"(?:^|[;&|(`])\s*"
 _DUMP_COMMANDS = re.compile(
-    r"(?:^|[;&|(]\s*)(?:"
-    r"env|printenv|export(?:\s+-p)?|set|declare\s+-x|typeset\s+-x"
-    r")\s*(?:$|[;&|)>])"
-)
+    _START + r"(?:env|printenv|export(?:\s+-p)?|set|declare\s+-x|typeset\s+-x)\s*(?:$|[;&|)>`])",
+    re.MULTILINE)
 _SECRET_VAR = r"[A-Za-z_]*(?:SECRET|TOKEN|KEY|PASSWORD|PASSWD|CREDENTIAL)[A-Za-z_]*"
 _NAMED_DUMP = re.compile(
-    r"(?:^|[;&|(]\s*)printenv\s+" + _SECRET_VAR + r"\b|/proc/(?:self|\d+)/environ", re.IGNORECASE)
+    _START + r"printenv\s+" + _SECRET_VAR + r"\b|/proc/(?:self|\d+)/environ", re.IGNORECASE | re.MULTILINE)
 _SECRET_COMMANDS = re.compile(
-    r"(?:^|[;&|(]\s*)(?:"
+    _START + r"(?:"
     r"aws\s+secretsmanager\s+get-secret-value|aws\s+ssm\s+get-parameters?\b.*--with-decryption|"
     r"aws\s+configure\s+get\s+\S*(?:secret|token|key)|"
     r"op\s+read|op\s+item\s+get\b(?=.*(?:--reveal|--format[= ]json|--fields))|"
@@ -39,7 +38,7 @@ _SECRET_COMMANDS = re.compile(
     r"gcloud\s+secrets\s+versions\s+access|gcloud\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token|"
     r"az\s+keyvault\s+secret\s+show|az\s+account\s+get-access-token|"
     r"gh\s+auth\s+token|heroku\s+config(?::get)?|infisical\s+(?:secrets|export)|bw\s+get"
-    r")\b", re.IGNORECASE)
+    r")\b", re.IGNORECASE | re.MULTILINE)
 HOOK_COMMAND = "keyfence hook claude-code"
 HOOK_MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash"
 DENY_RULES = (
@@ -51,7 +50,7 @@ DENY_RULES = (
 
 
 def is_sensitive(path: str) -> bool:
-    posix = PurePosixPath(path.replace("\\", "/"))
+    posix = PurePosixPath(path.replace("\\", "/").lower())
     name = posix.name
     if any(fnmatch.fnmatch(name, pattern) for pattern in SAFE_NAMES):
         return False
@@ -69,7 +68,7 @@ def dumps_secrets(command: str) -> str | None:
         return "it prints environment variables that hold the secrets keyfence protects"
     m = _SECRET_COMMANDS.search(command)
     if m:
-        return f"`{m.group().strip(' ;&|(')}` prints secret values"
+        return f"`{m.group().strip(' ;&|(`')}` prints secret values"
     return None
 
 

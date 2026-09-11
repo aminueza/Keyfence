@@ -32,7 +32,8 @@ def prepare_workspace(seed: int, base: Path | None = None) -> Path:
 
 def prepare_home(base: Path) -> Path:
     home = base / "keyfence-home"
-    home.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(home, ignore_errors=True)
+    home.mkdir(parents=True)
     (home / "config.yaml").write_text("mode: audit\nnotice: false\n")
     return home
 
@@ -68,14 +69,15 @@ def version_of(command: str) -> str:
 
 
 def one_run(label: str, agent: str, out: Path, seed: int, port: int, linger: float, prompt: str) -> Path:
-    run_dir = out / label / f"run-{seed}"
+    run_dir = out.resolve() / label / f"run-{seed}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    workspace = prepare_workspace(seed, run_dir)
+    workspace = prepare_workspace(seed)
     home = prepare_home(run_dir)
     keyfence(home, "import", str(workspace / ".env"), cwd=workspace)
     canary = keyfence(home, "canary", str(workspace / ".env"), cwd=workspace)
     command = agent.replace("{prompt}", prompt)
-    wrapper = f"{command}; echo $? > {run_dir / 'exit'}; date +%s > {run_dir / 'ended'}"
+    ended_cmd = "python3 -c 'import time; print(time.time())' 2>/dev/null || date +%s"
+    wrapper = f"{command}; echo $? > {run_dir / 'exit'}; ({ended_cmd}) > {run_dir / 'ended'}"
     started = time.time()
     with (run_dir / "terminal.txt").open("w") as terminal:
         env = dict(os.environ, KEYFENCE_HOME=str(home), KEYFENCE_CONFIG=str(home / "config.yaml"))

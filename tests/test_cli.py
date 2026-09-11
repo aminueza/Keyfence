@@ -74,11 +74,16 @@ def test_import_nothing_found(home, monkeypatch, capsys):
 
 
 def test_import_from_secret_manager(home, monkeypatch, capsys):
-    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: ["manager-secret-value-1", "tiny"])
+    pairs = [("DB_PASSWORD", "manager-secret-value-1"), ("REGION", "us-east-1"), ("USERNAME", "app"), ("TOKEN", "tiny")]
+    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: pairs)
     assert cli.main(["import", "--from", "doppler", "--path", "app/prd"]) == 0
     out = capsys.readouterr().out
-    assert "doppler: 2 value(s) read, 1 new secret(s)" in out
-    assert Vault().contains("manager-secret-value-1")
+    assert "doppler: 4 value(s) read, 1 looked like secrets, 1 new" in out
+    assert Vault().contains("manager-secret-value-1") and not Vault().contains("us-east-1")
+    assert cli.main(["import", "--from", "doppler", "--all"]) == 0
+    assert Vault().contains("us-east-1")
+    assert cli.main(["import", "--from", "doppler", "some.env"]) == 2
+    assert "cannot be combined" in capsys.readouterr().err
 
     def failing(source, path):
         raise cli.sources.SourceError("op is not installed")
@@ -99,7 +104,22 @@ def test_doctor_and_demo_commands(home, monkeypatch, capsys):
     assert cli.main(["demo"]) == 0
     out = capsys.readouterr().out
     assert "mode: audit" in out and "mode: block" in out and "HTTP 403" in out
-    assert cli.demo.DEMO_PASSWORD not in out.split("mode: redact")[1].split("mode: placeholder")[0]
+    from keyfence import demo
+    assert demo.DEMO_PASSWORD not in out.split("mode: redact")[1].split("mode: placeholder")[0]
+
+
+def test_demo_ignores_a_broken_home(home, write_config, capsys):
+    write_config("mode: bogus\n")
+    (home / "vault.json").write_text("x")
+    assert cli.main(["demo"]) == 0
+    assert "mode: block" in capsys.readouterr().out
+    assert (home / "vault.json").read_text() == "x"
+
+
+def test_cli_import_does_not_load_mitmproxy():
+    import subprocess, sys
+    code = "import sys, keyfence.cli; print('mitmproxy' in sys.modules)"
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "False"
 
 
 def test_import_all_flag(home, tmp_path):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import socket
@@ -14,7 +15,8 @@ from .importer import env_values
 from .vault import DEFAULT_DIR, Vault
 
 ADDON_PATH = Path(__file__).parent / "addon.py"
-CA_CERT = Path(os.environ.get("MITMPROXY_CONFDIR", Path.home() / ".mitmproxy")) / "mitmproxy-ca-cert.pem"
+CONFDIR = Path(os.environ["MITMPROXY_CONFDIR"]) if os.environ.get("MITMPROXY_CONFDIR") else None
+CA_CERT = (CONFDIR or Path.home() / ".mitmproxy") / "mitmproxy-ca-cert.pem"
 ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
 PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
 CA_ENV_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
@@ -37,12 +39,13 @@ def listen_args(port: int, local: str | None) -> list[str]:
 
 
 def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = (),
-                  local: str | None = None) -> list[str]:
+                  local: str | None = None, confdir: Path | None = CONFDIR) -> list[str]:
     return [
         mitmdump_path(), "-q",
         "-s", str(addon),
         *listen_args(port, local),
         "--set", "block_global=false",
+        *(["--set", f"confdir={confdir}"] if confdir else []),
         *extra,
     ]
 
@@ -119,7 +122,13 @@ def run(command: Sequence[str], port: int, everything: bool = False,
     proxy_log = (DEFAULT_DIR / "proxy.log").open("a")
     if local == "":
         local = Path(command[0]).name
-    extra = ["-w", str(record)] if record else []
+    extra = []
+    if record:
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.touch(mode=0o600)
+        with contextlib.suppress(OSError):
+            os.chmod(record, 0o600)
+        extra = ["-w", str(record)]
     try:
         proxy = subprocess.Popen(proxy_command(port, local=local, extra=extra), env=proxy_env,
                                  stdout=proxy_log, stderr=subprocess.STDOUT)

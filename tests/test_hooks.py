@@ -85,6 +85,21 @@ def test_ordinary_commands_pass(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
 
 
+@pytest.mark.parametrize("command", [
+    "cd /tmp\nenv", " env", "\tprintenv", "ls\ngh auth token", "x=$(printenv)", "echo `env`",
+    "make test\n\nexport", "true &&\n  vault kv get secret/app", "cat .ENV", "cat ./Config/.Env.Local",
+    "ssh -i ~/.SSH/ID_RSA host", "cp /etc/ssl/server.PEM .", "\n\n aws secretsmanager get-secret-value --secret-id x",
+])
+def test_multiline_leading_space_substitution_and_case_are_still_blocked(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+@pytest.mark.parametrize("path", ["/p/.ENV", "/p/Server.PEM", "/home/u/.ssh/ID_RSA", "C:\\Users\\u\\.NETRC", "/p/Credentials.JSON"])
+def test_file_tools_ignore_case(path):
+    assert hooks.decide({"tool_name": "Read", "tool_input": {"file_path": path}})
+    assert not hooks.is_sensitive("/p/.ENV.EXAMPLE")
+
+
 def test_run_hook_exit_codes():
     err = io.StringIO()
     blocked = hooks.run_hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": ".env"}})), err)

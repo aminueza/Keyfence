@@ -35,8 +35,19 @@ def guard(write_config):
     return _make
 
 
-def test_module_exposes_addon_instance(home):
-    assert isinstance(addon_module.addons[0], KeyFence)
+def test_package_import_builds_no_addon_and_touches_no_files(home):
+    assert addon_module.addons == []
+    assert not (home / "vault.json").exists()
+    assert isinstance(addon_module.build(), KeyFence)
+
+
+def test_mitmproxy_script_load_builds_the_addon(home, write_config):
+    import importlib.util
+    write_config("mode: redact\n")
+    spec = importlib.util.spec_from_file_location("__mitmproxy_script__.keyfence_addon", addon_module.__file__)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert len(module.addons) == 1 and type(module.addons[0]).__name__ == "KeyFence"
 
 
 def test_load_logs_summary(guard, caplog):

@@ -10,10 +10,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import demo, doctor, export, hooks, runner, sources
+from . import doctor, export, hooks, runner, sources
 from .config import Config
 from .detectors import scan
-from .importer import default_paths, env_values, import_files
+from .importer import default_paths, env_values, import_files, looks_secret
 from .vault import DEFAULT_DIR, Vault, VaultError
 
 
@@ -35,14 +35,18 @@ def cmd_add_secret(_args) -> int:
 def cmd_import(args) -> int:
     vault = Vault()
     if args.source:
+        if args.paths or args.env:
+            print("error: --from cannot be combined with file paths or --env; run them as separate commands", file=sys.stderr)
+            return 2
         try:
-            values = sources.fetch(args.source, args.path)
+            pairs = sources.fetch(args.source, args.path)
         except sources.SourceError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
+        values = [v for k, v in pairs if args.all or looks_secret(k, v, vault.min_length)]
         added = vault.add_many(values)
-        print(f"{args.source}: {len(values)} value(s) read, {added} new secret(s); "
-              f"vault now holds {vault.count()} (hashes only).")
+        print(f"{args.source}: {len(pairs)} value(s) read, {len(values)} looked like secrets, "
+              f"{added} new; vault now holds {vault.count()} (hashes only). Use --all to register every value.")
         return 0
     paths = [Path(p).expanduser() for p in args.paths] or default_paths()
     missing = [p for p in paths if not p.is_file()]
@@ -167,6 +171,7 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_demo(_args) -> int:
+    from . import demo
     return demo.run()
 
 

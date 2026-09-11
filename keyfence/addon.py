@@ -238,4 +238,4 @@ def build() -> KeyFence:
         os._exit(1)
 
 
-addons = [build()]
+addons = [build()] if __name__.startswith("__mitmproxy_script__") else []

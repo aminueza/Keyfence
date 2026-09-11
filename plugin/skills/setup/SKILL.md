@@ -1,7 +1,7 @@
 ---
 description: Set up keyfence so secrets never reach the model, and explain how to run Claude Code through it.
 disable-model-invocation: true
-allowed-tools: Bash(keyfence *), Bash(which *), Bash(uv *), Bash(pip *)
+allowed-tools: Bash(which keyfence), Bash(keyfence import*), Bash(keyfence install-hooks claude-code*), Bash(keyfence doctor*)
 ---
 
 Help the user get keyfence running. Steps, each with the Bash tool:
@@ -21,4 +21,5 @@ Help the user get keyfence running. Steps, each with the Bash tool:
    `keyfence exec -- claude` so every request is scanned before it leaves the
    machine.
 
-Keep it short. Never display secret values.
+Keep it short. Never display secret values. Do not run `keyfence exec` or
+`keyfence run` from here.
