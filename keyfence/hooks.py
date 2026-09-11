@@ -22,19 +22,32 @@ FILE_TOOLS = {"Read", "Edit", "Write", "MultiEdit", "NotebookEdit"}
 _PATH_TOKEN = re.compile(r"""(?<![\w-])(?:~|\.{0,2}/)?[\w.~/@-]*(?:\.env(?:\.\w+)?|\.pem|\.key|\.p12|\.pfx|\.jks|\.ppk|\.kdbx|\.tfvars|\.netrc|\.npmrc|\.pypirc|\.git-credentials|credentials(?:\.\w+)?|id_rsa|id_ed25519|id_ecdsa|\.ssh/[\w.-]+|\.aws/credentials|\.docker/config\.json|\.kube/config)(?![\w-])""")
 _DUMP_COMMANDS = re.compile(
     r"(?:^|[;&|(]\s*)(?:"
-    r"env|printenv|export\s+-p|set|declare\s+-x|typeset\s+-x"
-    r")\s*(?:$|[;&|)>]|\|)"
+    r"env|printenv|export(?:\s+-p)?|set|declare\s+-x|typeset\s+-x"
+    r")\s*(?:$|[;&|)>])"
 )
+_SECRET_VAR = r"[A-Za-z_]*(?:SECRET|TOKEN|KEY|PASSWORD|PASSWD|CREDENTIAL)[A-Za-z_]*"
+_NAMED_DUMP = re.compile(
+    r"(?:^|[;&|(]\s*)printenv\s+" + _SECRET_VAR + r"\b|/proc/(?:self|\d+)/environ", re.IGNORECASE)
 _SECRET_COMMANDS = re.compile(
     r"(?:^|[;&|(]\s*)(?:"
     r"aws\s+secretsmanager\s+get-secret-value|aws\s+ssm\s+get-parameters?\b.*--with-decryption|"
-    r"op\s+(?:read|item\s+get)|vault\s+(?:kv\s+get|read)|doppler\s+secrets(?:\s+(?:download|get))?|"
-    r"kubectl\s+(?:get|describe)\s+secrets?|gcloud\s+secrets\s+versions\s+access|"
-    r"az\s+keyvault\s+secret\s+show|heroku\s+config(?::get)?|infisical\s+(?:secrets|export)|"
-    r"gh\s+secret\s+list|bw\s+get"
-    r")\b")
+    r"aws\s+configure\s+get\s+\S*(?:secret|token|key)|"
+    r"op\s+read|op\s+item\s+get\b(?=.*(?:--reveal|--format[= ]json|--fields))|"
+    r"vault\s+(?:kv\s+get|read)|doppler\s+secrets(?:\s+(?:download|get))?|"
+    r"kubectl\s+get\s+secrets?\b(?=.*(?:-o|--output)[\s=]*(?:yaml|json|jsonpath|go-template))|"
+    r"kubectl\s+config\s+view\b(?=.*--raw)|"
+    r"gcloud\s+secrets\s+versions\s+access|gcloud\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token|"
+    r"az\s+keyvault\s+secret\s+show|az\s+account\s+get-access-token|"
+    r"gh\s+auth\s+token|heroku\s+config(?::get)?|infisical\s+(?:secrets|export)|bw\s+get"
+    r")\b", re.IGNORECASE)
 HOOK_COMMAND = "keyfence hook claude-code"
 HOOK_MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash"
+DENY_RULES = (
+    "Read(./.env)", "Read(./.env.*)", "Read(./**/.env)", "Read(./**/.env.*)", "Read(./**/*.pem)",
+    "Read(./**/*.key)", "Read(./**/credentials*)", "Read(./**/secrets.*)", "Read(./**/*.tfvars)",
+    "Read(~/.aws/credentials)", "Read(~/.ssh/**)", "Read(~/.netrc)", "Read(~/.npmrc)",
+    "Read(~/.pypirc)", "Read(~/.git-credentials)", "Read(~/.docker/config.json)", "Read(~/.kube/config)",
+)
 
 
 def is_sensitive(path: str) -> bool:
@@ -52,8 +65,8 @@ def paths_in_command(command: str) -> list[str]:
 
 
 def dumps_secrets(command: str) -> str | None:
-    if _DUMP_COMMANDS.search(command):
-        return "it prints the whole environment, which holds the secrets keyfence protects"
+    if _DUMP_COMMANDS.search(command) or _NAMED_DUMP.search(command):
+        return "it prints environment variables that hold the secrets keyfence protects"
     m = _SECRET_COMMANDS.search(command)
     if m:
         return f"`{m.group().strip(' ;&|(')}` prints secret values"
@@ -118,12 +131,20 @@ def _is_ours(entry: dict) -> bool:
 def install(path: Path) -> bool:
     data = json.loads(path.read_text()) if path.exists() else {}
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
-    if any(_is_ours(e) for e in pre):
+    deny = data.setdefault("permissions", {}).setdefault("deny", [])
+    changed = False
+    if not any(_is_ours(e) for e in pre):
+        pre.append({
+            "matcher": HOOK_MATCHER,
+            "hooks": [{"type": "command", "command": HOOK_COMMAND, "timeout": 10}],
+        })
+        changed = True
+    missing = [rule for rule in DENY_RULES if rule not in deny]
+    if missing:
+        deny.extend(missing)
+        changed = True
+    if not changed:
         return False
-    pre.append({
-        "matcher": HOOK_MATCHER,
-        "hooks": [{"type": "command", "command": HOOK_COMMAND, "timeout": 10}],
-    })
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n")
     return True
@@ -135,13 +156,22 @@ def uninstall(path: Path) -> bool:
     data = json.loads(path.read_text())
     pre = data.get("hooks", {}).get("PreToolUse", [])
     kept = [e for e in pre if not _is_ours(e)]
-    if len(kept) == len(pre):
+    deny = data.get("permissions", {}).get("deny", [])
+    kept_deny = [rule for rule in deny if rule not in DENY_RULES]
+    if len(kept) == len(pre) and len(kept_deny) == len(deny):
         return False
-    data["hooks"]["PreToolUse"] = kept
-    if not kept:
-        del data["hooks"]["PreToolUse"]
-    if not data["hooks"]:
-        del data["hooks"]
+    if "hooks" in data:
+        data["hooks"]["PreToolUse"] = kept
+        if not kept:
+            del data["hooks"]["PreToolUse"]
+        if not data["hooks"]:
+            del data["hooks"]
+    if "permissions" in data:
+        data["permissions"]["deny"] = kept_deny
+        if not kept_deny:
+            del data["permissions"]["deny"]
+        if not data["permissions"]:
+            del data["permissions"]
     path.write_text(json.dumps(data, indent=2) + "\n")
     return True
 

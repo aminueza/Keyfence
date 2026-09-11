@@ -21,6 +21,14 @@ real incidents. Out of scope:
   travels in `Authorization` or, for Gemini, in `?key=`, and redacting it
   would break authentication. A secret you put in a query string yourself
   is not caught.
+- **The Claude Code hook cannot see what a search returns.** It refuses
+  `Grep` aimed at a secret file, but a grep for `API_KEY` over the whole
+  project with content output still returns the matching line of `.env`.
+  A `PreToolUse` hook sees the tool's arguments, not its output. The proxy
+  is the layer that catches that value on its way out. The hook also does
+  not try to recognise `python -c 'print(os.environ)'` and similar
+  one-liners; that is an arms race, and again the proxy covers the value
+  itself once it is in the vault.
 - **Streams ending mid-placeholder.** If a streamed response ends in the
   middle of a placeholder, the last characters are passed through as they
   are.

@@ -146,12 +146,24 @@ Grep and Bash that refuses `.env` files, private keys, `.netrc`, `.npmrc`,
 service account files, anything under `.ssh`, `.aws/credentials`,
 `.docker/config.json` and `.kube/config`. `.env.example` and `*.pub` are
 allowed. Bash commands that mention such a path are refused too, and so
-are commands that print secrets: `env`, `printenv`, `export -p`, `set`,
-`declare -x`, and the read commands of `aws secretsmanager`, `aws ssm`
-with decryption, `op`, `vault`, `doppler`, `kubectl` secrets, `gcloud
-secrets`, `az keyvault`, `heroku config`, `infisical` and `bw`. The
-refusal message tells the model to ask you instead or to use
-`keyfence import`. Existing hooks in the settings file are kept.
+are commands that print secrets: `env`, `printenv`, `export`, `set`,
+`declare -x`, `printenv NAME` when the name looks like a secret,
+`/proc/*/environ`, and the read commands of `aws secretsmanager`, `aws ssm`
+with decryption, `aws configure get` of a key, `op read`, `op item get`
+with `--reveal`, `--fields` or JSON output, `vault`, `doppler`, `kubectl`
+secrets with `-o yaml|json|jsonpath|go-template`, `kubectl config view
+--raw`, `gcloud secrets`, `gcloud auth print-*-token`, `az keyvault`,
+`az account get-access-token`, `gh auth token`, `heroku config`,
+`infisical` and `bw`. Listing names without values, such as
+`kubectl get secrets` or `gh secret list`, is allowed. The refusal message
+tells the model to ask you instead or to use `keyfence import`.
+
+The same command also adds `permissions.deny` rules for `Read` on `.env`
+files, `*.pem`, `*.key`, `credentials*`, `secrets.*`, `*.tfvars` and the
+home-directory credential stores. These are Claude Code's own declarative
+rules: they need no Python on the path, and they are what managed settings
+can enforce for a whole organisation. Existing hooks and rules in the
+settings file are kept, and `--remove` takes out only what keyfence added.
 
 ## Exporting the audit log
 

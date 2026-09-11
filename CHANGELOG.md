@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-09-11)
 
 - `mode: audit`: log what would be caught and send the request unchanged.
 - `keyfence doctor` checks mitmdump, the CA certificate and its system
@@ -17,8 +17,14 @@
   self-contained Python file, so it protects you before keyfence is
   installed instead of failing open.
 - The hook also covers `Grep` on secret files and shell commands that
-  print secrets: `env`, `printenv`, `export -p`, `set`, and the read
-  commands of the common secret manager CLIs.
+  print secrets: `env`, `printenv`, `export`, `set`, `printenv` of a
+  secret-looking name, `/proc/*/environ`, session-token commands such as
+  `gh auth token`, `gcloud auth print-access-token` and
+  `az account get-access-token`, and the read commands of the common
+  secret manager CLIs. Listing names without values stays allowed.
+- `keyfence install-hooks claude-code` also adds `permissions.deny` rules
+  for secret files, Claude Code's declarative mechanism that managed
+  settings can enforce organisation-wide.
 - `keyfence doctor` reports what is only relevant outside `keyfence exec`
   as `info`, so a healthy setup no longer looks like four warnings.
 - `keyfence import --from op` reads only the categories that hold secrets

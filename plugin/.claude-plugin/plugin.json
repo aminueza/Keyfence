@@ -1,7 +1,7 @@
 {
   "name": "keyfence",
   "description": "Blocks reads of .env files, private keys and credential stores, and adds /keyfence:status and /keyfence:setup for the keyfence secret-redaction proxy.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": {
     "name": "Amanda Souza",
     "url": "https://github.com/aminueza"

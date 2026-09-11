@@ -44,7 +44,7 @@ def from_op(path: str | None, run: Callable = _run) -> list[str]:
     items = json.loads(run(command) or "[]")
     values: list[str] = []
     for item in items:
-        detail = json.loads(run(["op", "item", "get", item["id"], "--format", "json"]) or "{}")
+        detail = json.loads(run(["op", "item", "get", item["id"], "--format", "json", "--reveal"]) or "{}")
         for field in detail.get("fields", []):
             if field.get("type") == "CONCEALED" and field.get("value"):
                 values.append(field["value"])

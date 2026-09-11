@@ -55,12 +55,18 @@ def test_decide_grep():
 
 
 @pytest.mark.parametrize("command", [
-    "env", "printenv", "env | grep TOKEN", "printenv > out.txt", "export -p", "set", "set | sort",
-    "declare -x", "cd app && env", "aws secretsmanager get-secret-value --secret-id prod/db",
-    "aws ssm get-parameter --name /x --with-decryption", "op read op://vault/item/password",
-    "op item get abc", "vault kv get secret/app", "vault read secret/app", "doppler secrets download --no-file",
-    "doppler secrets", "kubectl get secret db -o yaml", "kubectl describe secrets",
-    "gcloud secrets versions access latest --secret=x", "az keyvault secret show --name x",
+    "env", "printenv", "env | grep TOKEN", "printenv > out.txt", "export -p", "export", "export | grep AWS",
+    "set", "set | sort", "declare -x", "cd app && env", "printenv AWS_SECRET_ACCESS_KEY",
+    "printenv github_token", "cat /proc/self/environ", "tr '\\0' '\\n' < /proc/1234/environ",
+    "aws secretsmanager get-secret-value --secret-id prod/db",
+    "aws ssm get-parameter --name /x --with-decryption", "aws configure get aws_secret_access_key",
+    "op read op://vault/item/password", "op item get abc --reveal", "op item get abc --format json",
+    "op item get abc --fields label=password", "vault kv get secret/app", "vault read secret/app",
+    "doppler secrets download --no-file", "doppler secrets", "kubectl get secret db -o yaml",
+    "kubectl get secrets -o json", "kubectl get secret db --output=jsonpath='{.data}'",
+    "kubectl config view --raw", "gcloud secrets versions access latest --secret=x",
+    "gcloud auth print-access-token", "gcloud auth application-default print-access-token",
+    "az keyvault secret show --name x", "az account get-access-token", "gh auth token",
     "heroku config", "heroku config:get DATABASE_URL", "bw get password github",
 ])
 def test_bash_commands_that_print_secrets_are_blocked(command):
@@ -69,9 +75,11 @@ def test_bash_commands_that_print_secrets_are_blocked(command):
 
 
 @pytest.mark.parametrize("command", [
-    "env FOO=1 python app.py", "printenv HOME", "set -e; pytest", "set -o pipefail && make",
-    "export PATH=/x:$PATH", "aws s3 ls", "kubectl get pods", "vault status", "op --version",
-    "git status", "echo environment", "heroku logs --tail", "doppler --version",
+    "env FOO=1 python app.py", "printenv HOME", "printenv PATH", "set -e; pytest", "set -o pipefail && make",
+    "export PATH=/x:$PATH", "export FOO=bar", "aws s3 ls", "kubectl get pods", "kubectl get secrets",
+    "kubectl describe secret db", "kubectl config view", "vault status", "op --version", "op item get abc",
+    "op item list", "git status", "echo environment", "heroku logs --tail", "doppler --version",
+    "gh secret list", "gh auth status", "gcloud auth list", "az account show", "aws configure get region",
 ])
 def test_ordinary_commands_pass(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
@@ -112,10 +120,23 @@ def test_install_and_uninstall_merge_with_existing_settings(tmp_path):
     assert len(data["hooks"]["PreToolUse"]) == 2
     assert data["hooks"]["PreToolUse"][1]["hooks"][0]["command"] == hooks.HOOK_COMMAND
     assert data["hooks"]["PreToolUse"][1]["matcher"] == hooks.HOOK_MATCHER
+    assert set(hooks.DENY_RULES) <= set(data["permissions"]["deny"])
     assert hooks.uninstall(path)
     assert not hooks.uninstall(path)
     data = json.loads(path.read_text())
     assert len(data["hooks"]["PreToolUse"]) == 1
+    assert "permissions" not in data
+
+
+def test_install_keeps_foreign_deny_rules_and_fills_missing_ones(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"permissions": {"deny": ["Bash(rm -rf *)", hooks.DENY_RULES[0]]}}))
+    assert hooks.install(path)
+    deny = json.loads(path.read_text())["permissions"]["deny"]
+    assert deny[0] == "Bash(rm -rf *)" and deny.count(hooks.DENY_RULES[0]) == 1
+    assert set(hooks.DENY_RULES) <= set(deny)
+    assert hooks.uninstall(path)
+    assert json.loads(path.read_text())["permissions"]["deny"] == ["Bash(rm -rf *)"]
 
 
 def test_install_creates_file_and_uninstall_cleans_empty_sections(tmp_path):

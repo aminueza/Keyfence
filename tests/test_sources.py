@@ -27,6 +27,7 @@ def test_op_reads_concealed_fields_of_every_item():
     ])
     assert sources.fetch("op", "Personal", run) == ["secret-one-value", "secret-two-value"]
     assert run.calls[0] == ["op", "item", "list", "--format", "json", "--categories", sources.OP_CATEGORIES, "--vault", "Personal"]
+    assert run.calls[1][-1] == "--reveal"
 
 
 def test_vault_reads_kv_v2_and_v1():
