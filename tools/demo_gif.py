@@ -17,13 +17,13 @@ WRAP = 98
 PAD = 28
 LINE = 19
 FONT_SIZE = 13
-BG = (250, 250, 247)
-FRAME = (31, 31, 31)
-TEXT = (31, 31, 31)
-DIM = (138, 138, 133)
-GREEN = (46, 125, 91)
-RED = (179, 38, 30)
-CHROME = (239, 239, 234)
+BG = (24, 25, 27)
+FRAME = (58, 60, 64)
+TEXT = (226, 226, 222)
+DIM = (128, 130, 134)
+GREEN = (98, 200, 140)
+RED = (240, 110, 100)
+CHROME = (38, 40, 43)
 MONO = "/System/Library/Fonts/Menlo.ttc"
 SANS = "/System/Library/Fonts/HelveticaNeue.ttc"
 SECRETS = (demo.DEMO_TOKEN, demo.DEMO_PASSWORD)
@@ -67,7 +67,8 @@ def frame(prompt: str, lines: list[str], mono, sans, cursor: bool) -> Image.Imag
     im = Image.new("RGB", (WIDTH * SCALE, HEIGHT * SCALE), BG)
     draw = ImageDraw.Draw(im)
     draw.rounded_rectangle((0, 0, WIDTH * SCALE - 1, HEIGHT * SCALE - 1), radius=12 * SCALE, outline=FRAME, width=2, fill=BG)
-    draw.rectangle((2, 2, WIDTH * SCALE - 3, 30 * SCALE), fill=CHROME)
+    draw.rounded_rectangle((2, 2, WIDTH * SCALE - 3, 30 * SCALE + 12 * SCALE), radius=12 * SCALE, fill=CHROME)
+    draw.rectangle((2, 30 * SCALE, WIDTH * SCALE - 3, 30 * SCALE + 12 * SCALE), fill=BG)
     for i, c in enumerate(((255, 95, 87), (255, 189, 46), (39, 201, 63))):
         cx = (14 + i * 20) * SCALE
         draw.ellipse((cx, 9 * SCALE, cx + 12 * SCALE, 21 * SCALE), fill=c)
