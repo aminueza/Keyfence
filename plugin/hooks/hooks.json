@@ -2,11 +2,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "keyfence hook claude-code",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.py\"",
             "timeout": 10
           }
         ]

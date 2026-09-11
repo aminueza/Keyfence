@@ -236,7 +236,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("--all", action="store_true", help="import every value, not only secret-looking ones")
     p_import.add_argument("--from", dest="source", choices=sources.SOURCES,
                           help="read from a secret manager CLI instead of files: op (1Password), vault, doppler, aws")
-    p_import.add_argument("--path", help="vault name (op), secret path (vault, aws) or project/config (doppler)")
+    p_import.add_argument("--path", help="op: vault name, strongly recommended, otherwise every item in the account is fetched one by one; "
+                                         "vault, aws: secret path; doppler: project/config")
 
     p_canary = sub.add_parser(
         "canary", help="plant a fake secret in a file; keyfence reports if a tool ever sends it")

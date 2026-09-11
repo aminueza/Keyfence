@@ -13,7 +13,16 @@
   GitHub Models.
 - A Claude Code plugin under `plugin/` ships the hook and the
   `/keyfence:status` and `/keyfence:setup` skills; install with
-  `/plugin marketplace add aminueza/keyfence`.
+  `/plugin marketplace add aminueza/keyfence`. The plugin's hook is a
+  self-contained Python file, so it protects you before keyfence is
+  installed instead of failing open.
+- The hook also covers `Grep` on secret files and shell commands that
+  print secrets: `env`, `printenv`, `export -p`, `set`, and the read
+  commands of the common secret manager CLIs.
+- `keyfence doctor` reports what is only relevant outside `keyfence exec`
+  as `info`, so a healthy setup no longer looks like four warnings.
+- `keyfence import --from op` reads only the categories that hold secrets
+  and the help text recommends `--path <vault>`.
 - `SECURITY.md`, a CycloneDX SBOM on every CI run, and unit tests on
   Windows.
 - README leads with `uv tool install` and `keyfence exec`, shows the demo

@@ -66,10 +66,11 @@ stored. Details and numbers in the [benchmark](https://github.com/aminueza/keyfe
 ## Verified with
 
 Claude Code (through `exec`, `--local` and the hook), the Anthropic and
-OpenAI HTTP APIs, curl, Python and Node clients. Cursor, Copilot and other
-editors route through their own backends; their hosts are on the default
-list, but they have not been tested end to end. If you try one, an issue
-with the result helps.
+OpenAI HTTP APIs, curl, Python and Node clients. GitHub Copilot, Vertex AI
+and Azure AI hosts are on the default list but have not been tested end to
+end. Cursor and Windsurf route through their own backends and are not on
+the list; add their hosts with `extra_hosts` if you want to try, and an
+issue with the result helps either way.
 
 ## Documentation
 

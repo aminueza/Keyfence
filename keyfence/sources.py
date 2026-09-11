@@ -34,8 +34,11 @@ def _strings(obj) -> list[str]:
     return []
 
 
+OP_CATEGORIES = "API Credential,Login,Password,Secure Note,Database,Server"
+
+
 def from_op(path: str | None, run: Callable = _run) -> list[str]:
-    command = ["op", "item", "list", "--format", "json"]
+    command = ["op", "item", "list", "--format", "json", "--categories", OP_CATEGORIES]
     if path:
         command += ["--vault", path]
     items = json.loads(run(command) or "[]")

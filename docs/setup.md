@@ -75,8 +75,11 @@ from environment variables.
 
 `keyfence import --from` reads a secret manager through its own CLI, which
 must be installed and logged in: `op` (1Password, `--path` is the vault
-name, all concealed fields of every item), `vault` (HashiCorp,
-`--path secret/myapp`, KV v1 or v2), `doppler` (`--path project/config`,
+name; without it every item in the account is fetched one at a time, so
+pass a vault; only the API Credential, Login, Password, Secure Note,
+Database and Server categories are read, concealed fields only), `vault`
+(HashiCorp, `--path secret/myapp`, KV v1 or v2, one path, no recursion),
+`doppler` (`--path project/config`,
 otherwise the current scope) and `aws` (Secrets Manager, `--path` is the
 secret id; JSON secrets contribute every value). Every value read is
 registered; only hashes are stored.
@@ -128,19 +131,25 @@ keyfence install-hooks claude-code --remove
 ```
 
 The same hook ships as a Claude Code plugin, together with `/keyfence:status`
-and `/keyfence:setup`. Inside Claude Code:
+and `/keyfence:setup`. In the plugin the hook is a self-contained Python 3
+file, so it protects you even before keyfence itself is installed. Inside
+Claude Code:
 
 ```
 /plugin marketplace add aminueza/keyfence
 /plugin install keyfence@keyfence
 ```
 
-It adds a `PreToolUse` hook for Read, Edit, Write, MultiEdit, NotebookEdit
-and Bash that refuses `.env` files, private keys, `.netrc`, `.npmrc`,
+It adds a `PreToolUse` hook for Read, Edit, Write, MultiEdit, NotebookEdit,
+Grep and Bash that refuses `.env` files, private keys, `.netrc`, `.npmrc`,
 `.pypirc`, `.git-credentials`, `credentials*`, `secrets.*`, `*.tfvars`,
 service account files, anything under `.ssh`, `.aws/credentials`,
 `.docker/config.json` and `.kube/config`. `.env.example` and `*.pub` are
-allowed. Bash commands that mention such a path are refused too. The
+allowed. Bash commands that mention such a path are refused too, and so
+are commands that print secrets: `env`, `printenv`, `export -p`, `set`,
+`declare -x`, and the read commands of `aws secretsmanager`, `aws ssm`
+with decryption, `op`, `vault`, `doppler`, `kubectl` secrets, `gcloud
+secrets`, `az keyvault`, `heroku config`, `infisical` and `bw`. The
 refusal message tells the model to ask you instead or to use
 `keyfence import`. Existing hooks in the settings file are kept.
 
