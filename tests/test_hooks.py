@@ -135,8 +135,21 @@ def test_install_keeps_foreign_deny_rules_and_fills_missing_ones(tmp_path):
     deny = json.loads(path.read_text())["permissions"]["deny"]
     assert deny[0] == "Bash(rm -rf *)" and deny.count(hooks.DENY_RULES[0]) == 1
     assert set(hooks.DENY_RULES) <= set(deny)
+    record = tmp_path / "keyfence-deny-rules.json"
+    assert hooks.DENY_RULES[0] not in json.loads(record.read_text())
     assert hooks.uninstall(path)
-    assert json.loads(path.read_text())["permissions"]["deny"] == ["Bash(rm -rf *)"]
+    assert json.loads(path.read_text())["permissions"]["deny"] == ["Bash(rm -rf *)", hooks.DENY_RULES[0]]
+    assert not record.exists()
+
+
+def test_uninstall_without_record_falls_back_to_the_full_list(tmp_path):
+    path = tmp_path / "settings.json"
+    assert hooks.install(path)
+    (tmp_path / "keyfence-deny-rules.json").unlink()
+    assert hooks.uninstall(path)
+    assert json.loads(path.read_text()) == {}
+    (tmp_path / "keyfence-deny-rules.json").write_text("garbage")
+    assert hooks._added_rules(path) == list(hooks.DENY_RULES)
 
 
 def test_install_creates_file_and_uninstall_cleans_empty_sections(tmp_path):

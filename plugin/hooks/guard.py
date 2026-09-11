@@ -128,6 +128,20 @@ def _is_ours(entry: dict) -> bool:
     return any(HOOK_COMMAND in str(h.get("command", "")) for h in entry.get("hooks", []))
 
 
+def _added_rules_path(path: Path) -> Path:
+    return path.with_name("keyfence-deny-rules.json")
+
+
+def _added_rules(path: Path) -> list[str]:
+    record = _added_rules_path(path)
+    if not record.exists():
+        return list(DENY_RULES)
+    try:
+        return list(json.loads(record.read_text()))
+    except ValueError:
+        return list(DENY_RULES)
+
+
 def install(path: Path) -> bool:
     data = json.loads(path.read_text()) if path.exists() else {}
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
@@ -143,6 +157,10 @@ def install(path: Path) -> bool:
     if missing:
         deny.extend(missing)
         changed = True
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = _added_rules_path(path)
+        previous = _added_rules(path) if record.exists() else []
+        record.write_text(json.dumps(sorted(set(previous) | set(missing)), indent=2) + "\n")
     if not changed:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -157,7 +175,9 @@ def uninstall(path: Path) -> bool:
     pre = data.get("hooks", {}).get("PreToolUse", [])
     kept = [e for e in pre if not _is_ours(e)]
     deny = data.get("permissions", {}).get("deny", [])
-    kept_deny = [rule for rule in deny if rule not in DENY_RULES]
+    ours = set(_added_rules(path))
+    kept_deny = [rule for rule in deny if rule not in ours]
+    _added_rules_path(path).unlink(missing_ok=True)
     if len(kept) == len(pre) and len(kept_deny) == len(deny):
         return False
     if "hooks" in data:
