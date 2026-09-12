@@ -128,7 +128,12 @@ def test_entry_hook_fast_path_loads_only_hooks(home, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "/w/.env"}})))
     assert entry.main(["hook", "claude-code"]) == 2
     assert "keyfence blocked" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_name": "read", "tool_input": {"path": "/w/.env"}})))
+    assert entry.main(["hook", "pi"]) == 2
+    assert "keyfence blocked" in capsys.readouterr().err
     assert entry.main(["hook", "other"]) == 1
+    assert entry.main(["hook"]) == 1
+    assert entry.main(["hook", "pi", "extra"]) == 1
     assert entry.main(["scan", "clean text"]) == 0
     code = ("import sys, json, io; sys.stdin = io.StringIO(json.dumps({'tool_name':'Read','tool_input':{'file_path':'a.py'}}));"
             "import keyfence.entry as e; rc = e.main(['hook','claude-code']);"

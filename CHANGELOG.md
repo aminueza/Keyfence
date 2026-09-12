@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- pi support. `keyfence install-hooks pi` installs a pi extension that
+  refuses `read`, `write`, `edit`, `grep`, `bash` and `powershell` calls
+  aimed at secret files or at commands that print secrets, the same rules
+  the Claude Code hook uses; `keyfence hook pi` is the gate it calls, and
+  `keyfence doctor` reports whether it is installed. The rules now read
+  pi's tool names and its `path` argument as well as Claude Code's.
 - The system prompt notice goes into the first system message of an
   OpenAI-style request instead of a new one at the end. Providers and
   local servers that require the system message to come first rejected

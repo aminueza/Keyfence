@@ -10,11 +10,13 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import doctor, export, hooks, runner, sources
+from . import doctor, export, hooks, pi, runner, sources
 from .config import Config
 from .detectors import scan
 from .importer import default_paths, env_values, import_files, looks_secret
 from .vault import DEFAULT_DIR, Vault, VaultError
+
+AGENTS = ("claude-code", "pi")
 
 
 def cmd_add_secret(_args) -> int:
@@ -138,17 +140,35 @@ def cmd_exec(args) -> int:
                       record=Path(args.record) if args.record else None, linger=args.linger)
 
 
-def cmd_hook(args) -> int:
-    if args.agent != "claude-code":
-        print(f"unknown agent: {args.agent}")
-        return 1
+def cmd_hook(_args) -> int:
     return hooks.run_hook()
 
 
-def cmd_install_hooks(args) -> int:
-    if args.agent != "claude-code":
-        print(f"unknown agent: {args.agent}")
+def _install_pi(args) -> int:
+    path = pi.extension_path(args.project)
+    if args.remove:
+        changed = pi.uninstall(path)
+        print(f"Extension removed from {path}." if changed else f"No keyfence extension in {path}.")
+        return 0
+    try:
+        changed = pi.install(path)
+    except FileExistsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 1
+    scope = "this project" if args.project else "all projects"
+    if changed:
+        print(f"Extension installed in {path} for {scope}.")
+        print("pi will refuse to read .env files, private keys and credential files.")
+        if args.project:
+            print("Project extensions load only once you trust the project; pi asks on startup.")
+    else:
+        print(f"Extension already up to date in {path}.")
+    return 0
+
+
+def cmd_install_hooks(args) -> int:
+    if args.agent == "pi":
+        return _install_pi(args)
     path = hooks.settings_path(args.project)
     if args.remove:
         changed = hooks.uninstall(path)
@@ -274,11 +294,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_exec.add_argument("argv", nargs=argparse.REMAINDER, metavar="command")
 
     p_hook = sub.add_parser("hook", help="agent hook entry point; reads the tool call from stdin")
-    p_hook.add_argument("agent", choices=["claude-code"])
+    p_hook.add_argument("agent", choices=AGENTS)
 
     p_hooks = sub.add_parser("install-hooks", help="install the hook that stops an agent from reading secret files")
-    p_hooks.add_argument("agent", choices=["claude-code"])
-    p_hooks.add_argument("--project", action="store_true", help="install in ./.claude instead of ~/.claude")
+    p_hooks.add_argument("agent", choices=AGENTS)
+    p_hooks.add_argument("--project", action="store_true",
+                         help="install in ./.claude or ./.pi instead of the home directory")
     p_hooks.add_argument("--remove", action="store_true", help="remove the hook")
 
     p_doctor = sub.add_parser("doctor", help="check the installation and say what is missing")
