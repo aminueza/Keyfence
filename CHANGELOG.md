@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Streamed responses no longer end early. The SSE restorer returned an
+  empty byte string whenever it had nothing to emit yet, and mitmproxy
+  turns that into the terminating zero-length chunk of a chunked
+  response, so the client saw the stream finish in the middle. It now
+  yields no chunk at all instead. Hit in placeholder mode whenever a
+  placeholder was split across SSE events.
 - The Claude Code hook now catches commands on any line of a multi-line
   Bash call, after leading whitespace, inside `$( )` and backticks, and
   file names in any letter case. Before, `cd /tmp` followed by `env` on
