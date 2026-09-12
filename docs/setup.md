@@ -58,8 +58,8 @@ Linux and Windows: see the
 | `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
 | `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through the proxy |
 | `keyfence run [-p PORT] [--local [NAMES]]` | run the proxy in the foreground on port 8888 |
-| `keyfence install-hooks claude-code [--project] [--remove]` | stop Claude Code from reading secret files at all |
-| `keyfence hook claude-code` | the hook itself; Claude Code runs it, you do not |
+| `keyfence install-hooks claude-code\|pi [--project] [--remove]` | stop the agent from reading secret files at all |
+| `keyfence hook claude-code\|pi` | the hook itself; the agent runs it, you do not |
 | `keyfence export [--since TS] [--otlp URL] [--header K=V] [--all]` | print the audit log as JSONL or send it to a collector |
 | `keyfence scan 'text'`, `keyfence scan -f FILE` | test detection on text, a file or stdin |
 | `keyfence status` | show config, vault size, rule count and recent detections |
@@ -119,10 +119,12 @@ the CA through environment variables, so the certificate has to be trusted
 system-wide (the `security add-trusted-cert` step above). Linux is not
 supported by mitmproxy's local mode.
 
-## Blocking secret files in Claude Code
+## Blocking secret files in your agent
 
-The proxy stops secrets from leaving the machine. The hook stops Claude
-Code from reading them in the first place:
+The proxy stops secrets from leaving the machine. The hook stops the agent
+from reading them in the first place.
+
+### Claude Code
 
 ```bash
 keyfence install-hooks claude-code            # all projects (~/.claude/settings.json)
@@ -158,12 +160,40 @@ secrets with `-o yaml|json|jsonpath|go-template`, `kubectl config view
 `kubectl get secrets` or `gh secret list`, is allowed. The refusal message
 tells the model to ask you instead or to use `keyfence import`.
 
-The same command also adds `permissions.deny` rules for `Read` on `.env`
-files, `*.pem`, `*.key`, `credentials*`, `secrets.*`, `*.tfvars` and the
-home-directory credential stores. These are Claude Code's own declarative
-rules: they need no Python on the path, and they are what managed settings
-can enforce for a whole organisation. Existing hooks and rules in the
-settings file are kept, and `--remove` takes out only what keyfence added.
+`keyfence install-hooks claude-code` also adds `permissions.deny` rules
+for `Read` on `.env` files, `*.pem`, `*.key`, `credentials*`, `secrets.*`,
+`*.tfvars` and the home-directory credential stores. These are Claude
+Code's own declarative rules: they need no Python on the path, and they
+are what managed settings can enforce for a whole organisation. Existing
+hooks and rules in the settings file are kept, and `--remove` takes out
+only what keyfence added.
+
+### pi
+
+```bash
+keyfence install-hooks pi            # all projects (~/.pi/agent/extensions/keyfence.ts)
+keyfence install-hooks pi --project  # this project (./.pi/extensions/keyfence.ts)
+keyfence install-hooks pi --remove
+```
+
+pi has no declarative permission rules, so the gate is a pi extension: a
+small TypeScript file that handles `tool_call` and asks `keyfence hook pi`
+about every `read`, `write`, `edit`, `grep`, `bash` and `powershell` call
+before it runs. The rules are the ones above, and the refusal reaches the
+model with the same message. The extension calls keyfence by absolute
+path, resolved when you install it, so reinstalling keyfence somewhere
+else means running `install-hooks pi` again. If the guard cannot run at
+all, the call is refused rather than allowed, and the reason says so.
+
+`--project` writes to `./.pi/extensions/`, which pi loads only after you
+trust the project; it asks on the first interactive start. The global
+location needs no trust.
+
+`find` and `ls` are not gated: they return file names, not contents.
+
+For the proxy layer, start pi with `keyfence exec -- pi`. pi reads
+`HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` from its environment, which is
+what `keyfence exec` sets, so no further configuration is needed.
 
 ## Exporting the audit log
 
@@ -212,14 +242,15 @@ The container writes its state to `./data/`: `vault.json`, `config.yaml`,
 vault when the file changes, so `import` and `add-secret` do not need a
 restart.
 
-## Testing it with Claude Code
+## Testing it with an agent
 
 ```bash
 mkdir -p /tmp/kf-test && cd /tmp/kf-test
 printf 'GITHUB_TOKEN=ghp_FAKE0000000000000000000000000000000\nDB_PASSWORD=not-a-real-password-2026\n' > .env
 keyfence import
-keyfence exec -- claude
+keyfence exec -- claude          # or: keyfence exec -- pi
 ```
 
-Ask Claude to read `.env` and show the values. It sees `[REDACTED:vault]`
-instead. `keyfence status` lists the detections.
+Ask the agent to read `.env` and show the values. It sees
+`[REDACTED:vault]` instead. `keyfence status` lists the detections. With
+the hook installed as well, it does not get to read the file at all.

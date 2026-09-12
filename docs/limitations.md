@@ -21,8 +21,8 @@ real incidents. Out of scope:
   travels in `Authorization` or, for Gemini, in `?key=`, and redacting it
   would break authentication. A secret you put in a query string yourself
   is not caught.
-- **The Claude Code hook cannot see what a search returns.** It refuses
-  `Grep` aimed at a secret file, but a grep for `API_KEY` over the whole
+- **The agent hook cannot see what a search returns.** It refuses a grep
+  aimed at a secret file, but a grep for `API_KEY` over the whole
   project with content output still returns the matching line of `.env`.
   A `PreToolUse` hook sees the tool's arguments, not its output. The proxy
   is the layer that catches that value on its way out. The hook also does
@@ -41,8 +41,10 @@ real incidents. Out of scope:
 keyfence is the last line. It works best together with:
 
 - A hook in your agent that denies reading `.env`, `*.pem` and
-  `**/credentials*`. For Claude Code, `keyfence install-hooks claude-code`
-  installs one.
+  `**/credentials*`. `keyfence install-hooks claude-code` and
+  `keyfence install-hooks pi` install one. Other agents need their own;
+  `keyfence hook` takes `{"tool_name": ..., "tool_input": ...}` on stdin
+  and exits 2 with the reason on stderr when a call must be refused.
 - Secrets kept in a password manager or vault and passed as environment
   variables only to the process that needs them, where `keyfence exec`
   protects them.
