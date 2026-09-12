@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The system prompt notice goes into the first system message of an
+  OpenAI-style request instead of a new one at the end. Providers and
+  local servers that require the system message to come first rejected
+  the request with a 400.
 - Streamed responses no longer end early. The SSE restorer returned an
   empty byte string whenever it had nothing to emit yet, and mitmproxy
   turns that into the terminating zero-length chunk of a chunked
