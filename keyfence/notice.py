@@ -15,6 +15,7 @@ NOTICE = (
 
 ANTHROPIC_HOSTS = ("anthropic.com", "amazonaws.com")
 GEMINI_HOSTS = ("googleapis.com",)
+SYSTEM_ROLES = ("system", "developer")
 
 
 def _append_text(value, text: str):
@@ -27,6 +28,14 @@ def _append_text(value, text: str):
 
 def _is_host(host: str, suffixes: tuple[str, ...]) -> bool:
     return any(host == s or host.endswith("." + s) for s in suffixes)
+
+
+def _with_system(messages: list, text: str) -> list:
+    first = messages[0] if messages else None
+    if (isinstance(first, dict) and first.get("role") in SYSTEM_ROLES
+            and isinstance(first.get("content"), (str, list))):
+        return [{**first, "content": _append_text(first["content"], text)}, *messages[1:]]
+    return [{"role": "system", "content": text}, *messages]
 
 
 def add_notice(body: str, host: str, text: str = NOTICE) -> str:
@@ -49,7 +58,7 @@ def add_notice(body: str, host: str, text: str = NOTICE) -> str:
         instruction["parts"] = [*parts, {"text": text}]
         obj["systemInstruction"] = instruction
     elif isinstance(obj.get("messages"), list):
-        obj["messages"] = [*obj["messages"], {"role": "system", "content": text}]
+        obj["messages"] = _with_system(obj["messages"], text)
     else:
         return body
     return json.dumps(obj, ensure_ascii=False)

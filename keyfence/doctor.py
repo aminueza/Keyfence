@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import __version__, hooks, runner
+from . import __version__, hooks, pi, runner
 from . import vault as vault_module
 from .config import Config
 from .vault import Vault, VaultError
@@ -127,6 +127,15 @@ def check_hook(cwd: Path | None = None) -> Check:
     return Check(INFO, "Claude Code hook", "not installed; keyfence install-hooks claude-code stops Claude Code from reading secret files")
 
 
+def check_pi_extension(cwd: Path | None = None) -> Check:
+    found = [scope for scope, path in (("global", pi.extension_path(False)),
+                                       ("project", pi.extension_path(True, cwd)))
+             if pi.is_ours(path)]
+    if found:
+        return Check(OK, "pi extension", "installed (" + ", ".join(found) + ")")
+    return Check(INFO, "pi extension", "not installed; keyfence install-hooks pi stops pi from reading secret files")
+
+
 def check_audit() -> Check:
     try:
         path = Path(Config.load().audit_log)
@@ -150,6 +159,7 @@ def run_checks(port: int, cwd: Path | None = None) -> list[Check]:
         check_environment(port),
         check_local_mode(),
         check_hook(cwd),
+        check_pi_extension(cwd),
         check_audit(),
     ]
 

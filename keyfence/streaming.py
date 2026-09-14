@@ -101,6 +101,10 @@ class SSERestorer:
             out.extend(self._drain())
         return "".join(out).encode("utf-8")
 
+    def stream(self, chunk: bytes) -> list[bytes]:
+        data = self.feed(chunk)
+        return [data] if data else []
+
     def _next_boundary(self) -> int | None:
         candidates = [
             self.pending.find(sep) + len(sep)

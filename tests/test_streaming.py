@@ -158,3 +158,20 @@ def test_lists_in_payload_are_walked():
     payload = {"candidates": [{"content": {"parts": [{"text": "<<SECRET_1>>"}]}}]}
     out = r.feed(f"data: {json.dumps(payload)}\n\n".encode()) + r.feed(b"")
     assert json.loads(out.decode()[5:].strip())["candidates"][0]["content"]["parts"][0]["text"] == KEY
+
+
+def test_stream_never_yields_an_empty_chunk():
+    restorer = SSERestorer(MAPPING)
+    half = openai_event("<<SECRET")
+    assert restorer.stream(half.encode()) == []
+    tail = openai_event("_1>> done")
+    assert restorer.stream(tail[:20].encode()) == []
+    out = restorer.stream(tail[20:].encode())
+    assert out and all(chunk for chunk in out)
+    assert KEY in b"".join(out).decode()
+    assert restorer.stream(b"") == []
+
+
+def test_stream_returns_the_same_bytes_as_feed():
+    events = (openai_event("a <<SECRET_1>> b") + openai_event("c")).encode()
+    assert b"".join(SSERestorer(MAPPING).stream(events)) == SSERestorer(MAPPING).feed(events)

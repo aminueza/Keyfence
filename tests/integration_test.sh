@@ -21,6 +21,12 @@ import json, os, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 LOG = os.path.join(os.environ["KEYFENCE_HOME"], "upstream_received.log")
 class Echo(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def send_chunk(self, data):
+        self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data))
+        self.wfile.flush()
+
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         with open(LOG, "ab") as fh:
@@ -29,18 +35,21 @@ class Echo(BaseHTTPRequestHandler):
             text = json.loads(body)["content"]
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()
             for i in range(0, len(text), 5):
                 chunk = {"type": "content_block_delta", "delta": {"type": "text_delta", "text": text[i:i + 5]}}
-                self.wfile.write(f"event: content_block_delta\ndata: {json.dumps(chunk)}\n\n".encode())
-                self.wfile.flush()
+                self.send_chunk(f"event: content_block_delta\ndata: {json.dumps(chunk)}\n\n".encode())
                 time.sleep(0.01)
-            self.wfile.write(b'event: message_stop\ndata: {"type":"message_stop"}\n\n')
+            self.send_chunk(b'event: message_stop\ndata: {"type":"message_stop"}\n\n')
+            self.wfile.write(b"0\r\n\r\n")
             return
+        payload = b'{"upstream_received": ' + body + b'}'
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(b'{"upstream_received": ' + body + b'}')
+        self.wfile.write(payload)
     def log_message(self, *a): pass
 HTTPServer(("127.0.0.1", int(os.environ["UPSTREAM_PORT"])), Echo).serve_forever()
 EOF
@@ -99,6 +108,7 @@ JOINED=$(echo "$RESP" | python3 -c "
 import sys, json
 print(''.join(json.loads(l[5:])['delta']['text'] for l in sys.stdin if l.startswith('data:') and 'delta' in l))")
 [[ "$JOINED" == "the key is $FAKE_KEY done" ]] || { echo "FAILED: stream text was '$JOINED'"; exit 1; }
+[[ "$RESP" == *"message_stop"* ]] || { echo "FAILED: chunked stream ended early"; exit 1; }
 echo "OK: streamed placeholder split across SSE events was restored"
 stop_proxy
 

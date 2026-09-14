@@ -28,10 +28,11 @@ keyfence import              # register your own secrets: .env files and credent
 keyfence exec -- claude      # run Claude Code through the proxy
 ```
 
-That is the whole setup for Claude Code, Codex, Aider, curl and anything
-built on the Python or Node SDKs: `keyfence exec` starts the proxy, points
-the command at it and hands it the CA certificate, then stops the proxy when
-the command exits. No `sudo`, nothing changes on your system.
+That is the whole setup for Claude Code, pi, Codex, Aider, curl and
+anything built on the Python or Node SDKs: `keyfence exec` starts the
+proxy, points the command at it and hands it the CA certificate, then
+stops the proxy when the command exits. No `sudo`, nothing changes on
+your system.
 
 Not sure it is working? `keyfence doctor` checks every piece and says what
 to fix. `keyfence status` shows what has been caught.
@@ -40,6 +41,7 @@ Two more layers, both optional:
 
 ```bash
 keyfence install-hooks claude-code   # Claude Code refuses to read secret files at all
+keyfence install-hooks pi            # same for pi, as a pi extension
 keyfence canary .env                 # plant a fake secret; if a tool ever sends it, you will know
 ```
 
@@ -65,12 +67,13 @@ stored. Details and numbers in the [benchmark](https://github.com/aminueza/keyfe
 
 ## Verified with
 
-Claude Code (through `exec`, `--local` and the hook), the Anthropic and
-OpenAI HTTP APIs, curl, Python and Node clients. GitHub Copilot, Vertex AI
-and Azure AI hosts are on the default list but have not been tested end to
-end. Cursor and Windsurf route through their own backends and are not on
-the list; add their hosts with `extra_hosts` if you want to try, and an
-issue with the result helps either way.
+Claude Code (through `exec`, `--local` and the hook), pi (through `exec`
+and the extension), the Anthropic and OpenAI HTTP APIs, curl, Python and
+Node clients. GitHub Copilot, Vertex AI and Azure AI hosts are on the
+default list but have not been tested end to end. Cursor and Windsurf
+route through their own backends and are not on the list; add their hosts
+with `extra_hosts` if you want to try, and an issue with the result helps
+either way.
 
 ## Documentation
 
@@ -88,6 +91,8 @@ issue with the result helps either way.
   what keyfence does not cover and what to combine it with.
 - [Claude Code plugin](https://github.com/aminueza/keyfence/blob/main/plugin/README.md):
   the hook and two skills, installable with `/plugin marketplace add aminueza/keyfence`.
+- [Agents](https://github.com/aminueza/keyfence/blob/main/docs/setup.md#blocking-secret-files-in-your-agent):
+  what `install-hooks` does for Claude Code and for pi.
 - [Security](https://github.com/aminueza/keyfence/blob/main/SECURITY.md):
   what the proxy sees, what it stores, how releases are built.
 - [Development](https://github.com/aminueza/keyfence/blob/main/docs/development.md)

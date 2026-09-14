@@ -11,6 +11,7 @@ def test_run_checks_produces_every_check(home, monkeypatch):
     labels = [c.label for c in checks]
     assert labels[:3] == ["keyfence", "mitmdump", "CA certificate"]
     assert "Claude Code hook" in labels and "audit log" in labels
+    assert "pi extension" in labels
     assert all(c.status in (doctor.OK, doctor.INFO, doctor.WARN, doctor.FAIL) for c in checks)
 
 
@@ -109,3 +110,14 @@ def test_mitmdump_check(monkeypatch):
 def test_run_helper_handles_missing_command():
     code, out = doctor._run(["definitely-not-a-command-xyz"])
     assert code == 1 and out
+
+
+def test_pi_extension_check(home, tmp_path, monkeypatch):
+    from keyfence import pi
+    monkeypatch.setattr(pi.Path, "home", classmethod(lambda cls: tmp_path))
+    assert doctor.check_pi_extension(tmp_path / "proj").status == doctor.INFO
+    assert pi.install(pi.extension_path(True, tmp_path / "proj"), "/bin/keyfence")
+    check = doctor.check_pi_extension(tmp_path / "proj")
+    assert check.status == doctor.OK and "project" in check.detail
+    assert pi.install(pi.extension_path(False), "/bin/keyfence")
+    assert "global, project" in doctor.check_pi_extension(tmp_path / "proj").detail

@@ -187,7 +187,7 @@ class KeyFence:
         content_type = flow.response.headers.get("content-type", "")
         encoding = flow.response.headers.get("content-encoding", "identity")
         if "text/event-stream" in content_type and encoding in ("identity", ""):
-            flow.response.stream = SSERestorer(mapping).feed
+            flow.response.stream = SSERestorer(mapping).stream
             flow.metadata[STREAMED_KEY] = True
 
     def response(self, flow: http.HTTPFlow) -> None:

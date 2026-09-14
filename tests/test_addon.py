@@ -299,7 +299,7 @@ def test_responseheaders_installs_sse_restorer(guard):
     assert callable(flow.response.stream)
     assert flow.metadata[STREAMED_KEY]
     event = b'data: {"delta":{"text":"use <<SECRET_1>>"}}\n\n'
-    out = flow.response.stream(event) + flow.response.stream(b"")
+    out = b"".join(flow.response.stream(event) + flow.response.stream(b""))
     assert KEY.encode() in out
 
 

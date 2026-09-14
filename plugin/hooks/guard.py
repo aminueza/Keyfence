@@ -18,7 +18,10 @@ SENSITIVE_PATHS = (
     "*/.config/gcloud/*credentials*", "*/.gnupg/*",
 )
 SAFE_NAMES = (".env.example", ".env.sample", ".env.template", ".env.dist", "*.pub")
-FILE_TOOLS = {"Read", "Edit", "Write", "MultiEdit", "NotebookEdit"}
+FILE_TOOLS = {"read", "edit", "write", "multiedit", "notebookedit"}
+GREP_TOOLS = {"grep"}
+SHELL_TOOLS = {"bash", "powershell"}
+PATH_KEYS = ("file_path", "notebook_path", "path")
 _PATH_TOKEN = re.compile(r"""(?<![\w-])(?:~|\.{0,2}/)?[\w.~/@-]*(?:\.env(?:\.\w+)?|\.pem|\.key|\.p12|\.pfx|\.jks|\.ppk|\.kdbx|\.tfvars|\.netrc|\.npmrc|\.pypirc|\.git-credentials|credentials(?:\.\w+)?|id_rsa|id_ed25519|id_ecdsa|\.ssh/[\w.-]+|\.aws/credentials|\.docker/config\.json|\.kube/config)(?![\w-])""", re.IGNORECASE)
 _START = r"(?:^|[;&|(`])\s*"
 _DUMP_COMMANDS = re.compile(
@@ -73,19 +76,19 @@ def dumps_secrets(command: str) -> str | None:
 
 
 def decide(payload: dict) -> str | None:
-    tool = payload.get("tool_name", "")
+    tool = str(payload.get("tool_name", "")).lower()
     tool_input = payload.get("tool_input") or {}
     if tool in FILE_TOOLS:
-        path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
+        path = next((tool_input.get(key) for key in PATH_KEYS if tool_input.get(key)), "")
         if path and is_sensitive(path):
             return _reason(path)
         return None
-    if tool == "Grep":
+    if tool in GREP_TOOLS:
         for value in (tool_input.get("path") or "", tool_input.get("glob") or ""):
             if value and is_sensitive(value):
                 return _reason(value)
         return None
-    if tool == "Bash":
+    if tool in SHELL_TOOLS:
         command = tool_input.get("command") or ""
         for path in paths_in_command(command):
             if is_sensitive(path):

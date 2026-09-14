@@ -29,11 +29,42 @@ def test_anthropic_without_system_gets_one():
     assert "role" not in json.dumps(out["messages"])
 
 
-def test_openai_chat_gets_trailing_system_message():
+def test_openai_chat_without_a_system_message_gets_one_first():
     body = json.dumps({"model": "gpt", "messages": [{"role": "user", "content": "hi"}]})
     out = load(add_notice(body, "api.openai.com"))
-    assert out["messages"][-1] == {"role": "system", "content": NOTICE}
-    assert out["messages"][0] == {"role": "user", "content": "hi"}
+    assert out["messages"][0] == {"role": "system", "content": NOTICE}
+    assert out["messages"][1] == {"role": "user", "content": "hi"}
+
+
+def test_openai_chat_extends_the_leading_system_message():
+    body = json.dumps({"model": "gpt", "messages": [
+        {"role": "system", "content": "be brief"}, {"role": "user", "content": "hi"}]})
+    out = load(add_notice(body, "api.openai.com"))
+    assert len(out["messages"]) == 2
+    assert out["messages"][0] == {"role": "system", "content": f"be brief\n\n{NOTICE}"}
+    assert out["messages"][1] == {"role": "user", "content": "hi"}
+
+
+def test_openai_chat_extends_a_developer_message_and_keeps_content_blocks():
+    body = json.dumps({"model": "gpt", "messages": [
+        {"role": "developer", "content": [{"type": "text", "text": "sys"}]},
+        {"role": "user", "content": "hi"}]})
+    out = load(add_notice(body, "api.openai.com"))
+    assert out["messages"][0]["role"] == "developer"
+    assert out["messages"][0]["content"] == [{"type": "text", "text": "sys"}, {"type": "text", "text": NOTICE}]
+
+
+def test_openai_chat_with_an_unusable_system_content_gets_its_own_message():
+    body = json.dumps({"model": "gpt", "messages": [
+        {"role": "system", "content": None}, {"role": "user", "content": "hi"}]})
+    out = load(add_notice(body, "api.openai.com"))
+    assert out["messages"][0] == {"role": "system", "content": NOTICE}
+    assert len(out["messages"]) == 3
+
+
+def test_openai_chat_with_no_messages_at_all():
+    out = load(add_notice(json.dumps({"model": "gpt", "messages": []}), "api.openai.com"))
+    assert out["messages"] == [{"role": "system", "content": NOTICE}]
 
 
 def test_openai_responses_instructions_are_extended():
