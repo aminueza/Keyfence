@@ -101,7 +101,37 @@ def check_proxy(port: int) -> Check:
                                 "requests through it are not scanned")
 
 
-def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_CERT) -> Check:
+def git_config_in_env(environ, key: str) -> str | None:
+    try:
+        count = int(environ.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError:
+        return None
+    for i in range(count):
+        if environ.get(f"GIT_CONFIG_KEY_{i}", "").lower() == key.lower():
+            return environ.get(f"GIT_CONFIG_VALUE_{i}")
+    return None
+
+
+def git_ignores_ca(environ=os.environ, run: Callable = _run, system: str | None = None) -> str | None:
+    if (system or platform.system()) != "Windows":
+        return None
+    if (git_config_in_env(environ, runner.GIT_SCHANNEL_KEY) or "").lower() == "true":
+        return None
+    if shutil.which("git") is None:
+        return None
+    code, out = run(["git", "config", "--get", "http.sslBackend"])
+    backend = out.strip().lower() if code == 0 else "schannel"
+    if backend != "schannel":
+        return None
+    code, out = run(["git", "config", "--get", runner.GIT_SCHANNEL_KEY])
+    if code == 0 and out.strip().lower() == "true":
+        return None
+    return (f"git uses the schannel backend and ignores GIT_SSL_CAINFO until you run "
+            f"`git config --global {runner.GIT_SCHANNEL_KEY} true`; keyfence exec sets it for its own session")
+
+
+def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_CERT,
+                      run: Callable = _run, system: str | None = None) -> Check:
     proxy = environ.get("HTTPS_PROXY") or environ.get("https_proxy")
     if not proxy:
         return Check(INFO, "shell environment",
@@ -114,8 +144,11 @@ def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_C
         return Check(WARN, "shell environment",
                      f"HTTPS_PROXY is set but {', '.join(missing)} not {ca_cert}; "
                      "the tools that read them (Node, Python, curl, git) will fail TLS")
-    return Check(OK, "shell environment",
-                 f"HTTPS_PROXY and the {len(runner.CA_ENV_VARS)} CA variables point at keyfence on port {port}")
+    detail = f"HTTPS_PROXY and the {len(runner.CA_ENV_VARS)} CA variables point at keyfence on port {port}"
+    problem = git_ignores_ca(environ, run, system)
+    if problem:
+        return Check(WARN, "shell environment", f"{detail}, but {problem}")
+    return Check(OK, "shell environment", detail)
 
 
 def check_local_mode(run: Callable = _run) -> Check:

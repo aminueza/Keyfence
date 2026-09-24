@@ -73,7 +73,30 @@ def test_proxy_and_environment_checks(monkeypatch, tmp_path):
     assert partial.status == doctor.WARN
     assert "GIT_SSL_CAINFO" in partial.detail and "NODE_EXTRA_CA_CERTS" not in partial.detail
     good = {"HTTPS_PROXY": "http://127.0.0.1:8888", **{name: str(ca) for name in runner.CA_ENV_VARS}}
-    assert doctor.check_environment(8888, good, ca).status == doctor.OK
+    assert doctor.check_environment(8888, good, ca, system="Linux").status == doctor.OK
+
+
+def test_environment_check_warns_when_git_for_windows_ignores_the_ca(tmp_path, monkeypatch):
+    ca = tmp_path / "ca.pem"
+    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", **{name: str(ca) for name in runner.CA_ENV_VARS}}
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "C:\\Program Files\\Git\\cmd\\git.exe")
+    unset = lambda cmd: (1, "")
+    check = doctor.check_environment(8888, good, ca, run=unset, system="Windows")
+    assert check.status == doctor.WARN and "schannel" in check.detail
+    assert "git config --global http.schannelUseSSLCAInfo true" in check.detail
+    assert check.detail.startswith("HTTPS_PROXY and the 5 CA variables point at keyfence on port 8888, but")
+    configured = lambda cmd: (0, "true\n") if cmd[-1] == "http.schannelUseSSLCAInfo" else (1, "")
+    assert doctor.check_environment(8888, good, ca, run=configured, system="Windows").status == doctor.OK
+    openssl = lambda cmd: (0, "openssl\n") if cmd[-1] == "http.sslBackend" else (1, "")
+    assert doctor.check_environment(8888, good, ca, run=openssl, system="Windows").status == doctor.OK
+    never = lambda cmd: pytest.fail("git must not be asked")
+    in_session = {**good, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.schannelUseSSLCAInfo", "GIT_CONFIG_VALUE_0": "true"}
+    assert doctor.check_environment(8888, in_session, ca, run=never, system="Windows").status == doctor.OK
+    assert doctor.check_environment(8888, good, ca, run=never, system="Linux").status == doctor.OK
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    assert doctor.check_environment(8888, good, ca, run=never, system="Windows").status == doctor.OK
+    assert doctor.git_config_in_env({"GIT_CONFIG_COUNT": "x"}, "a.b") is None
+    assert doctor.git_config_in_env({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "A.B", "GIT_CONFIG_VALUE_0": "v"}, "a.b") == "v"
 
 
 def test_local_mode_check(monkeypatch):

@@ -192,6 +192,21 @@ def test_child_env(tmp_path):
     assert set(runner.CA_ENV_VARS) == {"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"}
 
 
+def test_child_env_tells_git_for_windows_to_use_the_ca(tmp_path):
+    plain = runner.child_env({}, 8888, tmp_path / "ca.pem", windows=False)
+    assert not any(name.startswith("GIT_CONFIG_") for name in plain)
+    env = runner.child_env({}, 8888, tmp_path / "ca.pem", windows=True)
+    assert env["GIT_CONFIG_COUNT"] == "1"
+    assert env["GIT_CONFIG_KEY_0"] == "http.schannelUseSSLCAInfo" and env["GIT_CONFIG_VALUE_0"] == "true"
+    env = runner.child_env({"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "a.b", "GIT_CONFIG_VALUE_0": "1",
+                            "GIT_CONFIG_KEY_1": "c.d", "GIT_CONFIG_VALUE_1": "2"}, 8888, tmp_path / "ca.pem", windows=True)
+    assert env["GIT_CONFIG_COUNT"] == "3" and env["GIT_CONFIG_KEY_0"] == "a.b" and env["GIT_CONFIG_KEY_1"] == "c.d"
+    assert env["GIT_CONFIG_KEY_2"] == "http.schannelUseSSLCAInfo" and env["GIT_CONFIG_VALUE_2"] == "true"
+    for broken in ("garbage", "-3"):
+        env = runner.child_env({"GIT_CONFIG_COUNT": broken}, 8888, tmp_path / "ca.pem", windows=True)
+        assert env["GIT_CONFIG_COUNT"] == "1" and env["GIT_CONFIG_KEY_0"] == "http.schannelUseSSLCAInfo"
+
+
 def test_build_env_vault_shares_salt_with_main(home):
     main = Vault()
     main.add("main-secret-value-1")
