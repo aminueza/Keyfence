@@ -63,7 +63,7 @@ Linux and Windows: see the
 | `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
 | `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through the proxy |
 | `keyfence run [-p PORT] [--local [NAMES]]` | run the proxy in the foreground on port 8888 |
-| `keyfence install-hooks claude-code\|pi [--project] [--remove [--force]]` | stop the agent from reading secret files at all |
+| `keyfence install-hooks claude-code\|pi [--project] [--remove [--force]] [--command PATH]` | stop the agent from reading secret files at all |
 | `keyfence install-hooks --list` | show the supported agents and whether the hook is installed for each, globally and in this project |
 | `keyfence hook claude-code\|pi` | the hook itself; the agent runs it, you do not |
 | `keyfence export [--since TS] [--otlp URL] [--header K=V] [--all]` | print the audit log as JSONL or send it to a collector |
@@ -271,8 +271,14 @@ about every `read`, `write`, `edit`, `grep`, `bash` and `powershell` call
 before it runs. The rules are the ones above, and the refusal reaches the
 model with the same message. The extension calls keyfence by absolute
 path, resolved when you install it, so reinstalling keyfence somewhere
-else means running `install-hooks pi` again. If the guard cannot run at
-all, the call is refused rather than allowed, and the reason says so.
+else means running `install-hooks pi` again; `--command PATH` bakes a
+path of your choice instead, for a file shared between machines, and a
+bare `--command keyfence` makes the extension look keyfence up on `PATH`
+at each call. If the guard cannot run at all, the call is refused rather
+than allowed, and the reason says so. `keyfence doctor` checks that the
+baked path still exists and is executable, and names it either way, so a
+deleted venv or a file synced from another machine shows up as a failure
+there instead of as refusals in pi.
 
 `--project` writes to `./.pi/extensions/`, which pi loads only after you
 trust the project; it asks on the first interactive start. The global

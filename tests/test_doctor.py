@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from keyfence import doctor, runner
@@ -110,12 +111,39 @@ def test_audit_check(home, write_config):
     assert doctor.check_audit().status == doctor.OK
 
 
-def test_mitmdump_check(monkeypatch):
-    monkeypatch.setattr(runner, "mitmdump_path", lambda: "/x/bin/mitmdump")
+def test_mitmdump_check(tmp_path, monkeypatch):
+    binary = tmp_path / "mitmdump"
+    binary.write_text("")
+    binary.chmod(0o755)
+    monkeypatch.setattr(runner, "mitmdump_path", lambda: str(binary))
     assert doctor.check_mitmdump().status == doctor.OK
+    if os.name == "posix":
+        binary.chmod(0o644)
+        check = doctor.check_mitmdump()
+        assert check.status == doctor.FAIL and str(binary) in check.detail and "not executable" in check.detail
+    binary.unlink()
+    check = doctor.check_mitmdump()
+    assert check.status == doctor.FAIL and str(binary) in check.detail and "does not exist" in check.detail
     monkeypatch.setattr(runner, "mitmdump_path", lambda: "mitmdump")
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
-    assert doctor.check_mitmdump().status == doctor.FAIL
+    assert doctor.check_mitmdump().status == doctor.FAIL and "mitmdump not found on PATH" in doctor.check_mitmdump().detail
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/opt/bin/mitmdump")
+    assert doctor.check_mitmdump().status == doctor.OK
+
+
+def test_command_problem(tmp_path, monkeypatch):
+    assert doctor.command_problem(str(tmp_path / "missing")) == "does not exist"
+    plain = tmp_path / "plain"
+    plain.write_text("")
+    if os.name == "posix":
+        plain.chmod(0o644)
+        assert doctor.command_problem(str(plain)) == "is not executable"
+    plain.chmod(0o755)
+    assert doctor.command_problem(str(plain)) is None
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    assert doctor.command_problem("keyfence") == "not found on PATH"
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/local/bin/keyfence")
+    assert doctor.command_problem("keyfence") is None
 
 
 def test_run_helper_handles_missing_command():
@@ -126,12 +154,41 @@ def test_run_helper_handles_missing_command():
 def test_pi_extension_check(home, tmp_path, monkeypatch):
     from keyfence import pi
     monkeypatch.setattr(pi.Path, "home", classmethod(lambda cls: tmp_path))
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
     assert doctor.check_pi_extension(tmp_path / "proj").status == doctor.INFO
-    assert pi.install(pi.extension_path(True, tmp_path / "proj"), "/bin/keyfence")
+    assert pi.install(pi.extension_path(True, tmp_path / "proj"), str(binary))
     check = doctor.check_pi_extension(tmp_path / "proj")
-    assert check.status == doctor.OK and "project" in check.detail
-    assert pi.install(pi.extension_path(False), "/bin/keyfence")
-    assert "global, project" in doctor.check_pi_extension(tmp_path / "proj").detail
+    assert check.status == doctor.OK and "project" in check.detail and str(binary) in check.detail
+    assert pi.install(pi.extension_path(False), str(binary))
+    check = doctor.check_pi_extension(tmp_path / "proj")
+    assert "global, project" in check.detail and check.detail.count(str(binary)) == 1
+
+
+def test_pi_extension_check_fails_when_the_baked_command_is_gone(home, tmp_path, monkeypatch):
+    from keyfence import pi
+    monkeypatch.setattr(pi.Path, "home", classmethod(lambda cls: tmp_path))
+    stale = "/home/victor/.local/share/uv/tools/keyfence/bin/keyfence"
+    assert pi.install(pi.extension_path(False), stale)
+    check = doctor.check_pi_extension(tmp_path / "proj")
+    assert check.status == doctor.FAIL
+    assert stale in check.detail and "does not exist" in check.detail and "install-hooks pi" in check.detail
+    if os.name == "posix":
+        plain = tmp_path / "keyfence"
+        plain.write_text("")
+        plain.chmod(0o644)
+        assert pi.install(pi.extension_path(False), str(plain))
+        check = doctor.check_pi_extension(tmp_path / "proj")
+        assert check.status == doctor.FAIL and "is not executable" in check.detail
+    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    assert pi.install(pi.extension_path(False), "keyfence")
+    assert "not found on PATH" in doctor.check_pi_extension(tmp_path / "proj").detail
+    path = pi.extension_path(False)
+    path.write_text(path.read_text().replace("const KEYFENCE = ", "const OTHER = "))
+    check = doctor.check_pi_extension(tmp_path / "proj")
+    assert check.status == doctor.FAIL and "holds no keyfence command" in check.detail
 
 
 def test_installed_scopes_names_both_locations_for_each_agent(home, tmp_path, monkeypatch):

@@ -158,7 +158,7 @@ def _install_pi(args) -> int:
         print(f"Extension removed from {path}." if changed else f"No keyfence extension in {path}.")
         return 0
     try:
-        changed = pi.install(path)
+        changed = pi.install(path, args.pi_command)
     except FileExistsError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -166,6 +166,10 @@ def _install_pi(args) -> int:
     if changed:
         print(f"Extension installed in {path} for {scope}.")
         print("pi will refuse to read .env files, private keys and credential files.")
+        command = pi.baked_command(path)
+        problem = doctor.command_problem(command)
+        print(f"It calls {command}" + (f", which {problem}; fix that or run this again with --command PATH."
+                                       if problem else "; keyfence doctor checks that this path stays valid."))
         if args.project:
             print("Project extensions load only once you trust the project; pi asks on startup.")
     else:
@@ -196,6 +200,9 @@ def _list_hooks() -> int:
 
 
 def cmd_install_hooks(args) -> int:
+    if args.pi_command and (args.list or args.remove or args.agent != "pi"):
+        print("error: --command only applies to `install-hooks pi`", file=sys.stderr)
+        return 2
     if args.list:
         if args.agent or args.project or args.remove or args.force:
             print("error: --list takes no agent and cannot be combined with --project, --remove or --force",
@@ -351,6 +358,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_hooks.add_argument("--project", action="store_true",
                          help="install in ./.claude or ./.pi instead of the home directory")
     p_hooks.add_argument("--remove", action="store_true", help="remove the hook")
+    p_hooks.add_argument("--command", dest="pi_command", metavar="PATH",
+                         help="with pi: the keyfence executable the extension calls, baked into the file "
+                              "(default: the one running now); a bare name is looked up on PATH at each call")
     p_hooks.add_argument("--force", action="store_true",
                          help="with claude-code --remove: also remove every deny rule keyfence installs when "
                               "there is no record of which ones it added (installs before 0.5.0)")
