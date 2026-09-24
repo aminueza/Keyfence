@@ -5,6 +5,7 @@ import json
 import re
 import sys
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 SENSITIVE_NAMES = (
     ".env", ".env.*", "*.env", ".envrc", "*.pem", "*.key", "*.p12", "*.pfx", "*.jks",
@@ -136,14 +137,24 @@ def _added_rules_path(path: Path) -> Path:
     return path.with_name("keyfence-deny-rules.json")
 
 
-def _added_rules(path: Path) -> list[str]:
-    record = _added_rules_path(path)
-    if not record.exists():
-        return list(DENY_RULES)
+def _added_rules(path: Path) -> list[str] | None:
     try:
-        return list(json.loads(record.read_text()))
-    except ValueError:
-        return list(DENY_RULES)
+        rules = json.loads(_added_rules_path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(rules, list) or not all(isinstance(rule, str) for rule in rules):
+        return None
+    return rules
+
+
+class Removal(NamedTuple):
+    hook: bool
+    rules: int
+    unrecorded: list[str]
+
+    @property
+    def changed(self) -> bool:
+        return self.hook or self.rules > 0
 
 
 def install(path: Path) -> bool:
@@ -162,9 +173,8 @@ def install(path: Path) -> bool:
         deny.extend(missing)
         changed = True
         path.parent.mkdir(parents=True, exist_ok=True)
-        record = _added_rules_path(path)
-        previous = _added_rules(path) if record.exists() else []
-        record.write_text(json.dumps(sorted(set(previous) | set(missing)), indent=2) + "\n")
+        previous = _added_rules(path) or []
+        _added_rules_path(path).write_text(json.dumps(sorted(set(previous) | set(missing)), indent=2) + "\n")
     if not changed:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -172,18 +182,26 @@ def install(path: Path) -> bool:
     return True
 
 
-def uninstall(path: Path) -> bool:
+def uninstall(path: Path, force: bool = False) -> Removal:
     if not path.exists():
-        return False
+        return Removal(False, 0, [])
     data = json.loads(path.read_text())
     pre = data.get("hooks", {}).get("PreToolUse", [])
     kept = [e for e in pre if not _is_ours(e)]
     deny = data.get("permissions", {}).get("deny", [])
-    ours = set(_added_rules(path))
+    recorded = _added_rules(path)
+    ours = set(recorded or ())
+    unrecorded = []
+    if force:
+        ours |= set(DENY_RULES)
+    elif recorded is None:
+        unrecorded = [rule for rule in deny if rule in DENY_RULES]
     kept_deny = [rule for rule in deny if rule not in ours]
-    _added_rules_path(path).unlink(missing_ok=True)
-    if len(kept) == len(pre) and len(kept_deny) == len(deny):
-        return False
+    if force or recorded is not None:
+        _added_rules_path(path).unlink(missing_ok=True)
+    result = Removal(len(kept) < len(pre), len(deny) - len(kept_deny), unrecorded)
+    if not result.changed:
+        return result
     if "hooks" in data:
         data["hooks"]["PreToolUse"] = kept
         if not kept:
@@ -197,7 +215,7 @@ def uninstall(path: Path) -> bool:
         if not data["permissions"]:
             del data["permissions"]
     path.write_text(json.dumps(data, indent=2) + "\n")
-    return True
+    return result
 
 
 if __name__ == "__main__":
