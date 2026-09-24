@@ -303,7 +303,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="also capture the command's traffic without proxy variables "
                              "(macOS/Windows); default: the command's own process name")
     p_exec.add_argument("--record", metavar="FILE",
-                        help="save the raw traffic to a mitmproxy flows file (contains full request and response bodies)")
+                        help="save the raw traffic to a mitmproxy flows file "
+                             "(full request bodies and headers; secrets unredacted in audit and block mode)")
     p_exec.add_argument("--linger", type=float, default=0.0, metavar="SECONDS",
                         help="keep the proxy up this long after the command exits, to see what is sent afterwards")
     p_exec.add_argument("argv", nargs=argparse.REMAINDER, metavar="command")

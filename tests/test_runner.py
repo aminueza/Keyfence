@@ -73,6 +73,57 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     assert proxy.terminated
 
 
+def _wire_fake_proxy(monkeypatch, tmp_path):
+    seen = {}
+    ca = tmp_path / "ca.pem"
+    ca.write_text("cert")
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or FakeProxy())
+    monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
+    return ca
+
+
+@pytest.mark.parametrize("mode", ["audit", "block"])
+def test_run_record_says_on_stderr_when_the_file_will_hold_secrets(home, write_config, monkeypatch, tmp_path, capsys, mode):
+    write_config(f"mode: {mode}\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    record = tmp_path / "rec" / "s.flows"
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    out, err = capsys.readouterr()
+    assert err == f"keyfence: mode is {mode}, so {record} will hold {runner.RECORD_NOTICES[mode]} (file mode 0600)\n"
+    assert "secrets included, in clear text" in err
+    assert out == ""
+    assert record.exists()
+
+
+@pytest.mark.parametrize("config", ["mode: redact\n", "mode: placeholder\n", "mode: nonsense\n", "mode: [\n", None])
+def test_run_record_stays_quiet_when_the_file_will_not_hold_secrets(home, write_config, monkeypatch, tmp_path, capsys, config):
+    if config is not None:
+        write_config(config)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=tmp_path / "s.flows") == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_run_without_record_says_nothing_in_audit_mode(home, write_config, monkeypatch, tmp_path, capsys):
+    write_config("mode: audit\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_record_notice_reads_the_config_keyfence_exec_will_use(home, write_config):
+    assert runner.record_notice(Path("s.flows")) is None
+    write_config("mode: audit\n")
+    notice = runner.record_notice(Path("s.flows"))
+    assert notice.startswith("keyfence: mode is audit, so s.flows will hold ")
+    assert notice.endswith("(file mode 0600)")
+    write_config("mode: redact\n")
+    assert runner.record_notice(Path("s.flows")) is None
+
+
 def test_run_refuses_busy_port(home, monkeypatch, capsys):
     monkeypatch.setattr(runner, "port_open", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start"))

@@ -6,6 +6,26 @@
   every value read. Since 0.5.0 the values go through the same
   secret-looking filter as file import, `--all` registers everything, and
   `--from` cannot be combined with file paths or `--env`.
+- `keyfence exec --record` says when the flows file will hold secrets in
+  clear text, and SECURITY.md lists every file keyfence writes. "What
+  keyfence sees and stores" named `vault.json`, `audit.log`, `env/` and
+  `~/.mitmproxy/` and stressed that values are never written, but left
+  out `~/.keyfence/proxy.log` and the `--record` flows file. Measured on
+  a real mitmdump, the flows file holds every request as it left
+  keyfence, headers included: in `redact` and `placeholder` mode the
+  secrets are already replaced, in `audit` mode they are in clear text,
+  and in `block` mode the blocked request is stored as the command sent
+  it, so in clear text too. Responses are streamed through and not kept
+  unless keyfence produced or rewrote them, so the old help text's "full
+  request and response bodies" was wrong in both directions.
+  `bench/lab/run.py`, the shipped example of `--record`, runs in
+  `mode: audit`, so pointing the lab at a real agent recorded that session
+  unredacted without a word. `keyfence exec --record` now prints one line
+  on stderr naming the file and what it will hold when the mode is
+  `audit` or `block`, the `--record` help text and the lab README say the
+  same, and SECURITY.md describes both files: `proxy.log` holds the
+  startup summary and one line per detection with host, count and kinds,
+  the `CANARY tripped` line names the canary's file, never a value.
 - The agent hook recognises a secret-printing command behind the shell
   constructs that wrap one. `env` was refused but `sudo env`, `LC_ALL=C
   env`, `/usr/bin/env`, `eval env`, `command env`, `xargs env`, `bash -c

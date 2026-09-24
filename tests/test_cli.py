@@ -256,6 +256,14 @@ def test_exec_passes_record_and_linger(home, monkeypatch):
     assert seen["record"] is None and seen["linger"] == 0.0
 
 
+def test_exec_help_says_what_record_holds(home, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["exec", "--help"])
+    assert exc.value.code == 0
+    text = " ".join(capsys.readouterr().out.split())
+    assert "secrets unredacted in audit and block mode" in text
+
+
 def test_exec_passes_local_flag(home, monkeypatch):
     seen = {}
     monkeypatch.setattr(cli.runner, "run", lambda command, port, everything, local, record, linger: seen.update(local=local) or 0)

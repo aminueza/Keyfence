@@ -13,6 +13,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
+from .config import Config
 from .importer import env_values
 from .vault import DEFAULT_DIR, Vault
 
@@ -97,6 +98,21 @@ def child_env(base: Mapping[str, str], port: int, ca_cert: Path) -> dict[str, st
 
 ENV_VAULT_DIR = "env"
 STALE_AFTER = 60.0
+RECORD_NOTICES = {
+    "audit": "every request in full, secrets included, in clear text",
+    "block": "every blocked request as the command sent it, secrets included, in clear text",
+}
+
+
+def record_notice(record: Path) -> str | None:
+    try:
+        mode = Config.load().mode
+    except Exception:
+        return None
+    holds = RECORD_NOTICES.get(mode)
+    if holds is None:
+        return None
+    return f"keyfence: mode is {mode}, so {record} will hold {holds} (file mode 0600)"
 
 
 def sweep_stale_env_vaults(directory: Path, max_age: float = STALE_AFTER) -> int:
@@ -142,6 +158,9 @@ def run(command: Sequence[str], port: int, everything: bool = False,
         local = Path(command[0]).name
     extra = []
     if record:
+        notice = record_notice(record)
+        if notice:
+            print(notice, file=sys.stderr, flush=True)
         record.parent.mkdir(parents=True, exist_ok=True)
         record.touch(mode=0o600)
         with contextlib.suppress(OSError):
