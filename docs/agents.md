@@ -41,12 +41,13 @@ extension is the reference for that case; its `unavailable()` reason is:
 where `<detail>` is the spawn error message, or stderr, or `exit <code>`.
 Failing open here would turn a broken install into a silent gap.
 
-The hook itself is forgiving about its input: unparsable JSON, an empty
-stdin or a JSON value that is not an object all exit `0`. That keeps a
-hook from breaking an agent on a payload it does not understand, and it
-means a serialisation bug on your side allows the call rather than refusing
-it. Send exactly the object above. A tool name the rules do not inspect
-also exits `0`.
+The hook is strict about the shape of its input and lenient about its
+content. Unparsable JSON, an empty stdin or a JSON value that is not an
+object exit `2` with a reason that starts with `keyfence blocked` and says
+the tool call could not be read, so a serialisation bug on your side
+refuses calls instead of letting them through. Inside a valid object,
+anything the rules do not inspect exits `0`: a tool name that is not in
+the tables below, a missing `tool_input`, or unknown fields.
 
 Claude Code gives the hook 10 seconds; the pi extension has no timeout of
 its own. A decision takes a few milliseconds once Python is up, and the

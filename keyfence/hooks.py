@@ -109,6 +109,11 @@ def decide(payload: dict) -> str | None:
     return None
 
 
+UNREADABLE = ("keyfence blocked this call because it could not read the tool call: stdin must hold "
+              "one JSON object with tool_name and tool_input. Refusing rather than letting it through; "
+              "if this keeps happening, check the agent integration and `keyfence doctor`.")
+
+
 def _reason(path: str) -> str:
     return (f"keyfence blocked access to {path}: files like this hold secrets and must not "
             "enter the model context. If you need a value from it, ask the user to run the "
@@ -120,10 +125,13 @@ def run_hook(stdin=None, stderr=None) -> int:
     stdin = stdin or sys.stdin
     stderr = stderr or sys.stderr
     try:
-        payload = json.loads(stdin.read() or "{}")
+        payload = json.loads(stdin.read())
     except ValueError:
-        return 0
-    reason = decide(payload if isinstance(payload, dict) else {})
+        payload = None
+    if not isinstance(payload, dict):
+        print(UNREADABLE, file=stderr)
+        return 2
+    reason = decide(payload)
     if reason:
         print(reason, file=stderr)
         return 2

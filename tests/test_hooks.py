@@ -180,9 +180,15 @@ def test_run_hook_exit_codes():
     blocked = hooks.run_hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": ".env"}})), err)
     assert blocked == 2 and "keyfence blocked" in err.getvalue()
     assert hooks.run_hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "a.py"}})), io.StringIO()) == 0
-    assert hooks.run_hook(io.StringIO("not json"), io.StringIO()) == 0
-    assert hooks.run_hook(io.StringIO("[1]"), io.StringIO()) == 0
-    assert hooks.run_hook(io.StringIO(""), io.StringIO()) == 0
+    assert hooks.run_hook(io.StringIO("{}"), io.StringIO()) == 0
+    assert hooks.run_hook(io.StringIO(json.dumps({"tool_name": "Unknown", "tool_input": {"x": 1}})), io.StringIO()) == 0
+
+
+@pytest.mark.parametrize("payload", ["not json", "[1]", "", "null", '"read"', "42", "{\"tool_name\": \"Read\""])
+def test_run_hook_refuses_input_it_cannot_read(payload):
+    err = io.StringIO()
+    assert hooks.run_hook(io.StringIO(payload), err) == 2
+    assert err.getvalue().startswith("keyfence blocked") and "could not read the tool call" in err.getvalue()
 
 
 def test_plugin_guard_is_the_same_file_and_runs_standalone():
@@ -197,6 +203,8 @@ def test_plugin_guard_is_the_same_file_and_runs_standalone():
     done = subprocess.run([sys.executable, str(guard)], input='{"tool_name":"Read","tool_input":{"file_path":"a.py"}}',
                           capture_output=True, text=True)
     assert done.returncode == 0
+    done = subprocess.run([sys.executable, str(guard)], input="", capture_output=True, text=True)
+    assert done.returncode == 2 and "could not read the tool call" in done.stderr
 
 
 def test_install_and_uninstall_merge_with_existing_settings(tmp_path):

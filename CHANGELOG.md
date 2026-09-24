@@ -7,6 +7,13 @@
   `actions/download-artifact@v8`, the current majors built for Node 24,
   and pin the Linux jobs to `ubuntu-24.04` instead of `ubuntu-latest`,
   which GitHub moves to Ubuntu 26 in October 2026.
+- The agent hook refuses a tool call it cannot read. Empty stdin,
+  unparsable JSON or a JSON value that is not an object exited 0, which
+  means "allowed", so a serialisation bug in an agent integration let
+  every call through. They now exit 2 with a reason on stderr, the same
+  path the pi extension and Claude Code already handle for a refusal. A
+  valid object with a tool name the rules do not inspect still exits 0.
+
 ## 0.6.0 (2026-09-24)
 
 - `keyfence demo` tells the story in plain words and names no provider or
