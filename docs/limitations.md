@@ -28,7 +28,11 @@ real incidents. Out of scope:
   is the layer that catches that value on its way out. The hook also does
   not try to recognise `python -c 'print(os.environ)'` and similar
   one-liners; that is an arms race, and again the proxy covers the value
-  itself once it is in the vault.
+  itself once it is in the vault. In a shell command, a word counts as a
+  path only when it contains `/`, `.` or `_`, so `cat credentials` or
+  `cat kubeconfig` with nothing else in the word is not refused; the
+  price of refusing it would be blocking `rg credentials src/`, a text
+  search. `cat ./credentials` and `cat ~/kubeconfig` are refused.
 - **Streams ending mid-placeholder.** If a streamed response ends in the
   middle of a placeholder, the last characters are passed through as they
   are.

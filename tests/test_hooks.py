@@ -34,6 +34,56 @@ def test_paths_in_command():
     found = hooks.paths_in_command(cmd)
     assert ".env" in found and "~/.aws/credentials" in found and "../secrets/prod.env" in found
     assert "~/.ssh/id_rsa" in found
+    assert "cat" not in found and "TOKEN" not in found and "head" not in found
+    assert hooks.paths_in_command("ls -la --color=auto") == []
+
+
+SAME_FILE_KINDS = [
+    "secrets.yaml", "secrets.json", "db.secret", "db.secrets", "service-account.json",
+    "service-account-prod.json", "kubeconfig", "prod.kubeconfig", ".envrc", "id_dsa", "_netrc",
+    "store.keystore", ".gnupg/secring.gpg", ".env", "id_rsa", "credentials.json", "terraform.tfvars",
+    "app.p12", "cert.pfx", "trust.jks", "key.ppk", "passwords.kdbx", ".npmrc", ".pypirc",
+    ".git-credentials", "gcp-credentials.json", ".aws/credentials", ".docker/config.json",
+    ".kube/config", ".ssh/known_hosts",
+]
+
+
+@pytest.mark.parametrize("name", SAME_FILE_KINDS)
+def test_bash_refuses_every_file_kind_the_read_tool_refuses(name):
+    path = f"/proj/{name}"
+    read = hooks.decide({"tool_name": "Read", "tool_input": {"file_path": path}})
+    bash = hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {path}"}})
+    assert read and bash and path in bash
+    assert hooks.decide({"tool_name": "bash", "tool_input": {"command": f"cat {path}"}})
+
+
+@pytest.mark.parametrize("command", [
+    "cat .kube/config", "cat .ssh/known_hosts", "cat .docker/config.json", "cat .gnupg/secring.gpg",
+    'cat "/proj/secrets.yaml"', "cat '/proj/secrets.yaml'", "sops -d --input=/proj/secrets.yaml",
+    "KUBECONFIG=/proj/kubeconfig kubectl get pods", "docker run -v /proj/secrets.yaml:/run/s img",
+    "cp $HOME/.aws/credentials /tmp/x", "cat C:\\Users\\u\\_netrc", "head -c 100 <~/.pypirc",
+    "tar czf out.tgz src/,service-account-prod.json",
+])
+def test_paths_inside_options_quotes_and_assignments_are_still_refused(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+@pytest.mark.parametrize("command", [
+    "ls -la", "npm test", "git status", "echo hello", "cat README.md", "cat package.json",
+    "cat requirements.txt", "cat .env.example", "cat key.pub", "pytest tests/test_hooks.py",
+    "python3 manage.py migrate", "grep -rn TODO src/", "docker compose up -d",
+    "git commit -m 'fix: config.yaml parsing'", "node dist/index.js", "make build",
+    "curl https://api.example.com/v1/users", "kubectl get secrets", "gh secret list",
+    "rg credentials src/", "ls --env-file=x.txt", "cd .. && ls ./", "cat .env.sample",
+])
+def test_commands_mentioning_no_secret_file_pass(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("path", [".ssh/known_hosts", ".kube/config", ".docker/config.json", ".gnupg/pubring.kbx"])
+def test_relative_paths_under_secret_directories_are_sensitive(path):
+    assert hooks.is_sensitive(path)
+    assert hooks.decide({"tool_name": "Read", "tool_input": {"file_path": path}})
 
 
 def test_decide_file_tools_and_bash():
