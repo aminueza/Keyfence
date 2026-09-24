@@ -314,12 +314,51 @@ def test_addon_live_probe_distinguishes_keyfence_from_anything_else():
     }
     try:
         assert runner.addon_live(servers["live"].server_port)
+        assert runner.probe(servers["live"].server_port) == {"keyfence": "0.6.0.dev0", "mode": "redact", "hosts": 9}
         assert all(not runner.addon_live(servers[name].server_port) for name in servers if name != "live")
+        assert all(runner.probe(servers[name].server_port) is None for name in servers if name != "live")
     finally:
         for server in servers.values():
             server.shutdown()
             server.server_close()
     assert not runner.addon_live(servers["live"].server_port)
+
+
+def test_start_proxy_reports_each_stage_and_stops_what_it_started(monkeypatch, tmp_path):
+    ca = tmp_path / "ca.pem"
+    ca.write_text("cert")
+    log = (tmp_path / "log").open("w")
+    started = []
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr: started.append((cmd, env, stdout)) or started[-1] and FakeProxy())
+    monkeypatch.setattr(runner, "port_open", lambda port: False)
+    with pytest.raises(runner.ProxyError) as exc:
+        runner.start_proxy(8899, {"A": "1"}, log, timeout=0.05, ca_cert=ca)
+    assert exc.value.stage == runner.NOT_UP and "did not come up" in exc.value.message and str(exc.value) == exc.value.message
+    assert started[-1][1] == {"A": "1"} and started[-1][2] is log
+    monkeypatch.setattr(runner, "port_open", lambda port: True)
+    monkeypatch.setattr(runner, "addon_live", lambda port: False)
+    with pytest.raises(runner.ProxyError) as exc:
+        runner.start_proxy(8899, {}, log, timeout=0.05, ca_cert=ca, local="claude", extra=["-w", "x"])
+    assert exc.value.stage == runner.NOT_LIVE and "local:claude" in started[-1][0] and started[-1][0][-2:] == ["-w", "x"]
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
+    proxy = runner.start_proxy(8899, {}, log, timeout=0.05, ca_cert=ca)
+    assert isinstance(proxy, FakeProxy) and not proxy.terminated
+    runner.stop_proxy(proxy)
+    assert proxy.terminated
+    runner.stop_proxy(proxy)
+    stuck = FakeProxy(alive_after_terminate=True)
+    runner.stop_proxy(stuck)
+    assert stuck.terminated and stuck.killed
+
+    def missing(*_args, **_kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(runner.subprocess, "Popen", missing)
+    with pytest.raises(runner.ProxyError) as exc:
+        runner.start_proxy(8899, {}, log, timeout=0.05, ca_cert=ca)
+    assert exc.value.stage == runner.MISSING and "mitmdump not found" in exc.value.message
+    log.close()
 
 
 def test_run_times_out_and_kills_stuck_proxy(home, monkeypatch, tmp_path, capsys):

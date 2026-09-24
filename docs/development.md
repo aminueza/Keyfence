@@ -16,8 +16,8 @@ bash tests/integration_test.sh    # end-to-end against a real mitmproxy
 `pytest` always measures coverage (`addopts` in `pyproject.toml`) and fails
 below 90%. The
 integration script starts an echo server and a real `mitmdump` with the
-keyfence addon, then checks redact, placeholder, streaming, block and
-`keyfence exec` end to end.
+keyfence addon, then checks redact, placeholder, streaming, block,
+`keyfence exec` and `keyfence selftest` in every mode end to end.
 
 Fake keys used in tests are assembled at runtime in `tests/fakes.py` so
 that secret scanners, including GitHub push protection, do not flag them.
@@ -34,6 +34,7 @@ that secret scanners, including GitHub push protection, do not flag them.
 | `keyfence/notice.py` | system prompt notice for changed requests |
 | `keyfence/importer.py` | secret extraction from `.env`, credential files and the environment |
 | `keyfence/runner.py` | `keyfence exec`: proxy lifecycle, child environment, local capture mode |
+| `keyfence/selftest.py` | `keyfence selftest`: temporary home, local listener, one request per mode and the verdict |
 | `keyfence/hooks.py` | agent hook: sensitive path rules and Claude Code settings.json install |
 | `keyfence/pi.py` | pi extension: source template and install/remove |
 | `keyfence/export.py` | audit log export as JSONL and OTLP/HTTP log records |

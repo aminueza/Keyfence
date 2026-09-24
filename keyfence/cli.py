@@ -222,6 +222,13 @@ def cmd_doctor(args) -> int:
     return 1 if any(c.status == doctor.FAIL for c in checks) else 0
 
 
+def cmd_selftest(args) -> int:
+    from . import selftest
+    report = selftest.run(port=args.port, timeout=args.timeout)
+    print(selftest.render(report))
+    return 0 if report.ok else 1
+
+
 def cmd_demo(_args) -> int:
     from . import demo
     return demo.run()
@@ -343,6 +350,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_doctor = sub.add_parser("doctor", help="check the installation and say what is missing")
     p_doctor.add_argument("-p", "--port", type=int, default=8888)
 
+    p_selftest = sub.add_parser("selftest", help="start a proxy on a free port, send a throwaway secret through it "
+                                                 "to a local listener and check that the configured mode was applied")
+    p_selftest.add_argument("-p", "--port", type=int, default=None, help="proxy port for the test (default: a free one)")
+    p_selftest.add_argument("--timeout", type=float, default=20.0, metavar="SECONDS",
+                            help="how long to wait for the proxy and the addon (default: 20)")
+
     sub.add_parser("demo", help="show what each mode does to a fake request, without any network")
 
     p_export = sub.add_parser("export", help="print the audit log as JSONL or send it to an OTLP collector")
@@ -376,6 +389,7 @@ def _dispatch(args) -> int:
         "hook": cmd_hook,
         "install-hooks": cmd_install_hooks,
         "doctor": cmd_doctor,
+        "selftest": cmd_selftest,
         "demo": cmd_demo,
         "export": cmd_export,
         "status": cmd_status,

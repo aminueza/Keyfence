@@ -172,9 +172,15 @@ def run_checks(port: int, cwd: Path | None = None) -> list[Check]:
     ]
 
 
+MARKS = {OK: "ok  ", INFO: "info", WARN: "warn", FAIL: "FAIL"}
+
+
+def format_checks(checks: list[Check]) -> list[str]:
+    return [f"{MARKS[c.status]}  {c.label}: {c.detail}" for c in checks]
+
+
 def render(checks: list[Check]) -> str:
-    marks = {OK: "ok  ", INFO: "info", WARN: "warn", FAIL: "FAIL"}
-    lines = [f"{marks[c.status]}  {c.label}: {c.detail}" for c in checks]
+    lines = format_checks(checks)
     fails = sum(1 for c in checks if c.status == FAIL)
     warns = sum(1 for c in checks if c.status == WARN)
     infos = sum(1 for c in checks if c.status == INFO)
@@ -187,4 +193,7 @@ def render(checks: list[Check]) -> str:
         lines.append("Everything keyfence exec needs is in place.")
     if infos:
         lines.append("info lines are optional: they matter only for tools started outside keyfence exec.")
+    if not fails:
+        lines.append("These checks look at the pieces one by one; keyfence selftest sends a throwaway "
+                     "secret through a fresh proxy and checks what comes out the other side.")
     return "\n".join(lines)

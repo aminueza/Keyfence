@@ -64,17 +64,59 @@ def port_open(port: int, host: str = "127.0.0.1") -> bool:
         return False
 
 
-def addon_live(port: int, timeout: float = 1.0) -> bool:
+def probe(port: int, timeout: float = 1.0) -> dict | None:
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
         conn.request("GET", PROBE_URL, headers={"Host": PROBE_HOST})
         resp = conn.getresponse()
         body = json.loads(resp.read().decode("utf-8", "replace"))
-        return resp.status == 200 and isinstance(body, dict) and "keyfence" in body
+        if resp.status == 200 and isinstance(body, dict) and "keyfence" in body:
+            return body
+        return None
     except (OSError, ValueError, http.client.HTTPException):
-        return False
+        return None
     finally:
         conn.close()
+
+
+def addon_live(port: int, timeout: float = 1.0) -> bool:
+    return probe(port, timeout) is not None
+
+
+MISSING, NOT_UP, NOT_LIVE = "missing", "not-up", "not-live"
+
+
+class ProxyError(RuntimeError):
+    def __init__(self, stage: str, message: str):
+        super().__init__(message)
+        self.stage = stage
+        self.message = message
+
+
+def stop_proxy(proxy: subprocess.Popen) -> None:
+    if proxy.poll() is None:
+        proxy.terminate()
+        try:
+            proxy.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proxy.kill()
+
+
+def start_proxy(port: int, env: Mapping[str, str], log, timeout: float = 20.0,
+                ca_cert: Path = CA_CERT, local: str | None = None,
+                extra: Sequence[str] = ()) -> subprocess.Popen:
+    try:
+        proxy = subprocess.Popen(proxy_command(port, local=local, extra=extra), env=env,
+                                 stdout=log, stderr=subprocess.STDOUT)
+    except FileNotFoundError:
+        raise ProxyError(MISSING, "mitmdump not found. Install it with: pip install mitmproxy") from None
+    if not wait_for(lambda: proxy.poll() is None and port_open(port) and ca_cert.exists(), timeout):
+        stop_proxy(proxy)
+        raise ProxyError(NOT_UP, f"keyfence proxy did not come up on port {port} within {timeout:.0f}s")
+    if not wait_for(lambda: proxy.poll() is None and addon_live(port), timeout):
+        stop_proxy(proxy)
+        raise ProxyError(NOT_LIVE, f"mitmdump is listening on port {port} but the keyfence addon is not answering")
+    return proxy
 
 
 def wait_for(predicate: Callable[[], bool], timeout: float, interval: float = 0.1) -> bool:
@@ -167,34 +209,22 @@ def run(command: Sequence[str], port: int, everything: bool = False,
             os.chmod(record, 0o600)
         extra = ["-w", str(record)]
     try:
-        proxy = subprocess.Popen(proxy_command(port, local=local, extra=extra), env=proxy_env,
-                                 stdout=proxy_log, stderr=subprocess.STDOUT)
-    except FileNotFoundError:
+        proxy = start_proxy(port, proxy_env, proxy_log, timeout, ca_cert, local, extra)
+    except ProxyError as exc:
         proxy_log.close()
         env_vault.remove_files()
-        print("mitmdump not found. Install it with: pip install mitmproxy")
+        if exc.stage == MISSING:
+            print(exc.message)
+        else:
+            print(f"{exc.message}, so the command was not started; see {DEFAULT_DIR / 'proxy.log'}")
         return 1
     try:
-        ready = wait_for(lambda: proxy.poll() is None and port_open(port) and ca_cert.exists(), timeout)
-        if not ready:
-            print(f"keyfence proxy did not come up on port {port} within {timeout:.0f}s; "
-                  f"see {DEFAULT_DIR / 'proxy.log'}")
-            return 1
-        if not wait_for(lambda: proxy.poll() is None and addon_live(port), timeout):
-            print(f"mitmdump is listening on port {port} but the keyfence addon is not answering, "
-                  f"so the command was not started; see {DEFAULT_DIR / 'proxy.log'}")
-            return 1
         code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert))
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
             time.sleep(linger)
         return code
     finally:
-        if proxy.poll() is None:
-            proxy.terminate()
-            try:
-                proxy.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proxy.kill()
+        stop_proxy(proxy)
         proxy_log.close()
         env_vault.remove_files()
