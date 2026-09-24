@@ -33,12 +33,17 @@ the proxy starts. Tools need to trust it so the proxy can read HTTPS traffic.
 `keyfence exec` passes the certificate to the child process through
 `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
 `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO`, so Claude Code, Codex, Aider, curl,
-git and anything on the Python or Node SDKs work with no further step. One
-exception: Git for Windows uses the schannel backend by default, which
-ignores `GIT_SSL_CAINFO` unless `git config --global http.schannelUseSSLCAInfo true`
-is set, so git over HTTPS inside a session needs that one setting there.
-Only desktop apps and tools that ignore those variables, and `--local`
-capture, need the certificate in the system store:
+git and anything on the Python or Node SDKs work with no further step. Git
+for Windows uses the schannel backend by default, which ignores
+`GIT_SSL_CAINFO` unless `http.schannelUseSSLCAInfo` is set, so on Windows
+`keyfence exec` also sets that option for its session through
+`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` (read by
+git 2.31 and later, appended after any entries you already export). A git
+pointed at a `keyfence run` proxy by hand needs
+`git config --global http.schannelUseSSLCAInfo true` instead, and
+`keyfence doctor` says so on Windows when it is missing. Only desktop apps
+and tools that ignore those variables, and `--local` capture, need the
+certificate in the system store:
 
 macOS:
 

@@ -54,6 +54,14 @@
   every call through. They now exit 2 with a reason on stderr, the same
   path the pi extension and Claude Code already handle for a refusal. A
   valid object with a tool name the rules do not inspect still exits 0.
+- Git for Windows reads the CA inside a `keyfence exec` session. Its
+  default schannel backend ignores `GIT_SSL_CAINFO` unless
+  `http.schannelUseSSLCAInfo` is set, so on Windows `keyfence exec` now
+  sets that option for its session through `GIT_CONFIG_COUNT`,
+  `GIT_CONFIG_KEY_n` and `GIT_CONFIG_VALUE_n`, appended after any entries
+  already in the environment. `keyfence doctor` on Windows warns, with the
+  `git config --global` command, when a shell points git at a proxy and
+  the option is set neither in git's config nor in the environment.
 
 ## 0.6.0 (2026-09-24)
 

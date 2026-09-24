@@ -140,13 +140,29 @@ def wait_for(predicate: Callable[[], bool], timeout: float, interval: float = 0.
     return predicate()
 
 
-def child_env(base: Mapping[str, str], port: int, ca_cert: Path) -> dict[str, str]:
+GIT_SCHANNEL_KEY = "http.schannelUseSSLCAInfo"
+
+
+def with_git_config(env: dict[str, str], key: str, value: str) -> dict[str, str]:
+    try:
+        count = max(int(env.get("GIT_CONFIG_COUNT", "0")), 0)
+    except ValueError:
+        count = 0
+    env[f"GIT_CONFIG_KEY_{count}"] = key
+    env[f"GIT_CONFIG_VALUE_{count}"] = value
+    env["GIT_CONFIG_COUNT"] = str(count + 1)
+    return env
+
+
+def child_env(base: Mapping[str, str], port: int, ca_cert: Path, windows: bool = os.name == "nt") -> dict[str, str]:
     env = dict(base)
     proxy_url = f"http://127.0.0.1:{port}"
     for name in PROXY_ENV_VARS:
         env[name] = proxy_url
     for name in CA_ENV_VARS:
         env[name] = str(ca_cert)
+    if windows:
+        with_git_config(env, GIT_SCHANNEL_KEY, "true")
     return env
 
 
