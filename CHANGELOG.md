@@ -75,7 +75,9 @@
   `GITHUBTOKEN` and the `identitytoken` field of the docker config. Long
   random values still reach the vault through the entropy check; a short
   one needs a separator (`DB_PASSWORD`), camel case (`dbPassword`) or
-  `keyfence import --all`.
+  `keyfence import --all`. The names that a tool fixes and a developer
+  cannot rename are words of their own, so `PGPASSWORD`, `SSHPASS` and
+  `PASSPHRASE` keep matching.
 
 ## 0.7.0 (2026-09-24)
 

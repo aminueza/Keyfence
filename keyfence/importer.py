@@ -15,7 +15,7 @@ NO_IGNORE = IgnoreList()
 SECRET_WORDS = frozenset({
     "key", "token", "secret", "pass", "passwd", "password", "passphrase", "senha",
     "credential", "auth", "authorization", "api", "private", "session", "cookie",
-    "bearer", "dsn",
+    "bearer", "dsn", "pgpassword", "sshpass",
 })
 _LONGEST_SECRET_WORD = max(len(word) for word in SECRET_WORDS)
 _NAME_SEGMENT = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")

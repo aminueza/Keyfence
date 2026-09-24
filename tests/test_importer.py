@@ -232,9 +232,14 @@ def test_secret_name_still_matches_real_secret_names():
     for name in ("GITHUB_TOKEN", "DB_PASSWORD", "STRIPE_SECRET_KEY", "OPENAI_APIKEY",
                  "authToken", "aws_secret_access_key", "credentials", "SESSION_COOKIE",
                  "senha", "SENTRY_DSN", "PRIVATE_KEY", "_authToken", "apiKeys",
-                 "PASSPHRASE", "GPG_PASSPHRASE", "AUTHORIZATION",
-                 "//registry.npmjs.org/:_authToken"):
+                 "PASSPHRASE", "GPG_PASSPHRASE", "AUTHORIZATION", "PGPASSWORD",
+                 "SSHPASS", "//registry.npmjs.org/:_authToken"):
         assert looks_secret(name, "short-value", MIN), name
+
+
+def test_a_name_that_points_at_a_file_is_not_a_secret_name():
+    assert not looks_secret("PGPASSFILE", "pgpass.conf", MIN)
+    assert not looks_secret("HTPASSWD_PATH", "site.htpasswd", MIN)
 
 
 def test_env_values_keeps_the_git_author_email():
