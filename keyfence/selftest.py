@@ -5,7 +5,6 @@ import json
 import os
 import re
 import secrets
-import socket
 import tempfile
 import threading
 from collections.abc import Callable, Mapping
@@ -85,12 +84,6 @@ class Report:
 
     def failed(self) -> list[str]:
         return [c.label for c in self.checks if c.status == FAIL]
-
-
-def free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind((LISTENER_HOST, 0))
-        return sock.getsockname()[1]
 
 
 def throwaway_value() -> str:
@@ -209,7 +202,7 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
     where = str(Config.path()) if Config.path().exists() else "defaults (no config file)"
     checks.append(Check(OK, "config", f"mode={cfg.mode}, {len(cfg.hosts)} hosts from {where}; copied to a temporary "
                                       f"home with {LISTENER_HOST} added to the hosts, your config and vault untouched"))
-    port = port or free_port()
+    port = port or runner.free_port()
     if runner.port_open(port):
         checks.append(Check(FAIL, "proxy", f"port {port} is already in use; pick another one with -p"))
         return report

@@ -310,6 +310,18 @@ def test_exec_delegates_to_runner(home, monkeypatch):
     assert seen == {"command": ["claude", "--verbose"], "port": 9002, "everything": True}
 
 
+def test_exec_without_port_lets_the_runner_pick_one(home, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli.runner, "run",
+                        lambda command, port, everything, local, record, linger: seen.update(port=port) or 0)
+    assert cli.main(["exec", "--", "claude"]) == 0
+    assert seen["port"] is None
+    assert cli.main(["exec", "-p", "9002", "--", "claude"]) == 0
+    assert seen["port"] == 9002
+    assert cli.build_parser().parse_args(["run"]).port == 8888
+    assert cli.build_parser().parse_args(["doctor"]).port == 8888
+
+
 def test_exec_passes_record_and_linger(home, monkeypatch):
     seen = {}
     monkeypatch.setattr(cli.runner, "run", lambda command, port, everything, local, record, linger: seen.update(record=record, linger=linger) or 0)

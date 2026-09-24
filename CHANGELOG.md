@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Two `keyfence exec` sessions can run at once. Each session starts a
+  proxy of its own, yet both defaulted to port 8888, so the second one
+  died with `Port 8888 is already in use` although it had no reason to
+  want that port. Without `-p`, `exec` now takes 8888 when it is free and
+  otherwise a free port chosen by the OS, says which on stderr
+  (`keyfence: port 8888 is busy, using 51234`) and hands that port to the
+  command and the addon probe. An explicit `-p` that is busy still fails
+  as before; `keyfence run` and `keyfence doctor` keep 8888, since that is
+  the foreground proxy tools are pointed at by hand.
 - `keyfence doctor` checks that the paths keyfence baked still work. The
   pi extension calls keyfence by the absolute path resolved when it was
   installed; when that path went away (a rebuilt venv, a file synced from
