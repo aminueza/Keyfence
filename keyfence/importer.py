@@ -7,7 +7,10 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from .detectors import shannon_entropy
+from .ignore import IgnoreList
 from .vault import Vault
+
+NO_IGNORE = IgnoreList()
 
 SECRET_NAME = re.compile(
     r"(?i)(?:key|token|secret|pass|passwd|password|senha|credential|auth|api|"
@@ -54,66 +57,69 @@ def looks_secret(key: str, value: str, min_length: int) -> bool:
     return len(value) >= 16 and shannon_entropy(value) >= 3.5
 
 
-def _collect(key: str, value: str, min_length: int, everything: bool, out: set[str]) -> None:
-    if not value or _SKIP_VALUE.match(value):
+def _add(out: set[str], value: str | None, min_length: int, ignore: IgnoreList) -> None:
+    if value and len(value) >= min_length and not ignore.ignores_value(value):
+        out.add(value)
+
+
+def _collect(key: str, value: str, min_length: int, everything: bool, out: set[str],
+             ignore: IgnoreList = NO_IGNORE) -> None:
+    if not value or _SKIP_VALUE.match(value) or ignore.ignores_key(key):
         return
-    if everything and len(value) >= min_length:
-        out.add(value)
-    elif looks_secret(key, value, min_length):
-        out.add(value)
-    password = _url_password(value)
-    if password and len(password) >= min_length:
-        out.add(password)
+    if (everything and len(value) >= min_length) or looks_secret(key, value, min_length):
+        _add(out, value, min_length, ignore)
+    _add(out, _url_password(value), min_length, ignore)
 
 
-def values_from_text(text: str, min_length: int, everything: bool = False) -> set[str]:
+def values_from_text(text: str, min_length: int, everything: bool = False,
+                     ignore: IgnoreList = NO_IGNORE) -> set[str]:
     found: set[str] = set()
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        password = _url_password(stripped)
-        if password and len(password) >= min_length:
-            found.add(password)
+        _add(found, _url_password(stripped), min_length, ignore)
         m = _KV_LINE.match(line)
         if m:
-            _collect(m["key"], _clean(m["val"]), min_length, everything, found)
+            _collect(m["key"], _clean(m["val"]), min_length, everything, found, ignore)
             continue
         for pw in _NETRC_PASSWORD.findall(stripped):
-            if len(pw) >= min_length:
-                found.add(pw)
+            _add(found, pw, min_length, ignore)
     return found
 
 
-def values_from_json(obj, min_length: int, everything: bool = False, key: str = "") -> set[str]:
+def values_from_json(obj, min_length: int, everything: bool = False, key: str = "",
+                     ignore: IgnoreList = NO_IGNORE) -> set[str]:
     found: set[str] = set()
     if isinstance(obj, dict):
         for k, v in obj.items():
-            found |= values_from_json(v, min_length, everything, str(k))
+            found |= values_from_json(v, min_length, everything, str(k), ignore)
     elif isinstance(obj, list):
         for v in obj:
-            found |= values_from_json(v, min_length, everything, key)
+            found |= values_from_json(v, min_length, everything, key, ignore)
     elif isinstance(obj, str):
-        _collect(key, obj, min_length, everything, found)
+        _collect(key, obj, min_length, everything, found, ignore)
     return found
 
 
-def values_from_file(path: Path, min_length: int, everything: bool = False) -> set[str]:
+def values_from_file(path: Path, min_length: int, everything: bool = False,
+                     ignore: IgnoreList = NO_IGNORE) -> set[str]:
     text = path.read_text(errors="replace")
     if path.suffix == ".json":
         try:
-            return values_from_json(json.loads(text), min_length, everything)
+            return values_from_json(json.loads(text), min_length, everything, ignore=ignore)
         except ValueError:
             pass
-    return values_from_text(text, min_length, everything)
+    return values_from_text(text, min_length, everything, ignore)
 
 
-def env_values(environ: Mapping[str, str], min_length: int, everything: bool = False) -> set[str]:
+def env_values(environ: Mapping[str, str], min_length: int, everything: bool = False,
+               ignore: IgnoreList = NO_IGNORE) -> set[str]:
     found: set[str] = set()
     for name, value in environ.items():
         if name in ENV_SKIP_NAMES:
             continue
-        _collect(name, value, min_length, everything, found)
+        _collect(name, value, min_length, everything, found, ignore)
     return found
 
 
@@ -124,9 +130,10 @@ def default_paths(cwd: Path | None = None) -> list[Path]:
     return paths
 
 
-def import_files(vault: Vault, paths: Iterable[Path], everything: bool = False) -> list[tuple[Path, int]]:
+def import_files(vault: Vault, paths: Iterable[Path], everything: bool = False,
+                 ignore: IgnoreList = NO_IGNORE) -> list[tuple[Path, int]]:
     report = []
     for path in paths:
-        values = values_from_file(path, vault.min_length, everything)
+        values = values_from_file(path, vault.min_length, everything, ignore)
         report.append((path, vault.add_many(values)))
     return report

@@ -34,4 +34,17 @@ scan:
   allowlist: []           # exact values never treated as secrets
     # - "sk-fake-key-used-in-this-projects-tests"
 
+# Variable names / JSON keys whose values are never registered by `keyfence import`
+# nor reported by the proxy. Case-insensitive; * and ? match as in shell globs.
+ignore_keys: []
+  # - DB_HOST
+  # - SERVICE_NAME
+  # - "*_URL"
+
+# Values that are never registered nor reported, whichever check found them.
+# keyfence hashes them with the vault salt as soon as this file is read and
+# compares hashes from then on; they never reach vault.json or the audit log.
+ignore_values: []
+  # - db.internal.example.com
+
 # audit_log: ~/.keyfence/audit.log

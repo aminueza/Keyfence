@@ -115,7 +115,7 @@ def test_clean_body_passes_untouched(guard):
     flow = make_flow(body=b'{"content":"explain entropy"}')
     kf.request(flow)
     assert flow.request.content == b'{"content":"explain entropy"}'
-    assert kf.stats == {"scanned": 1, "findings": 0, "blocked": 0, "errors": 0, "canaries": 0}
+    assert kf.stats == {"scanned": 1, "findings": 0, "suppressed": 0, "blocked": 0, "errors": 0, "canaries": 0}
 
 
 def test_redact_mode(guard, home):
@@ -275,7 +275,7 @@ def test_detector_crash_fails_closed(guard, monkeypatch):
     def boom(*_args, **_kwargs):
         raise RuntimeError("simulated detector crash")
 
-    monkeypatch.setattr(addon_module, "scan", boom)
+    monkeypatch.setattr(addon_module, "scan_report", boom)
     flow = make_flow()
     kf.request(flow)
     assert flow.response.status_code == 403
@@ -454,3 +454,79 @@ def test_audit_log_failure_is_logged_not_raised(guard, home, caplog, monkeypatch
     with caplog.at_level("WARNING", logger="keyfence"):
         kf.request(make_flow())
     assert "audit log" in caplog.text
+
+
+HOST = "db.internal.example.com"
+RANDOM = "Zq8xK2mP9vL4nR7tW3yB6cF1dH5jXw2Kp"
+
+
+def test_ignored_value_is_neither_blocked_nor_audited_and_never_written_in_clear(guard, home, caplog):
+    Vault().add(HOST)
+    kf = guard("block", f"ignore_values:\n  - {HOST}\n")
+    assert kf.ignore.value_count == 1
+    clean = make_flow(body=json.dumps({"content": f"connect to {HOST}"}).encode())
+    with caplog.at_level("INFO", logger="keyfence"):
+        kf.request(clean)
+    assert clean.response is None
+    assert kf.stats["suppressed"] == 1 and kf.stats["findings"] == 0 and kf.stats["blocked"] == 0
+    assert "1 finding(s) ignored by config for api.openai.com" in caplog.text
+    assert not (home / "audit.log").exists()
+    mixed = make_flow(body=json.dumps({"content": f"{HOST} and {KEY}"}).encode())
+    kf.request(mixed)
+    assert mixed.response.status_code == 403
+    entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
+    assert entry["count"] == 1 and entry["suppressed"] == 1
+    assert entry["findings"] == [{"kind": "github-token", "preview": "ghp_…6789 (40 chars)", "key": "content"}]
+    assert HOST not in (home / "audit.log").read_text()
+    assert HOST not in (home / "vault.json").read_text()
+
+
+def test_audit_entry_omits_suppressed_when_nothing_was_ignored(guard, home):
+    kf = guard("redact", f"ignore_values:\n  - {HOST}\n")
+    kf.request(make_flow())
+    entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
+    assert "suppressed" not in entry and entry["count"] == 1
+
+
+def test_ignored_key_uses_the_json_key_of_the_finding(guard):
+    kf = guard("block", "ignore_keys:\n  - db_host\n")
+    body = json.dumps({"DB_HOST": RANDOM, "content": "hello"}).encode()
+    allowed = make_flow(body=body)
+    kf.request(allowed)
+    assert allowed.response is None and kf.stats["suppressed"] == 1
+    blocked = make_flow(body=json.dumps({"other": RANDOM}).encode())
+    kf.request(blocked)
+    assert blocked.response.status_code == 403
+
+
+def test_ignore_lists_are_rebuilt_on_config_and_vault_reload(guard, home, write_config, caplog):
+    Vault().add(HOST)
+    kf = guard("block")
+    blocked = make_flow(body=f"host {HOST}".encode())
+    kf.request(blocked)
+    assert blocked.response.status_code == 403
+    write_config(f"mode: block\nignore_values: [{HOST}]\n")
+    os.utime(home / "config.yaml", (1, 1))
+    allowed = make_flow(body=f"host {HOST}".encode())
+    with caplog.at_level("INFO", logger="keyfence"):
+        kf.request(allowed)
+    assert allowed.response is None
+    assert "config reloaded: mode=block | " in caplog.text and "ignoring 0 key(s), 1 value(s)" in caplog.text
+    Vault().add("another-secret-value-2026")
+    os.utime(home / "vault.json", (1, 1))
+    again = make_flow(body=f"host {HOST} and another-secret-value-2026".encode())
+    kf.request(again)
+    assert again.response.status_code == 403
+    assert kf.vault.count() == 2 and kf.ignore.value_count == 1
+    assert json.loads((home / "audit.log").read_text().splitlines()[-1])["suppressed"] == 1
+
+
+def test_injected_config_carries_its_ignore_lists(home):
+    from keyfence.config import Config
+    vault = Vault(path=home / "other.json")
+    vault.add(HOST)
+    cfg = Config(mode="block", ignore_values=[HOST], audit_log=home / "demo-audit.log")
+    kf = KeyFence(config=cfg, vault=vault)
+    flow = make_flow(body=f"host {HOST}".encode())
+    kf.request(flow)
+    assert flow.response is None and kf.stats["suppressed"] == 1

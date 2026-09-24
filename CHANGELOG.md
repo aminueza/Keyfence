@@ -6,6 +6,28 @@
   every value read. Since 0.5.0 the values go through the same
   secret-looking filter as file import, `--all` registers everything, and
   `--from` cannot be combined with file paths or `--env`.
+- `ignore_keys` and `ignore_values` in `config.yaml` say "this one is not
+  a secret". `keyfence import` registers a value when its name looks like
+  a secret or when it has high entropy, so `DB_HOST=db.internal.example.com`
+  landed in the vault and, in `block` mode, turned every request that
+  mentioned the hostname into a 403; the only way out was editing
+  `vault.json`, which holds hashes. A pair whose name matches
+  `ignore_keys` (case-insensitive, `*` and `?` as in shell globs) is not
+  registered by `import` from files, `--env` or `--from`, nor by the
+  environment snapshot of `keyfence exec`, even with `--all`, and a
+  finding under that JSON key is dropped at detection time. A value in
+  `ignore_values` is never registered and never reported by any check:
+  vault, patterns, gitleaks rules, URL query or entropy. The values are
+  written in clear in the config file, but keyfence hashes them with the
+  vault salt when it reads the file and compares hashes from then on, so
+  they never reach `vault.json`, the audit log or the console. Ignored
+  findings are dropped before overlapping findings are merged, so an
+  ignored value cannot shadow a longer secret it sits inside. A running
+  proxy picks up changes to either list without a restart. `keyfence
+  status` shows the size of each list, `keyfence scan` says how many
+  findings it dropped, and an audit entry carries `suppressed: n` when a
+  request had other findings besides the ignored ones. A list that is
+  not a list of non-empty strings is a config error.
 - `keyfence exec --record` says when the flows file will hold secrets in
   clear text, and SECURITY.md lists every file keyfence writes. "What
   keyfence sees and stores" named `vault.json`, `audit.log`, `env/` and

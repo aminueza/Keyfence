@@ -30,6 +30,10 @@ LOCK_POLL = 0.1
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
+def value_digest(salt: bytes, value: str) -> str:
+    return hmac.new(salt, value.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 def _try_lock(handle) -> bool:
     try:
         if fcntl is not None:
@@ -157,7 +161,7 @@ class Vault:
         return self._salt
 
     def _digest(self, value: str) -> str:
-        return hmac.new(self._salt, value.encode("utf-8"), hashlib.sha256).hexdigest()
+        return value_digest(self._salt, value)
 
     def placeholder_digest(self, value: str) -> str:
         return hmac.new(self._salt, b"placeholder:" + value.encode("utf-8"), hashlib.sha256).hexdigest()

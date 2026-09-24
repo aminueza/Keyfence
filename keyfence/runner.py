@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from .config import Config
+from .ignore import IgnoreList
 from .importer import env_values
 from .vault import DEFAULT_DIR, Vault
 
@@ -130,8 +131,10 @@ def sweep_stale_env_vaults(directory: Path, max_age: float = STALE_AFTER) -> int
     return removed
 
 
-def build_env_vault(environ: Mapping[str, str], everything: bool = False) -> Vault:
+def build_env_vault(environ: Mapping[str, str], everything: bool = False,
+                    config: Config | None = None) -> Vault:
     main = Vault()
+    ignore = config.ignore_list(main) if config else IgnoreList()
     directory = DEFAULT_DIR / ENV_VAULT_DIR
     directory.mkdir(parents=True, exist_ok=True)
     sweep_stale_env_vaults(directory)
@@ -140,7 +143,7 @@ def build_env_vault(environ: Mapping[str, str], everything: bool = False) -> Vau
     path = Path(name)
     path.unlink()
     env_vault = Vault(path=path, salt=main.salt)
-    env_vault.add_many(env_values(environ, main.min_length, everything))
+    env_vault.add_many(env_values(environ, main.min_length, everything, ignore))
     return env_vault
 
 
@@ -150,7 +153,12 @@ def run(command: Sequence[str], port: int, everything: bool = False,
     if port_open(port):
         print(f"Port {port} is already in use. Pick another one with -p.")
         return 1
-    env_vault = build_env_vault(os.environ, everything)
+    try:
+        config = Config.load()
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 1
+    env_vault = build_env_vault(os.environ, everything, config)
     proxy_env = dict(os.environ, **{ENV_VAULT_VAR: str(env_vault.path)})
     DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
     proxy_log = (DEFAULT_DIR / "proxy.log").open("a")

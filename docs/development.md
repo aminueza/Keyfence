@@ -38,6 +38,7 @@ that secret scanners, including GitHub push protection, do not flag them.
 | `keyfence/pi.py` | pi extension: source template and install/remove |
 | `keyfence/export.py` | audit log export as JSONL and OTLP/HTTP log records |
 | `keyfence/vault.py` | salted hash store |
+| `keyfence/ignore.py` | `ignore_keys` and `ignore_values` matching, hashed with the vault salt |
 | `keyfence/config.py` | YAML config |
 | `keyfence/entry.py` | console script entry; serves `hook` without loading the rest |
 | `keyfence/cli.py` | command line |

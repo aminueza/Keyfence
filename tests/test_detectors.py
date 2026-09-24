@@ -4,8 +4,10 @@ import base64
 import json
 
 from keyfence.detectors import (
-    BUILTIN_RULES, Finding, ScanConfig, _scan_rules, scan, shannon_entropy, string_value_spans,
+    BUILTIN_RULES, Finding, ScanConfig, ScanReport, _scan_rules, scan, scan_report, shannon_entropy,
+    string_value_spans,
 )
+from keyfence.ignore import IgnoreList
 from keyfence.rules import load_rules
 from keyfence.vault import Vault
 
@@ -378,3 +380,72 @@ def test_gitleaks_entropy_threshold_filters_low_entropy_matches():
 def test_builtin_rule_names_are_unique():
     names = [r.name for r in BUILTIN_RULES]
     assert len(names) == len(set(names))
+
+
+HOST = "db.internal.example.com"
+
+
+def ignoring(keys=(), values=(), salt=b"salt" * 8):
+    return IgnoreList(salt, keys, values)
+
+
+def test_scan_without_ignore_list_reports_everything(vault):
+    vault.add(HOST)
+    assert [f.kind for f in scan(f"host {HOST}", vault=vault)] == ["vault"]
+    assert scan_report(f"host {HOST}", vault=vault) == ScanReport(scan(f"host {HOST}", vault=vault), 0)
+
+
+def test_ignored_value_suppresses_vault_and_canary_findings(vault):
+    vault.add(HOST)
+    vault.add_canary("canary-value-0123456789", "/work/.env")
+    text = f"connect to {HOST} with canary-value-0123456789"
+    assert [f.kind for f in scan(text, vault=vault, config=NO_ENTROPY)] == ["vault", "canary"]
+    report = scan_report(text, vault=vault, config=NO_ENTROPY, ignore=IgnoreList(vault.salt, values=[HOST]))
+    assert [f.kind for f in report.findings] == ["canary"] and report.suppressed == 1
+    both = IgnoreList(vault.salt, values=[HOST, "canary-value-0123456789"])
+    assert scan_report(text, vault=vault, config=NO_ENTROPY, ignore=both) == ScanReport([], 2)
+
+
+def test_ignored_value_suppresses_pattern_and_query_findings():
+    key = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    text = f"token: {key} and GET https://api.example.com/v1?key={RANDOM}&x=1"
+    assert [f.kind for f in scan(text, config=NO_ENTROPY)] == ["github-token", "url-query-secret"]
+    report = scan_report(text, config=NO_ENTROPY, ignore=ignoring(values=[key]))
+    assert [f.kind for f in report.findings] == ["url-query-secret"] and report.suppressed == 1
+    report = scan_report(text, config=NO_ENTROPY, ignore=ignoring(values=[RANDOM]))
+    assert [f.kind for f in report.findings] == ["github-token"] and report.suppressed == 1
+    cfg = ScanConfig(entropy_enabled=False, rules=load_rules())
+    text = f"the adobe value is {ADOBE_SECRET} here"
+    assert [f.kind for f in scan(text, config=cfg)] == ["adobe-client-secret"]
+    assert scan_report(text, config=cfg, ignore=ignoring(values=[ADOBE_SECRET])) == ScanReport([], 1)
+
+
+def test_ignored_value_suppresses_entropy_findings():
+    text = f"value {RANDOM} here"
+    assert entropy_kinds(text) == ["entropy"]
+    report = scan_report(text, ignore=ignoring(values=[RANDOM]))
+    assert report.findings == [] and report.suppressed == 1
+    assert scan(text, ignore=ignoring(values=[RANDOM + "x"]))[0].kind == "entropy"
+
+
+def test_ignored_json_key_suppresses_findings_under_it():
+    body = json.dumps({"db_host": RANDOM, "text": f"pw {RANDOM}", "nested": {"DB_HOST": RANDOM}})
+    assert [f.key for f in scan(body)] == ["db_host", "text", "DB_HOST"]
+    report = scan_report(body, ignore=ignoring(keys=["DB_HOST"]))
+    assert [f.key for f in report.findings] == ["text"] and report.suppressed == 2
+    assert scan_report(f"db_host: {RANDOM}", ignore=ignoring(keys=["db_host"])).suppressed == 0
+
+
+def test_suppressed_counts_each_span_once(vault):
+    vault.add(RANDOM)
+    report = scan_report(f"x {RANDOM}", vault=vault, ignore=IgnoreList(vault.salt, values=[RANDOM]))
+    assert report.findings == [] and report.suppressed == 1
+
+
+def test_ignored_value_does_not_shadow_an_overlapping_secret(vault):
+    line = "MIIEpAIBAAKCAQEA7fakefakefakemorefake"
+    vault.add(line)
+    pem = f"-----BEGIN RSA PRIVATE KEY-----\n{line}\n-----END RSA PRIVATE KEY-----"
+    assert [f.kind for f in scan(pem, vault=vault, config=NO_ENTROPY)] == ["vault"]
+    report = scan_report(pem, vault=vault, config=NO_ENTROPY, ignore=IgnoreList(vault.salt, values=[line]))
+    assert [f.kind for f in report.findings] == ["pem-private-key"] and report.suppressed == 1

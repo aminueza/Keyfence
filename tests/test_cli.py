@@ -188,6 +188,69 @@ def test_status(home, write_config, capsys):
     assert "[jwt]" in out
     assert "[entropy x2, vault]  800 total" in out
     assert "gitleaks rules" in out
+    assert "Ignore lists:    0 key(s), 0 value(s)" in out
+
+
+HOST = "db.internal.example.com"
+ISSUE_ENV = (
+    "DB_PASSWORD=hunter2hunter2!\n"
+    "API_KEY=sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv\n"
+    f"DB_HOST={HOST}\n"
+    "OWNER=platform-team\n"
+)
+
+
+def test_status_reports_ignore_list_sizes(home, write_config, capsys):
+    write_config(f"ignore_keys: [DB_HOST, SERVICE_NAME]\nignore_values: [{HOST}]\n")
+    assert cli.main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert "Ignore lists:    2 key(s), 1 value(s)" in out and HOST not in out
+
+
+def test_import_without_ignore_lists_registers_the_hostname(home, tmp_path, capsys):
+    env = tmp_path / ".env"
+    env.write_text(ISSUE_ENV)
+    assert cli.main(["import", str(env)]) == 0
+    assert "Ignore lists" not in capsys.readouterr().out
+    assert Vault().contains(HOST)
+
+
+def test_import_honours_ignore_lists(home, write_config, tmp_path, capsys, monkeypatch):
+    write_config(f"ignore_keys: [DB_HOST]\nignore_values: [{HOST}]\n")
+    env = tmp_path / ".env"
+    env.write_text(ISSUE_ENV)
+    assert cli.main(["import", "--all", str(env)]) == 0
+    out = capsys.readouterr().out
+    assert f"Ignore lists: 1 key(s), 1 value(s) from {home / 'config.yaml'}" in out
+    assert f"{env}: 3 new secret(s)" in out
+    vault = Vault()
+    assert vault.contains("platform-team") and vault.contains("hunter2hunter2!") and not vault.contains(HOST)
+    assert HOST not in (home / "vault.json").read_text()
+    monkeypatch.setattr(cli.os, "environ", {"DB_HOST": "internal-host-value-2026", "SERVICE_HOST": HOST,
+                                            "MY_API_TOKEN": "envTokenValue12345"})
+    assert cli.main(["import", "--env", "--all", str(home / "nope")]) == 0
+    assert "environment: 1 new secret(s)" in capsys.readouterr().out
+    assert Vault().contains("envTokenValue12345") and not Vault().contains("internal-host-value-2026")
+    pairs = [("DB_HOST", "internal-host-value-2026"), ("DB_PASSWORD", "manager-secret-value-1"), ("OTHER", HOST)]
+    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: pairs)
+    assert cli.main(["import", "--from", "doppler", "--all"]) == 0
+    assert "doppler: 3 value(s) read, 1 looked like secrets, 1 new" in capsys.readouterr().out
+    assert Vault().contains("manager-secret-value-1") and not Vault().contains(HOST)
+    assert "internal-host-value-2026" not in (home / "vault.json").read_text()
+
+
+def test_scan_honours_ignore_lists(home, write_config, capsys):
+    Vault().add(HOST)
+    assert cli.main(["scan", f"connect to {HOST}"]) == 2
+    assert "[vault]" in capsys.readouterr().out
+    write_config(f"ignore_values: [{HOST}]\n")
+    assert cli.main(["scan", f"connect to {HOST}"]) == 0
+    out = capsys.readouterr().out
+    assert f"1 finding(s) ignored by the ignore lists in {home / 'config.yaml'}" in out
+    assert "No secrets detected." in out and HOST not in out
+    assert cli.main(["scan", f"connect to {HOST} with {KEY}"]) == 2
+    out = capsys.readouterr().out
+    assert "1 finding(s) ignored" in out and "1 secret(s) detected" in out and "[github-token]" in out
 
 
 def test_status_without_audit_log(home, capsys):

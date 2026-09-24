@@ -14,6 +14,13 @@ The vault file (`~/.keyfence/vault.json`) holds only the salt and the
 hashes. Values shorter than 8 characters are refused because they would
 match ordinary words.
 
+`keyfence import` keeps a value when its name looks like a secret or when
+the value has high entropy, so a hostname or an id can end up in the vault
+and block every request that mentions it. List the name under
+`ignore_keys` or the value under `ignore_values` in `config.yaml` and it is
+neither registered nor reported; see
+[configuration](configuration.md#ignore-lists).
+
 ### Canaries
 
 `keyfence canary .env` appends a line such as `INTERNAL_API_TOKEN=<random>`
@@ -66,11 +73,18 @@ Excluded from the entropy check:
   or binary data: `id`, `tool_use_id`, `signature`, `data`,
   `cache_control`, `sha256` and similar
 
+A random-looking value that is not a secret, or a JSON key of your own
+that holds such values, can be excluded with `ignore_values` and
+`ignore_keys` in `config.yaml` instead of lowering the threshold for
+everything.
+
 ## Merging
 
-Findings from the three checks are merged. When two overlap, the vault wins
-over patterns and patterns win over entropy. Values listed in
-`scan.allowlist` are dropped.
+Findings from the three checks are merged. Values listed in
+`scan.allowlist`, values listed in `ignore_values` and findings under a
+JSON key listed in `ignore_keys` are dropped first, so an ignored value
+can never shadow a longer secret it overlaps. Then, when two findings
+overlap, the vault wins over patterns and patterns win over entropy.
 
 ## Audit log
 
@@ -85,8 +99,11 @@ Every request with findings appends one JSON line to
 
 `preview` is the first and last four characters. `key` is the JSON key the
 value was found under, which is how you trace a false positive. At most 50
-findings are listed per request; `count` is the real total. The log never
-contains a secret.
+findings are listed per request; `count` is the real total. When the ignore
+lists dropped findings from a request that still had others, the entry
+carries `suppressed` with how many; a request whose only findings were
+ignored is not logged. The log never contains a secret, and never an
+ignored value either.
 
 `keyfence scan` prints the same information for a text, file or stdin, and
 `keyfence status` shows the last five requests grouped by kind.

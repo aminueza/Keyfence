@@ -98,13 +98,24 @@ def test_run_record_says_on_stderr_when_the_file_will_hold_secrets(home, write_c
     assert record.exists()
 
 
-@pytest.mark.parametrize("config", ["mode: redact\n", "mode: placeholder\n", "mode: nonsense\n", "mode: [\n", None])
+@pytest.mark.parametrize("config", ["mode: redact\n", "mode: placeholder\n", None])
 def test_run_record_stays_quiet_when_the_file_will_not_hold_secrets(home, write_config, monkeypatch, tmp_path, capsys, config):
     if config is not None:
         write_config(config)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
     assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=tmp_path / "s.flows") == 0
     assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("config", ["mode: nonsense\n", "mode: [\n"])
+def test_run_refuses_an_invalid_config_before_starting_anything(home, write_config, monkeypatch, tmp_path, capsys, config):
+    write_config(config)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start the proxy"))
+    monkeypatch.setattr(runner, "port_open", lambda port: False)
+    assert runner.run(["echo"], 8899, ca_cert=tmp_path / "ca.pem", timeout=1, record=tmp_path / "s.flows") == 1
+    out, err = capsys.readouterr()
+    assert out.startswith("error: ") and err == ""
+    assert not (tmp_path / "s.flows").exists()
 
 
 def test_run_without_record_says_nothing_in_audit_mode(home, write_config, monkeypatch, tmp_path, capsys):
@@ -195,6 +206,43 @@ def test_build_env_vault_shares_salt_with_main(home):
     finally:
         built.remove_files()
     assert not path.exists() and not built.lock_path.exists()
+
+
+def test_build_env_vault_honours_ignore_lists(home, write_config):
+    from keyfence.config import Config
+    write_config("ignore_keys: [DB_HOST]\nignore_values: [db.internal.example.com]\n")
+    environ = {"DB_HOST": "internal-host-value-2026", "OTHER_HOST": "db.internal.example.com",
+               "GITHUB_TOKEN": "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"}
+    plain = runner.build_env_vault(environ, everything=True)
+    try:
+        assert plain.count() == 3
+    finally:
+        plain.remove_files()
+    built = runner.build_env_vault(environ, everything=True, config=Config.load())
+    try:
+        assert built.count() == 1 and built.contains("ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789")
+        assert not built.contains("internal-host-value-2026") and not built.contains("db.internal.example.com")
+    finally:
+        built.remove_files()
+
+
+def test_run_loads_the_config_for_the_env_snapshot(home, write_config, monkeypatch, capsys):
+    write_config("ignore_keys: [DB_HOST]\n")
+    seen = {}
+
+    def fake_build(environ, everything, config):
+        seen["config"] = config
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(runner, "port_open", lambda port: False)
+    monkeypatch.setattr(runner, "build_env_vault", fake_build)
+    with pytest.raises(KeyboardInterrupt):
+        runner.run(["true"], 8899)
+    assert seen["config"].ignore_keys == ["DB_HOST"]
+    write_config("mode: nonsense\n")
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start the proxy"))
+    assert runner.run(["true"], 8899) == 1
+    assert "error: invalid mode" in capsys.readouterr().out
 
 
 def test_stale_env_vaults_are_swept_on_next_exec(home):
