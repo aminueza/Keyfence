@@ -157,6 +157,15 @@ def test_redaction_adds_notice_to_system_prompt(guard):
     assert "[REDACTED:github-token]" in out["messages"][0]["content"]
 
 
+@pytest.mark.parametrize("mode, promise", [("redact", "not restored"), ("placeholder", "restored automatically")])
+def test_notice_follows_the_configured_mode(guard, mode, promise):
+    kf = guard(mode)
+    body = json.dumps({"system": "sys", "messages": [{"role": "user", "content": f"key {KEY}"}]}).encode()
+    flow = make_flow(body=body, host="api.anthropic.com")
+    kf.request(flow)
+    assert promise in json.loads(flow.request.get_text())["system"]
+
+
 def test_notice_can_be_disabled(guard):
     kf = guard("redact", "notice: false\n")
     body = json.dumps({"system": "sys", "messages": [{"role": "user", "content": f"key {KEY}"}]}).encode()

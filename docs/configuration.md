@@ -102,11 +102,13 @@ time only.
 ## The system prompt notice
 
 When keyfence changes a request it appends a short note to the system
-prompt: the `[REDACTED:…]` and `<<SECRET_id>>` tokens are expected and configured by the user, they
-are not tampering, the model should not warn the user or suggest rotating
-credentials, and placeholders must be written exactly as shown so they can
-be restored. Without the note, models tend to treat the tokens as evidence
-of compromise.
+prompt: the tokens are expected and configured by the user, they are not
+tampering, and the model should not warn the user or suggest rotating
+credentials. The rest depends on the mode. In `redact` the note says the
+`[REDACTED:…]` tokens are final and must not be written into code or
+commands as if they were the value. In `placeholder` it says to write
+`<<SECRET_id>>` tokens exactly as shown so they can be restored. Without
+the note, models tend to treat the tokens as evidence of compromise.
 
 Supported shapes: Anthropic `system` as a string or as a list of blocks (the
 note is a new block at the end, so cached prefixes stay valid), OpenAI chat
