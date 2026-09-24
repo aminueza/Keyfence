@@ -31,6 +31,13 @@ STREAMED_KEY = "keyfence_streamed"
 AUDIT_PREVIEW_LIMIT = 50
 PLACEHOLDER_ID_LENGTH = 10
 _JSON_ESCAPE = re.compile(r"\\(?:u[0-9a-fA-F]{4}|.)", re.DOTALL)
+SIGV4_PREFIX = "AWS4-"
+SIGV4_QUERY = "X-Amz-Signature"
+
+
+def is_sigv4_signed(request: http.Request) -> bool:
+    return (request.headers.get("authorization", "").startswith(SIGV4_PREFIX)
+            or SIGV4_QUERY in request.query)
 
 
 def parses_as_json(text: str) -> bool:
@@ -208,6 +215,17 @@ class KeyFence:
                 f"Request blocked by keyfence: {len(findings)} secret(s) detected "
                 f"({', '.join(kinds)}). Nothing was sent to the provider.")
             log.warning("BLOCKED -> %s: %d secret(s)", host, len(findings))
+            return
+
+        if is_sigv4_signed(flow.request):
+            self.stats["blocked"] += 1
+            kinds = sorted({f.kind for f in findings})
+            flow.response = self._blocked_response(
+                f"Request blocked by keyfence: {len(findings)} secret(s) detected "
+                f"({', '.join(kinds)}). The request is signed with AWS SigV4, so removing them "
+                f"would invalidate the signature. Nothing was sent to the provider.")
+            log.warning("BLOCKED -> %s: %d secret(s) in a SigV4-signed request, which %s mode cannot rewrite",
+                        host, len(findings), self.config.mode)
             return
 
         was_json = parses_as_json(text)
