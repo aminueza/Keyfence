@@ -814,3 +814,17 @@ def test_a_frame_rewrite_that_would_break_the_json_drops_the_frame(guard, monkey
         message = send_frame(kf, make_ws_flow(), '{"text": "abc"}')
     assert message.dropped and kf.stats["errors"] == 1
     assert "failing closed" in caplog.text
+
+
+def test_running_turns_websocket_interception_back_on(guard, caplog):
+    from mitmproxy.test import taddons
+    kf = guard("redact")
+    with taddons.context(kf) as tctx:
+        tctx.options.websocket = False
+        with caplog.at_level("WARNING", logger="keyfence"):
+            kf.running()
+        assert tctx.options.websocket is True
+        assert "websocket interception was off" in caplog.text
+        caplog.clear()
+        kf.running()
+        assert tctx.options.websocket is True and "websocket interception was off" not in caplog.text

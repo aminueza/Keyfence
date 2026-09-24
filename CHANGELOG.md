@@ -57,9 +57,11 @@
   and placeholders are restored in the frames that come back. Audit entries
   for a frame carry `"websocket": true`. Binary frames are still passed
   through, which `docs/limitations.md` now says, next to what each mode
-  means on a WebSocket. `keyfence run` and `keyfence exec` also pin
-  mitmproxy's `websocket` option, so a config file that turns it off
-  cannot make frames pass as raw TCP without a line in the log.
+  means on a WebSocket. The addon also turns mitmproxy's `websocket`
+  option back on at startup, and says so in the log: with the option off,
+  a 101 goes to the raw TCP layer and every frame passes unscanned, and a
+  `websocket: false` in `~/.mitmproxy/config.yaml` beats the command line,
+  so an argument could not close that hole.
 
 ## 0.7.0 (2026-09-24)
 

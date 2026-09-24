@@ -15,7 +15,8 @@ real incidents. Out of scope:
   system and works on macOS and Windows only.
 - **Local models.** Ollama and similar do not go through the proxy. Their
   traffic also does not leave the machine.
-- **Only the request body is scanned.** Headers and the URL query string
+- **Only bodies and text frames are scanned.** A request body and a text
+  WebSocket frame go through the detectors. Headers and the URL query string
   are passed through untouched, in every mode, and the audit log records
   the path without its query. This is deliberate: the provider's own key
   travels in `Authorization` or, for Gemini, in `?key=`, and redacting it

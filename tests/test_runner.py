@@ -18,12 +18,6 @@ def test_proxy_command():
     assert str(runner.ADDON_PATH).endswith("addon.py")
 
 
-def test_proxy_command_pins_websocket_interception():
-    cmd = runner.proxy_command(9000)
-    pairs = [(cmd[i], cmd[i + 1]) for i in range(len(cmd) - 1) if cmd[i] == "--set"]
-    assert ("--set", "websocket=true") in pairs
-
-
 def test_proxy_command_keeps_warnings_visible_and_flows_quiet():
     cmd = runner.proxy_command(9000)
     assert "-q" not in cmd and "--quiet" not in cmd

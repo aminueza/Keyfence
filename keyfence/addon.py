@@ -13,7 +13,7 @@ _PKG_PARENT = str(Path(__file__).resolve().parent.parent)
 if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
-from mitmproxy import http  # noqa: E402
+from mitmproxy import ctx, http  # noqa: E402
 from mitmproxy.websocket import WebSocketMessage  # noqa: E402
 
 from keyfence import __version__  # noqa: E402
@@ -160,6 +160,12 @@ class KeyFence:
         log.warning("keyfence %s: mode=%s | %d hosts monitored | %d rules | vault with %d secret(s)",
                     __version__, self.config.mode, len(self.config.hosts),
                     len(self.config.scan.rules), self.vault.count())
+
+    def running(self) -> None:
+        if not ctx.options.websocket:
+            ctx.options.websocket = True
+            log.warning("websocket interception was off in the mitmproxy configuration; "
+                        "keyfence turned it on, otherwise frames pass unscanned")
 
     def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
