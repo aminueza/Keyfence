@@ -335,7 +335,7 @@ def build_parser() -> argparse.ArgumentParser:
                             "optional comma-separated process names, default all")
 
     p_exec = sub.add_parser("exec", help="run a command with the proxy already wired in")
-    p_exec.add_argument("-p", "--port", type=int, default=8888)
+    p_exec.add_argument("-p", "--port", type=int, default=None)
     p_exec.add_argument("--all-env", action="store_true",
                         help="treat every environment variable value as a secret, not only secret-looking names")
     p_exec.add_argument("--local", nargs="?", const="", metavar="NAMES",

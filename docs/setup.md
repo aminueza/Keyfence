@@ -61,7 +61,7 @@ Linux and Windows: see the
 | `keyfence demo` | show what each mode does to a fake request, offline |
 | `keyfence add-secret` | register one secret typed at a hidden prompt |
 | `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
-| `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through the proxy |
+| `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through its own proxy on port 8888, or a free port when that one is taken |
 | `keyfence run [-p PORT] [--local [NAMES]]` | run the proxy in the foreground on port 8888 |
 | `keyfence install-hooks claude-code\|pi [--project] [--remove [--force]] [--command PATH]` | stop the agent from reading secret files at all |
 | `keyfence install-hooks --list` | show the supported agents and whether the hook is installed for each, globally and in this project |
@@ -94,7 +94,11 @@ command prints how many values were read, how many looked like secrets and
 how many were new. Only hashes are stored. `--from` cannot be combined with
 file paths or `--env`; run those as separate commands.
 
-`keyfence exec` starts the proxy, waits until the keyfence addon answers a
+`keyfence exec` starts a proxy of its own on port 8888, or on a free port
+chosen by the OS when 8888 is taken, for example by another `keyfence exec`
+session (it says so on stderr: `keyfence: port 8888 is busy, using 51234`;
+`-p PORT` pins the port instead and fails if that one is busy), waits
+until the keyfence addon answers a
 request for `http://keyfence.invalid/` sent through it (mitmdump listening
 is not enough: without the addon it would be a plain proxy), sets
 `HTTPS_PROXY`, `HTTP_PROXY` and the CA variables for the command, snapshots

@@ -338,7 +338,7 @@ def test_send_through_speaks_absolute_form_http(home):
 
 
 def test_free_port_and_throwaway_value_and_log_tail(tmp_path):
-    port = selftest.free_port()
+    port = runner.free_port()
     assert 1024 < port < 65536 and not runner.port_open(port)
     value = selftest.throwaway_value()
     assert re.fullmatch(r"keyfence-selftest-[0-9a-f]{16}", value) and value != selftest.throwaway_value()

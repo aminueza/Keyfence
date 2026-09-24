@@ -27,6 +27,7 @@ ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
 PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
 CA_ENV_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO")
 LOG_ARGS = ("--set", "termlog_verbosity=warn", "--set", "flow_detail=0")
+DEFAULT_PORT = 8888
 
 
 def mitmdump_path() -> str:
@@ -63,6 +64,16 @@ def port_open(port: int, host: str = "127.0.0.1") -> bool:
             return True
     except OSError:
         return False
+
+
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def pick_port(preferred: int = DEFAULT_PORT) -> int:
+    return free_port() if port_open(preferred) else preferred
 
 
 def probe(port: int, timeout: float = 1.0) -> dict | None:
@@ -189,10 +200,14 @@ def build_env_vault(environ: Mapping[str, str], everything: bool = False,
     return env_vault
 
 
-def run(command: Sequence[str], port: int, everything: bool = False,
+def run(command: Sequence[str], port: int | None = None, everything: bool = False,
         timeout: float = 20.0, ca_cert: Path = CA_CERT, local: str | None = None,
         record: Path | None = None, linger: float = 0.0) -> int:
-    if port_open(port):
+    if port is None:
+        port = pick_port()
+        if port != DEFAULT_PORT:
+            print(f"keyfence: port {DEFAULT_PORT} is busy, using {port}", file=sys.stderr, flush=True)
+    elif port_open(port):
         print(f"Port {port} is already in use. Pick another one with -p.")
         return 1
     try:

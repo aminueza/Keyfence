@@ -139,7 +139,64 @@ def test_run_refuses_busy_port(home, monkeypatch, capsys):
     monkeypatch.setattr(runner, "port_open", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start"))
     assert runner.run(["echo"], 8899) == 1
-    assert "already in use" in capsys.readouterr().out
+    out, err = capsys.readouterr()
+    assert out == "Port 8899 is already in use. Pick another one with -p.\n"
+    assert err == ""
+
+
+def test_free_port_returns_a_port_nothing_listens_on():
+    port = runner.free_port()
+    assert 1024 < port < 65536 and not runner.port_open(port)
+
+
+def test_pick_port_returns_the_preferred_port_when_free():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    assert runner.pick_port(port) == port
+    assert runner.DEFAULT_PORT == 8888
+
+
+def test_pick_port_returns_another_port_when_the_preferred_one_is_busy():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen(1)
+        busy = s.getsockname()[1]
+        chosen = runner.pick_port(busy)
+        assert chosen != busy and 1024 < chosen < 65536 and not runner.port_open(chosen)
+
+
+def _run_without_port(monkeypatch, tmp_path, default_busy):
+    seen = {"probed": []}
+    ca = tmp_path / "ca.pem"
+    ca.write_text("cert")
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr: seen.update(proxy_cmd=cmd) or FakeProxy())
+    monkeypatch.setattr(runner, "port_open",
+                        lambda port: (default_busy and port == runner.DEFAULT_PORT) or "proxy_cmd" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: seen["probed"].append(port) or True)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: seen.update(env=env) or 0)
+    assert runner.run(["echo"], ca_cert=ca, timeout=1) == 0
+    seen["port"] = int(seen["proxy_cmd"][seen["proxy_cmd"].index("--listen-port") + 1])
+    return seen
+
+
+def test_run_without_a_port_uses_the_default_when_it_is_free(home, monkeypatch, tmp_path, capsys):
+    seen = _run_without_port(monkeypatch, tmp_path, default_busy=False)
+    assert seen["port"] == 8888
+    assert seen["env"]["HTTPS_PROXY"] == "http://127.0.0.1:8888"
+    assert seen["probed"] == [8888]
+    assert capsys.readouterr().err == ""
+
+
+def test_run_without_a_port_falls_back_when_the_default_is_busy(home, monkeypatch, tmp_path, capsys):
+    seen = _run_without_port(monkeypatch, tmp_path, default_busy=True)
+    port = seen["port"]
+    assert port != 8888
+    assert seen["env"]["HTTPS_PROXY"] == f"http://127.0.0.1:{port}"
+    assert seen["env"]["HTTP_PROXY"] == f"http://127.0.0.1:{port}"
+    assert seen["probed"] == [port]
+    assert capsys.readouterr().err == f"keyfence: port 8888 is busy, using {port}\n"
 
 
 def test_mitmdump_path_prefers_interpreter_bindir(tmp_path, monkeypatch):
