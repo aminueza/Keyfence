@@ -67,7 +67,11 @@ def test_proxy_and_environment_checks(monkeypatch, tmp_path):
     assert doctor.check_environment(8888, {}, ca).status == doctor.INFO
     assert doctor.check_environment(8888, {"HTTPS_PROXY": "http://other:1"}, ca).status == doctor.WARN
     assert doctor.check_environment(8888, {"HTTPS_PROXY": "http://127.0.0.1:8888"}, ca).status == doctor.WARN
-    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca)}
+    node_only = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca)}
+    partial = doctor.check_environment(8888, node_only, ca)
+    assert partial.status == doctor.WARN
+    assert "GIT_SSL_CAINFO" in partial.detail and "NODE_EXTRA_CA_CERTS" not in partial.detail
+    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", **{name: str(ca) for name in runner.CA_ENV_VARS}}
     assert doctor.check_environment(8888, good, ca).status == doctor.OK
 
 

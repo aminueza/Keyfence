@@ -185,10 +185,11 @@ def test_wait_for():
 def test_child_env(tmp_path):
     env = runner.child_env({"KEEP": "1", "HTTPS_PROXY": "old"}, 8888, tmp_path / "ca.pem")
     assert env["KEEP"] == "1"
-    for name in runner.PROXY_ENV_VARS:
+    for name in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
         assert env[name] == "http://127.0.0.1:8888"
-    for name in runner.CA_ENV_VARS:
+    for name in ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"):
         assert env[name] == str(tmp_path / "ca.pem")
+    assert set(runner.CA_ENV_VARS) == {"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"}
 
 
 def test_build_env_vault_shares_salt_with_main(home):
