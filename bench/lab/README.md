@@ -9,6 +9,17 @@ Nothing here is real. The `.env` and the private key are generated from a
 seed at run time and never committed. Read the rules at the end before
 publishing anything.
 
+The run directory holds the full traffic of the session. `session.flows`
+stores every request the agent made, headers and body, as the provider
+saw it, and the lab runs keyfence in `mode: audit`, so nothing in it is
+redacted: the fake secrets, the agent's key in the `Authorization`
+header, and anything real the agent picked up outside the workspace (a
+global config, a credential helper, an environment variable). Pointing
+the lab at a real agent records that session in clear text; `keyfence
+exec` says so on stderr, and the line ends up in `terminal.txt`. The file
+is created with mode 0600. Keep `lab-out/` out of version control and
+shared drives, and delete runs you no longer need.
+
 ## What a run does
 
 1. Copies `app/` (a small calculator with one failing test) into a fresh
@@ -65,9 +76,10 @@ a single number, and pin the agent version and the date.
 ## Rules
 
 - Publish fake secrets only, and say so in the first line.
-- Do not publish `session.flows`. It contains every provider's system
-  prompt and every response. Publish derived numbers and annotated
-  excerpts with the fake secrets.
+- Do not publish `session.flows`. It contains every request in full: the
+  provider's system prompt, the agent's key in the headers and, because
+  the lab runs in `mode: audit`, the secrets unredacted. Publish derived
+  numbers and annotated excerpts with the fake secrets.
 - Report telemetry by endpoint, size and frequency. Do not decode or
   speculate about its contents.
 - Send the write-up to the providers' security contacts a few days before
