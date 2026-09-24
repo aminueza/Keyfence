@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `keyfence exec` hands the CA certificate to git as well, through
+  `GIT_SSL_CAINFO`. Git reads none of the four variables that were set, so
+  every HTTPS `git` command inside a session, and anything that shells out
+  to git such as `uv tool install git+https://...`, failed with a
+  certificate error. `keyfence doctor` now checks every CA variable
+  `keyfence exec` sets, not only `NODE_EXTRA_CA_CERTS`, and names the
+  missing ones.
 - CI and release workflows run `actions/checkout@v7`,
   `actions/setup-python@v7`, `actions/upload-artifact@v7` and
   `actions/download-artifact@v8`, the current majors built for Node 24,

@@ -95,10 +95,13 @@ def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_C
     expected = f"http://127.0.0.1:{port}"
     if proxy.rstrip("/") != expected:
         return Check(WARN, "shell environment", f"HTTPS_PROXY={proxy}, keyfence would be {expected}")
-    node = environ.get("NODE_EXTRA_CA_CERTS", "")
-    if Path(node) != ca_cert:
-        return Check(WARN, "shell environment", f"HTTPS_PROXY is set but NODE_EXTRA_CA_CERTS is not {ca_cert}; Node tools will fail TLS")
-    return Check(OK, "shell environment", f"HTTPS_PROXY and NODE_EXTRA_CA_CERTS point at keyfence on port {port}")
+    missing = [name for name in runner.CA_ENV_VARS if Path(environ.get(name, "")) != ca_cert]
+    if missing:
+        return Check(WARN, "shell environment",
+                     f"HTTPS_PROXY is set but {', '.join(missing)} not {ca_cert}; "
+                     "the tools that read them (Node, Python, curl, git) will fail TLS")
+    return Check(OK, "shell environment",
+                 f"HTTPS_PROXY and the {len(runner.CA_ENV_VARS)} CA variables point at keyfence on port {port}")
 
 
 def check_local_mode(run: Callable = _run) -> Check:

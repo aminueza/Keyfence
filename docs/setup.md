@@ -31,11 +31,14 @@ mitmproxy creates a certificate authority in `~/.mitmproxy/` the first time
 the proxy starts. Tools need to trust it so the proxy can read HTTPS traffic.
 
 `keyfence exec` passes the certificate to the child process through
-`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and
-`CURL_CA_BUNDLE`, so Claude Code, Codex, Aider, curl and anything on the
-Python or Node SDKs work with no further step. Only desktop apps and tools
-that ignore those variables, and `--local` capture, need the certificate in
-the system store:
+`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+`CURL_CA_BUNDLE` and `GIT_SSL_CAINFO`, so Claude Code, Codex, Aider, curl,
+git and anything on the Python or Node SDKs work with no further step. One
+exception: Git for Windows uses the schannel backend by default, which
+ignores `GIT_SSL_CAINFO` unless `git config --global http.schannelUseSSLCAInfo true`
+is set, so git over HTTPS inside a session needs that one setting there.
+Only desktop apps and tools that ignore those variables, and `--local`
+capture, need the certificate in the system store:
 
 macOS:
 
@@ -309,6 +312,7 @@ export HTTP_PROXY=http://127.0.0.1:8888
 export NODE_EXTRA_CA_CERTS=~/.mitmproxy/mitmproxy-ca-cert.pem   # Node tools, e.g. Claude Code
 export SSL_CERT_FILE=~/.mitmproxy/mitmproxy-ca-cert.pem         # Python tools
 export REQUESTS_CA_BUNDLE=~/.mitmproxy/mitmproxy-ca-cert.pem
+export GIT_SSL_CAINFO=~/.mitmproxy/mitmproxy-ca-cert.pem        # git over HTTPS
 ```
 
 For desktop apps, set the system proxy to `127.0.0.1:8888`.
