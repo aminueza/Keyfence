@@ -1,5 +1,6 @@
 import json
 
+from keyfence.ignore import IgnoreList
 from keyfence.importer import (
     default_paths, env_values, import_files, looks_secret,
     values_from_file, values_from_json, values_from_text,
@@ -7,6 +8,18 @@ from keyfence.importer import (
 from keyfence.vault import Vault
 
 MIN = 8
+HOST = "db.internal.example.com"
+API_KEY = "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+ISSUE_ENV = (
+    "DB_PASSWORD=hunter2hunter2!\n"
+    f"API_KEY={API_KEY}\n"
+    f"DB_HOST={HOST}\n"
+    "OWNER=platform-team\n"
+)
+
+
+def ignoring(keys=(), values=()):
+    return IgnoreList(b"salt" * 8, keys, values)
 
 
 def test_dotenv_secret_names_are_imported():
@@ -134,3 +147,63 @@ def test_import_files_reports_per_file(tmp_path):
     assert report == [(env, 1), (empty, 0)]
     assert vault.contains("firstSecretValue1")
     assert (tmp_path / "vault.json").read_text().count("firstSecretValue1") == 0
+
+
+def test_hostname_is_registered_by_entropy_without_ignore_lists():
+    assert values_from_text(ISSUE_ENV, MIN) == {"hunter2hunter2!", API_KEY, HOST}
+
+
+def test_ignored_key_is_skipped_even_with_everything():
+    found = values_from_text(ISSUE_ENV, MIN, ignore=ignoring(keys=["db_host"]))
+    assert found == {"hunter2hunter2!", API_KEY}
+    everything = values_from_text(ISSUE_ENV, MIN, everything=True, ignore=ignoring(keys=["DB_HOST", "owner"]))
+    assert everything == {"hunter2hunter2!", API_KEY}
+
+
+def test_ignored_key_skips_the_url_password_too():
+    url = "DATABASE_URL=postgres://app:s3cretPassw0rd@db:5432/app\n"
+    assert "s3cretPassw0rd" in values_from_text(url, MIN)
+    assert values_from_text(url, MIN, ignore=ignoring(keys=["DATABASE_URL"])) == set()
+
+
+def test_ignored_value_is_skipped_wherever_it_appears():
+    ignore = ignoring(values=[HOST, "s3cretPassw0rd"])
+    assert values_from_text(ISSUE_ENV, MIN, ignore=ignore) == {"hunter2hunter2!", API_KEY}
+    assert values_from_text(ISSUE_ENV, MIN, everything=True, ignore=ignore) == {"hunter2hunter2!", API_KEY, "platform-team"}
+    url = "DATABASE_URL=postgres://app:s3cretPassw0rd@db:5432/app\n"
+    assert values_from_text(url, MIN, ignore=ignore) == {"postgres://app:s3cretPassw0rd@db:5432/app"}
+    netrc = "machine api.example.com login me password s3cretPassw0rd\n"
+    assert values_from_text(netrc, MIN, ignore=ignore) == set()
+    bare = "https://amanda:s3cretPassw0rd@github.com\n"
+    assert "s3cretPassw0rd" in values_from_text(bare, MIN)
+    assert "s3cretPassw0rd" not in values_from_text(bare, MIN, ignore=ignore)
+
+
+def test_json_walk_honours_ignore_lists():
+    obj = {"auths": {"registry": {"auth": "dXNlcjpzZWNyZXRwYXNz"}}, "db_host": HOST, "token": "listedToken12345"}
+    assert values_from_json(obj, MIN, everything=True) == {"dXNlcjpzZWNyZXRwYXNz", HOST, "listedToken12345"}
+    ignore = ignoring(keys=["auth"], values=["listedToken12345"])
+    assert values_from_json(obj, MIN, everything=True, ignore=ignore) == {HOST}
+
+
+def test_env_values_honour_ignore_lists():
+    token = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    environ = {"GITHUB_TOKEN": token, "DB_HOST": HOST, "SERVICE_NAME": "billing-service-eu", "OTHER": HOST}
+    ignore = ignoring(keys=["*_NAME", "DB_HOST"], values=[HOST])
+    assert env_values(environ, MIN, everything=True, ignore=ignore) == {token}
+    assert env_values(environ, MIN, everything=True) == {token, HOST, "billing-service-eu"}
+
+
+def test_import_files_honour_ignore_lists(tmp_path):
+    vault = Vault(path=tmp_path / "vault.json")
+    env = tmp_path / ".env"
+    env.write_text(ISSUE_ENV)
+    ignore = IgnoreList(vault.salt, ["DB_HOST"], ["hunter2hunter2!"])
+    assert import_files(vault, [env], ignore=ignore) == [(env, 1)]
+    assert vault.contains(API_KEY)
+    assert not vault.contains(HOST) and not vault.contains("hunter2hunter2!")
+    raw = (tmp_path / "vault.json").read_text()
+    assert HOST not in raw and "hunter2hunter2!" not in raw
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"token": "jsonTokenValue123", "db_host": HOST}))
+    assert values_from_file(config, MIN, everything=True, ignore=ignore) == {"jsonTokenValue123"}

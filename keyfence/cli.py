@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import doctor, export, hooks, pi, runner, sources
 from .config import Config
-from .detectors import scan
+from .detectors import scan_report
 from .importer import default_paths, env_values, import_files, looks_secret
 from .vault import DEFAULT_DIR, Vault, VaultError
 
@@ -36,6 +36,9 @@ def cmd_add_secret(_args) -> int:
 
 def cmd_import(args) -> int:
     vault = Vault()
+    ignore = Config.load().ignore_list(vault)
+    if ignore.key_count or ignore.value_count:
+        print(f"Ignore lists: {ignore.key_count} key(s), {ignore.value_count} value(s) from {Config.path()}")
     if args.source:
         if args.paths or args.env:
             print("error: --from cannot be combined with file paths or --env; run them as separate commands", file=sys.stderr)
@@ -45,7 +48,8 @@ def cmd_import(args) -> int:
         except sources.SourceError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
-        values = [v for k, v in pairs if args.all or looks_secret(k, v, vault.min_length)]
+        values = [v for k, v in pairs
+                  if not ignore.ignores(k, v) and (args.all or looks_secret(k, v, vault.min_length))]
         added = vault.add_many(values)
         print(f"{args.source}: {len(pairs)} value(s) read, {len(values)} looked like secrets, "
               f"{added} new; vault now holds {vault.count()} (hashes only). Use --all to register every value.")
@@ -59,11 +63,11 @@ def cmd_import(args) -> int:
         print("Nothing to import. Pass file paths, or use --env to import from the environment.")
         return 1
     total = 0
-    for path, added in import_files(vault, paths, everything=args.all):
+    for path, added in import_files(vault, paths, everything=args.all, ignore=ignore):
         total += added
         print(f"{path}: {added} new secret(s)")
     if args.env:
-        added = vault.add_many(env_values(os.environ, vault.min_length, everything=args.all))
+        added = vault.add_many(env_values(os.environ, vault.min_length, everything=args.all, ignore=ignore))
         total += added
         print(f"environment: {added} new secret(s)")
     print(f"Done. {total} new secret(s); vault now holds {vault.count()} (hashes only).")
@@ -96,12 +100,15 @@ def cmd_scan(args) -> int:
     else:
         text = sys.stdin.read()
     cfg = Config.load()
-    findings = scan(text, vault=Vault(), config=cfg.scan)
-    if not findings:
+    vault = Vault()
+    report = scan_report(text, vault=vault, config=cfg.scan, ignore=cfg.ignore_list(vault))
+    if report.suppressed:
+        print(f"{report.suppressed} finding(s) ignored by the ignore lists in {Config.path()}")
+    if not report.findings:
         print("No secrets detected.")
         return 0
-    print(f"{len(findings)} secret(s) detected:")
-    for f in findings:
+    print(f"{len(report.findings)} secret(s) detected:")
+    for f in report.findings:
         where = f" in \"{f.key}\"" if f.key else ""
         print(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
     return 2
@@ -266,6 +273,7 @@ def cmd_status(_args) -> int:
           + ("" if cfg.scan.gitleaks else " (disabled)"))
     print(f"Entropy:         {'on' if cfg.scan.entropy_enabled else 'off'}"
           f" (min_len={cfg.scan.entropy_min_length}, threshold={cfg.scan.entropy_threshold})")
+    print(f"Ignore lists:    {len(cfg.ignore_keys)} key(s), {len(cfg.ignore_values)} value(s)")
     print(f"Audit log:       {cfg.audit_log}")
     log = Path(cfg.audit_log)
     if log.exists():

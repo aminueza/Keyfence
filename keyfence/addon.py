@@ -15,7 +15,8 @@ from mitmproxy import http  # noqa: E402
 
 from keyfence import __version__  # noqa: E402
 from keyfence.config import Config  # noqa: E402
-from keyfence.detectors import Finding, scan  # noqa: E402
+from keyfence.detectors import Finding, scan_report  # noqa: E402
+from keyfence.ignore import IgnoreList  # noqa: E402
 from keyfence.notice import add_notice  # noqa: E402
 from keyfence.runner import PROBE_HOST  # noqa: E402
 from keyfence.streaming import SSERestorer, restore  # noqa: E402
@@ -33,12 +34,13 @@ class KeyFence:
     def __init__(self, config: Config | None = None, vault: Vault | None = None):
         self.config = config
         self.vault = vault
+        self.ignore = IgnoreList()
         self._fixed = config is not None or vault is not None
         self._config_path = Config.path()
         self._config_mtime = 0.0
         self._vault_mtime = 0.0
         self._env_vault = None
-        self.stats = {"scanned": 0, "findings": 0, "blocked": 0, "errors": 0, "canaries": 0}
+        self.stats = {"scanned": 0, "findings": 0, "suppressed": 0, "blocked": 0, "errors": 0, "canaries": 0}
         if self._fixed:
             self._setup()
 
@@ -50,6 +52,10 @@ class KeyFence:
         if self.vault is None:
             self.vault = self._load_vault()
             self._vault_mtime = self._mtime(self.vault.path)
+        self._refresh_ignore()
+
+    def _refresh_ignore(self) -> None:
+        self.ignore = self.config.ignore_list(self.vault)
 
     @staticmethod
     def _mtime(path: Path) -> float:
@@ -83,6 +89,7 @@ class KeyFence:
         if mtime != self._vault_mtime:
             self.vault = self._load_vault()
             self._vault_mtime = mtime
+            self._refresh_ignore()
             log.info("vault reloaded: %d secret(s)", self.vault.count())
 
     def _maybe_reload_config(self) -> None:
@@ -98,8 +105,10 @@ class KeyFence:
             return
         try:
             self.config = Config.load()
-            log.info("config reloaded: mode=%s | %d hosts | %d rules",
-                     self.config.mode, len(self.config.hosts), len(self.config.scan.rules))
+            self._refresh_ignore()
+            log.info("config reloaded: mode=%s | %d hosts | %d rules | ignoring %d key(s), %d value(s)",
+                     self.config.mode, len(self.config.hosts), len(self.config.scan.rules),
+                     self.ignore.key_count, self.ignore.value_count)
         except Exception as exc:
             log.error("config reload failed, keeping the previous one: %s", exc)
 
@@ -140,12 +149,16 @@ class KeyFence:
             return
         self._maybe_reload_vault()
         self.stats["scanned"] += 1
-        findings = scan(text, vault=self.vault, config=self.config.scan)
+        report = scan_report(text, vault=self.vault, config=self.config.scan, ignore=self.ignore)
+        findings = report.findings
+        if report.suppressed:
+            self.stats["suppressed"] += report.suppressed
+            log.info("%d finding(s) ignored by config for %s", report.suppressed, host)
         if not findings:
             return
 
         self.stats["findings"] += len(findings)
-        self._audit(flow, findings)
+        self._audit(flow, findings, report.suppressed)
         tripped = sorted({self.vault.canary_label(f.value) for f in findings if f.kind == "canary"})
         if tripped:
             self.stats["canaries"] += len(tripped)
@@ -238,7 +251,7 @@ class KeyFence:
             entry["label"] = self.vault.canary_label(f.value)
         return entry
 
-    def _audit(self, flow: http.HTTPFlow, findings: list[Finding]) -> None:
+    def _audit(self, flow: http.HTTPFlow, findings: list[Finding], suppressed: int = 0) -> None:
         try:
             path = Path(self.config.audit_log)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -250,6 +263,8 @@ class KeyFence:
                 "count": len(findings),
                 "findings": [self._audit_finding(f) for f in findings[:AUDIT_PREVIEW_LIMIT]],
             }
+            if suppressed:
+                entry["suppressed"] = suppressed
             with path.open("a") as fh:
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         except OSError as exc:

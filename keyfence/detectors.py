@@ -285,7 +285,13 @@ class ScanConfig:
     rules: list[Rule] = field(default_factory=list)
 
 
-def scan(text: str, vault=None, config: ScanConfig | None = None) -> list[Finding]:
+@dataclass
+class ScanReport:
+    findings: list[Finding]
+    suppressed: int = 0
+
+
+def scan_report(text: str, vault=None, config: ScanConfig | None = None, ignore=None) -> ScanReport:
     config = config or ScanConfig()
     findings: list[Finding] = []
     json_spans = _json_spans(text)
@@ -302,6 +308,14 @@ def scan(text: str, vault=None, config: ScanConfig | None = None) -> list[Findin
     if config.allowlist:
         allow = set(config.allowlist)
         findings = [f for f in findings if f.value not in allow]
+    if json_spans:
+        for f in findings:
+            f.key = _key_at(f.start, f.end, json_spans)
+    suppressed = 0
+    if ignore is not None:
+        dropped = {(f.start, f.end) for f in findings if ignore.ignores(f.key, f.value)}
+        findings = [f for f in findings if (f.start, f.end) not in dropped]
+        suppressed = len(dropped)
 
     priority = {"canary": 0, "vault": 0, "entropy": 2}
     findings.sort(key=lambda f: (priority.get(f.kind, 1), f.start))
@@ -309,8 +323,10 @@ def scan(text: str, vault=None, config: ScanConfig | None = None) -> list[Findin
     for f in findings:
         if _overlaps(f.start, f.end, ((r.start, r.end) for r in result)):
             continue
-        if json_spans:
-            f.key = _key_at(f.start, f.end, json_spans)
         result.append(f)
     result.sort(key=lambda f: f.start)
-    return result
+    return ScanReport(result, suppressed)
+
+
+def scan(text: str, vault=None, config: ScanConfig | None = None, ignore=None) -> list[Finding]:
+    return scan_report(text, vault, config, ignore).findings

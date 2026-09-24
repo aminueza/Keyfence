@@ -8,8 +8,9 @@ from pathlib import Path
 import yaml
 
 from .detectors import ScanConfig
+from .ignore import IgnoreList
 from .rules import DEFAULT_DISABLED, load_rules
-from .vault import DEFAULT_DIR
+from .vault import DEFAULT_DIR, Vault
 
 DEFAULT_AI_HOSTS = [
     "api.openai.com",
@@ -37,6 +38,15 @@ DEFAULT_AI_HOSTS = [
 MODES = ("audit", "block", "redact", "placeholder")
 
 
+def _string_list(data: dict, name: str) -> list[str]:
+    raw = data.get(name)
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(v, str) and v.strip() for v in raw):
+        raise ValueError(f"{name} must be a list of non-empty strings")
+    return [v.strip() for v in raw]
+
+
 @dataclass
 class Config:
     mode: str = "redact"
@@ -45,6 +55,8 @@ class Config:
     notice: bool = True
     scan: ScanConfig = field(default_factory=ScanConfig)
     audit_log: Path = field(default_factory=lambda: DEFAULT_DIR / "audit.log")
+    ignore_keys: list[str] = field(default_factory=list)
+    ignore_values: list[str] = field(default_factory=list)
 
     @staticmethod
     def path(path: str | os.PathLike | None = None) -> Path:
@@ -55,7 +67,10 @@ class Config:
         cfg_path = cls.path(path)
         cfg = cls()
         if cfg_path.exists():
-            data = yaml.safe_load(cfg_path.read_text()) or {}
+            try:
+                data = yaml.safe_load(cfg_path.read_text()) or {}
+            except yaml.YAMLError as exc:
+                raise ValueError(f"{cfg_path} is not valid YAML: {exc}") from None
             cfg.mode = data.get("mode", cfg.mode)
             if data.get("hosts"):
                 cfg.hosts = list(data["hosts"])
@@ -78,11 +93,16 @@ class Config:
             )
             if data.get("audit_log"):
                 cfg.audit_log = Path(data["audit_log"]).expanduser()
+            cfg.ignore_keys = _string_list(data, "ignore_keys")
+            cfg.ignore_values = _string_list(data, "ignore_values")
         if cfg.mode not in MODES:
             raise ValueError(f"invalid mode: {cfg.mode!r} (expected one of {', '.join(MODES)})")
         if cfg.scan.gitleaks:
             cfg.scan.rules = load_rules(cfg.scan.gitleaks_rules, cfg.scan.gitleaks_disabled)
         return cfg
+
+    def ignore_list(self, vault: Vault) -> IgnoreList:
+        return IgnoreList(vault.salt, self.ignore_keys, self.ignore_values)
 
     def host_matches(self, host: str) -> bool:
         if self.intercept_all_hosts:

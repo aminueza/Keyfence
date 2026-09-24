@@ -19,6 +19,8 @@ optional.
 | `scan.entropy_max_length` | `512` | tokens longer than this are treated as encoded data |
 | `scan.entropy_threshold` | `4.5` | bits per character |
 | `scan.allowlist` | `[]` | exact values never treated as secrets |
+| `ignore_keys` | `[]` | variable names or JSON keys whose values are never registered or reported; case-insensitive, `*` and `?` allowed |
+| `ignore_values` | `[]` | values never registered or reported; compared by salted hash, see below |
 | `audit_log` | `~/.keyfence/audit.log` | where detections are logged |
 
 Default hosts: `api.openai.com`, `api.anthropic.com`,
@@ -37,6 +39,56 @@ request bodies, and tell us.
 as the other modes do, and sends the request untouched, without the system
 prompt notice. It is the way to see what your tools send before you turn
 on redaction.
+
+## Ignore lists
+
+`keyfence import` registers a value when its name looks like a secret or
+when the value has high entropy, and a hostname such as
+`DB_HOST=db.internal.example.com` qualifies on entropy alone. Once it is in
+the vault every request that mentions it is a finding, and in `block` mode a
+403. The two ignore lists say "this one is not a secret":
+
+```yaml
+ignore_keys:
+  - DB_HOST
+  - SERVICE_NAME
+  - "*_URL"
+ignore_values:
+  - db.internal.example.com
+```
+
+`ignore_keys` matches the variable name in `.env` files, credential files
+and the environment, the key in JSON files and secret manager output, and,
+at detection time, the JSON key a finding sits under (the `key` field of the
+audit entry). Matching is case-insensitive and exact; `*` and `?` match as
+in shell globs, so `*_HOST` covers a family of names. A pair whose key is
+ignored is not registered, even with `--all`, and a finding under an
+ignored key is dropped. Keys are only known when the request body is JSON;
+a value found in plain text has no key and is not affected by
+`ignore_keys`.
+
+`ignore_values` lists the values themselves. They are never registered and
+never reported, whichever check found them: vault, patterns, gitleaks
+rules, URL query strings or entropy. The value is written in clear in
+`config.yaml`, which is your file, but keyfence hashes each entry with the
+vault salt as soon as the file is read and compares hashes from then on:
+the value is not held in memory beyond the loaded config, and it never
+reaches `vault.json`, the audit log or the console. Because the hash uses
+the vault salt, the same entry keeps working when the vault is reloaded.
+Matching is exact, like the vault: `db.internal.example.com` does not
+cover `postgres://app:pw@db.internal.example.com`, so a connection string
+carrying a password is still caught.
+
+Both lists apply to `keyfence import` (files, `--env`, `--from`), to the
+environment snapshot `keyfence exec` takes, to `keyfence scan` and to the
+proxy. A running proxy picks up changes to either list without a restart,
+like every other option. `keyfence status` shows how many entries each list
+holds, `keyfence scan` says how many findings it dropped, and an audit
+entry carries `suppressed: n` when a request had other findings besides
+the ignored ones. A request whose only findings were ignored is clean and
+is not logged. `scan.allowlist` is the older, narrower form of
+`ignore_values`: exact values compared in clear and applied at detection
+time only.
 
 ## Environment variables
 
