@@ -8,6 +8,14 @@
   code and config files expecting the real value to appear. The `redact`
   notice now says the values are not restored and asks the model to
   reference them the way the project already does.
+- Registering a secret while a `keyfence exec` session runs no longer
+  blocks every request. On a machine without `~/.keyfence/vault.json`,
+  `exec` hashed the environment with a salt it never saved, and the proxy
+  then saved the vault with a different one. The next `add-secret`,
+  `import` or `canary` reloaded the vault, the two salts could not be
+  merged, and the proxy answered 403 to everything until it was
+  restarted. `exec` now saves the vault before it hashes the environment,
+  so both use the same salt.
 
 ## 0.7.0 (2026-09-24)
 

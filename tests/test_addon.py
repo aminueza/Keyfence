@@ -320,6 +320,20 @@ def test_env_vault_is_merged(guard, home, monkeypatch):
     assert flow.request.get_text() == "x=[REDACTED:vault] y=[REDACTED:vault]"
 
 
+def test_secret_added_during_exec_on_a_fresh_machine_keeps_the_proxy_working(guard, home, monkeypatch):
+    from keyfence.runner import build_env_vault
+    assert not (home / "vault.json").exists()
+    env_vault = build_env_vault({"OPENAI_API_KEY": "sk-proj-Zq8vLm3pR7tYw2Kd9Xc4Bn6"})
+    monkeypatch.setenv(ENV_VAULT_VAR, str(env_vault.path))
+    kf = guard("redact")
+    Vault().add("added-during-the-session-1")
+    os.utime(home / "vault.json", (1, 1))
+    flow = make_flow(body=b"x=added-during-the-session-1 y=sk-proj-Zq8vLm3pR7tYw2Kd9Xc4Bn6")
+    kf.request(flow)
+    assert flow.response is None
+    assert flow.request.get_text() == "x=[REDACTED:vault] y=[REDACTED:vault]"
+
+
 def test_missing_env_vault_is_ignored(guard, home, monkeypatch):
     monkeypatch.setenv(ENV_VAULT_VAR, str(home / "missing.json"))
     assert guard().vault.count() == 0

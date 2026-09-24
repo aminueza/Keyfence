@@ -281,6 +281,15 @@ def test_build_env_vault_shares_salt_with_main(home):
     assert not path.exists() and not built.lock_path.exists()
 
 
+def test_build_env_vault_on_a_fresh_machine_saves_the_salt_the_proxy_will_load(home):
+    assert not (home / "vault.json").exists()
+    built = runner.build_env_vault({"GITHUB_TOKEN": "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"})
+    try:
+        assert Vault().salt == Vault(path=built.path).salt
+    finally:
+        built.remove_files()
+
+
 def test_build_env_vault_honours_ignore_lists(home, write_config):
     from keyfence.config import Config
     write_config("ignore_keys: [DB_HOST]\nignore_values: [db.internal.example.com]\n")
