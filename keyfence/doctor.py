@@ -33,10 +33,24 @@ def _run(command: list[str]) -> tuple[int, str]:
     return done.returncode, done.stdout + done.stderr
 
 
+def command_problem(command: str) -> str | None:
+    if os.sep in command or "/" in command:
+        path = Path(command)
+        if not path.exists():
+            return "does not exist"
+        if not os.access(path, os.X_OK):
+            return "is not executable"
+        return None
+    if shutil.which(command) is None:
+        return "not found on PATH"
+    return None
+
+
 def check_mitmdump() -> Check:
     path = runner.mitmdump_path()
-    if path == "mitmdump" and shutil.which("mitmdump") is None:
-        return Check(FAIL, "mitmdump", "not found; reinstall keyfence (pip install keyfence)")
+    problem = command_problem(path)
+    if problem:
+        return Check(FAIL, "mitmdump", f"{path} {problem}; reinstall keyfence (pip install keyfence)")
     return Check(OK, "mitmdump", path)
 
 
@@ -141,10 +155,26 @@ def check_hook(cwd: Path | None = None) -> Check:
 
 
 def check_pi_extension(cwd: Path | None = None) -> Check:
-    found = [scope for scope, _, installed in installed_scopes("pi", cwd) if installed]
-    if found:
-        return Check(OK, "pi extension", "installed (" + ", ".join(found) + ")")
-    return Check(INFO, "pi extension", "not installed; keyfence install-hooks pi stops pi from reading secret files")
+    found = [(scope, path) for scope, path, installed in installed_scopes("pi", cwd) if installed]
+    if not found:
+        return Check(INFO, "pi extension", "not installed; keyfence install-hooks pi stops pi from reading secret files")
+    scopes = ", ".join(scope for scope, _ in found)
+    commands: list[str] = []
+    for scope, path in found:
+        command = pi.baked_command(path)
+        if command is None:
+            return Check(FAIL, "pi extension",
+                         f"installed ({scopes}) but {path} holds no keyfence command; every pi tool call is refused "
+                         "until keyfence install-hooks pi runs again")
+        problem = command_problem(command)
+        if problem:
+            return Check(FAIL, "pi extension",
+                         f"installed ({scopes}) but the {scope} extension calls {command}, which {problem}; every pi "
+                         "tool call is refused until keyfence install-hooks pi runs again, with --command PATH to "
+                         "pick the keyfence to call")
+        if command not in commands:
+            commands.append(command)
+    return Check(OK, "pi extension", f"installed ({scopes}), calling {' and '.join(commands)}")
 
 
 def check_audit() -> Check:

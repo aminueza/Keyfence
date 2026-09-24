@@ -76,6 +76,49 @@ def test_is_ours_on_a_directory(tmp_path):
     assert not pi.is_ours(tmp_path)
 
 
+def test_baked_command_reads_the_path_the_extension_calls(tmp_path):
+    path = tmp_path / "keyfence.ts"
+    pi.install(path, 'C:\\Program Files\\key"fence.exe')
+    assert pi.baked_command(path) == 'C:\\Program Files\\key"fence.exe'
+    pi.install(path, "keyfence")
+    assert pi.baked_command(path) == "keyfence"
+    path.write_text("export default function () {}\n")
+    assert pi.baked_command(path) is None
+    path.write_text('const KEYFENCE = "";\n')
+    assert pi.baked_command(path) is None
+    path.write_text('const KEYFENCE = "unterminated;\n')
+    assert pi.baked_command(path) is None
+    path.write_text('const KEYFENCE = "bad \\x escape";\n')
+    assert pi.baked_command(path) is None
+    assert pi.baked_command(tmp_path / "missing.ts") is None
+    assert pi.baked_command(tmp_path) is None
+
+
+def test_unavailable_reason_names_doctor_and_the_reinstall_command():
+    source = pi.render("/bin/keyfence")
+    assert "`keyfence doctor`" in source and "`keyfence install-hooks pi` again" in source
+
+
+def test_cli_bakes_the_command_given_and_says_what_it_calls(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pi.Path, "home", classmethod(lambda cls: tmp_path))
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    assert cli.main(["install-hooks", "pi", "--command", str(binary)]) == 0
+    path = tmp_path / ".pi" / "agent" / "extensions" / "keyfence.ts"
+    assert pi.baked_command(path) == str(binary)
+    out = capsys.readouterr().out
+    assert f"It calls {binary}; keyfence doctor checks" in out
+    assert cli.main(["install-hooks", "pi", "--command", str(tmp_path / "gone")]) == 0
+    out = capsys.readouterr().out
+    assert f"It calls {tmp_path / 'gone'}, which does not exist; fix that or run this again with --command PATH." in out
+    for argv in (["install-hooks", "claude-code", "--command", "x"], ["install-hooks", "pi", "--remove", "--command", "x"],
+                 ["install-hooks", "--list", "--command", "x"]):
+        assert cli.main(argv) == 2
+        assert "error: --command only applies to `install-hooks pi`" in capsys.readouterr().err
+
+
 def test_keyfence_path_prefers_the_current_interpreters_bindir(tmp_path, monkeypatch):
     binary = tmp_path / "keyfence"
     binary.write_text("")

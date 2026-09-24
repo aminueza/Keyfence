@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- `keyfence doctor` checks that the paths keyfence baked still work. The
+  pi extension calls keyfence by the absolute path resolved when it was
+  installed; when that path went away (a rebuilt venv, a file synced from
+  another machine) every guarded pi call was refused, the refusal said to
+  check `keyfence doctor`, and doctor said `ok` because it only looked
+  for its marker in the file. Doctor now reads the baked path out of the
+  extension and fails, naming the path, when it does not exist or is not
+  executable; the `mitmdump` check does the same for an absolute path,
+  which it used to print as `ok` without looking. `keyfence install-hooks
+  pi --command PATH` bakes a path of your choice, or a bare `keyfence` to
+  be looked up on `PATH` at each call, and the install output says what
+  the extension calls. The guard-unavailable reason names
+  `keyfence install-hooks pi` as the fix, next to `keyfence doctor`.
 - `keyfence exec` hands the CA certificate to git as well, through
   `GIT_SSL_CAINFO`. Git reads none of the four variables that were set, so
   every HTTPS `git` command inside a session, and anything that shells out
