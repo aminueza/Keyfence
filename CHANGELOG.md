@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- The agent hook recognises a secret-printing command behind the shell
+  constructs that wrap one. `env` was refused but `sudo env`, `LC_ALL=C
+  env`, `/usr/bin/env`, `eval env`, `command env`, `xargs env`, `bash -c
+  env`, `{ env; }` and `env` after `then` or `do` were not, because the
+  rule only looked at the start of a line or after `;`, `&`, `|`, `(` and
+  a backtick. The same start rule now also accepts `{` and the keywords
+  `then`, `do` and `else`, and skips `sudo`, `command`, `eval`, `exec`,
+  `xargs`, `nohup`, `time`, `bash -c` and the like, a `VAR=value`
+  assignment and an absolute path to the binary, for the environment dumps
+  and for the secret manager catalogue alike. The catalogue gains `aws sts
+  get-session-token`, `get-federation-token` and `assume-role*`, `aws ecr
+  get-login-password`, `aws configure export-credentials`, `gh auth status
+  --show-token`, `bw list items`, `kubectl get secret -o custom-columns`,
+  and `echo` or `printf` of a `$VARIABLE` whose name looks like a secret.
+  `doppler secrets --only-names` prints no values and is no longer
+  refused; `doppler secrets`, `download` and `get` still are.
 - `keyfence install-hooks claude-code --remove` no longer deletes deny
   rules you wrote yourself when `keyfence-deny-rules.json` is missing.
   0.5.0 started recording the rules it adds in that file and removing only

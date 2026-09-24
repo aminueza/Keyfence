@@ -154,15 +154,24 @@ service account files, anything under `.ssh`, `.aws/credentials`,
 `.docker/config.json` and `.kube/config`. `.env.example` and `*.pub` are
 allowed. Bash commands that mention such a path are refused too, and so
 are commands that print secrets: `env`, `printenv`, `export`, `set`,
-`declare -x`, `printenv NAME` when the name looks like a secret,
+`declare -x`, `printenv NAME` when the name looks like a secret, `echo` or
+`printf` of a `$VARIABLE` whose name looks like a secret,
 `/proc/*/environ`, and the read commands of `aws secretsmanager`, `aws ssm`
-with decryption, `aws configure get` of a key, `op read`, `op item get`
+with decryption, `aws configure get` of a key, `aws configure
+export-credentials`, `aws sts get-session-token`, `get-federation-token`
+and `assume-role*`, `aws ecr get-login-password`, `op read`, `op item get`
 with `--reveal`, `--fields` or JSON output, `vault`, `doppler`, `kubectl`
-secrets with `-o yaml|json|jsonpath|go-template`, `kubectl config view
---raw`, `gcloud secrets`, `gcloud auth print-*-token`, `az keyvault`,
-`az account get-access-token`, `gh auth token`, `heroku config`,
-`infisical` and `bw`. Listing names without values, such as
-`kubectl get secrets` or `gh secret list`, is allowed. The refusal message
+secrets with `-o yaml|json|jsonpath|go-template|custom-columns`, `kubectl
+config view --raw`, `gcloud secrets`, `gcloud auth print-*-token`, `az
+keyvault`, `az account get-access-token`, `gh auth token`, `gh auth status
+--show-token`, `heroku config`, `infisical`, `bw get` and `bw list items`.
+The command is recognised at the start of a line, after `;`, `&&`, `||`,
+`|`, `(`, `{`, a backtick, `then`, `do` or `else`, and behind `sudo`,
+`command`, `eval`, `exec`, `xargs`, `nohup`, `time`, `bash -c` and the
+like, a `VAR=value` assignment, or an absolute path to the binary, so
+`sudo env`, `LC_ALL=C env` and `/usr/bin/env` are refused like `env`.
+Listing names without values, such as `kubectl get secrets`, `gh secret
+list` or `doppler secrets --only-names`, is allowed. The refusal message
 tells the model to ask you instead or to use `keyfence import`.
 
 `keyfence install-hooks claude-code` also adds `permissions.deny` rules
