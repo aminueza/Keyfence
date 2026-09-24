@@ -13,6 +13,18 @@
   added them; `--remove --force` removes all of those. `--force` without
   `--remove` is an error, and a record that cannot be parsed counts as
   missing. `--remove` also reports how many deny rules it removed.
+- The proxy's own log lines are visible again. mitmdump was started with
+  `-q`, which silences every log line including keyfence's, so
+  `keyfence run` printed nothing after its banner, `~/.keyfence/proxy.log`
+  stayed empty on a healthy `keyfence exec`, and the `CANARY tripped`
+  warning the docs promised never appeared outside the audit log. mitmdump
+  now runs with `termlog_verbosity=warn` and `flow_detail=0`: the
+  `REDACT`, `PLACEHOLDER`, `BLOCKED`, `AUDIT` and `CANARY tripped` lines
+  and mitmproxy's own warnings (a client that does not trust the CA, for
+  instance) show up, while mitmproxy's per-request output and info chatter
+  stay out. The startup summary is logged at that level too and carries
+  the version, so it is the first line on the terminal for `keyfence run`
+  and in `proxy.log` for `keyfence exec`.
 - The agent hook refuses the same files in Bash commands as in file tools.
   Paths inside a command were matched by a second, shorter list, so
   `secrets.yaml`, `service-account*.json`, `kubeconfig`, `.envrc`,

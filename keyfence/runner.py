@@ -24,6 +24,7 @@ CA_CERT = (CONFDIR or Path.home() / ".mitmproxy") / "mitmproxy-ca-cert.pem"
 ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
 PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
 CA_ENV_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+LOG_ARGS = ("--set", "termlog_verbosity=warn", "--set", "flow_detail=0")
 
 
 def mitmdump_path() -> str:
@@ -45,7 +46,7 @@ def listen_args(port: int, local: str | None) -> list[str]:
 def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = (),
                   local: str | None = None, confdir: Path | None = CONFDIR) -> list[str]:
     return [
-        mitmdump_path(), "-q",
+        mitmdump_path(), *LOG_ARGS,
         "-s", str(addon),
         *listen_args(port, local),
         "--set", "block_global=false",
