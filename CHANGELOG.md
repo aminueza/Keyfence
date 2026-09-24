@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `keyfence import --from op` raises a clean error when an item from `op item list`
+  has no `id` field instead of crashing with a `KeyError` traceback.
+
 ## 0.5.0 (2026-09-24)
 
 - `main` carries a `.dev0` version between releases, so `keyfence doctor`

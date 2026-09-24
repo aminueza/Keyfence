@@ -30,6 +30,29 @@ def test_op_reads_concealed_fields_of_every_item():
     assert run.calls[1][-1] == "--reveal"
 
 
+def test_op_handles_item_without_id():
+    run = fake_runner([
+        (["op", "item", "list"], json.dumps([{"title": "no id here"}])),
+    ])
+    with pytest.raises(sources.SourceError) as exc:
+        sources.fetch("op", "Personal", run)
+    assert "without an id" in str(exc.value)
+    not_list = fake_runner([
+        (["op", "item", "list"], json.dumps({"title": "dict not list"})),
+    ])
+    with pytest.raises(sources.SourceError) as exc:
+        sources.fetch("op", "Personal", not_list)
+    assert "not return an item list" in str(exc.value)
+
+
+def test_op_handles_non_dict_fields():
+    run = fake_runner([
+        (["op", "item", "list"], json.dumps([{"id": "a"}])),
+        (["op", "item", "get", "a"], json.dumps({"fields": ["not-a-dict", None, {"type": "CONCEALED", "value": "val"}]})),
+    ])
+    assert sources.fetch("op", "Personal", run) == [("password", "val")]
+
+
 def test_vault_reads_kv_v2_and_v1_with_keys():
     v2 = fake_runner([(["vault", "kv", "get"], json.dumps({"data": {"data": {"pw": "vault-secret-value", "host": "db.internal", "n": 1}, "metadata": {}}}))])
     assert sorted(sources.fetch("vault", "secret/app", v2)) == [("host", "db.internal"), ("pw", "vault-secret-value")]
