@@ -88,7 +88,9 @@ create the `pypi` environment in the GitHub repository settings.
 
 To release:
 
-1. Set `__version__` in `keyfence/__init__.py` to `X.Y.Z` and rename the
+1. Set `__version__` in `keyfence/__init__.py` to `X.Y.Z`, set `version`
+   in `plugin/.claude-plugin/plugin.json` to the same `X.Y.Z` so the
+   Claude Code marketplace picks up the new `guard.py`, and rename the
    `Unreleased` section of `CHANGELOG.md` to `X.Y.Z (date)`.
 2. Commit, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 3. Right after, set `__version__` to the next dev version (`X.Y+1.0.dev0`),
@@ -100,4 +102,5 @@ package version, and publishes.
 Between releases `main` carries a `.dev0` version, so `keyfence doctor`
 tells a checkout of `main` apart from the build published on PyPI.
 `tests/test_version.py` checks that a release version has its changelog
-section and that a dev version has an `Unreleased` one.
+section, that a dev version has an `Unreleased` one, and that the plugin
+manifest carries the last released version.
