@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The system prompt notice matches the mode. It used to tell the model in
+  every mode that tokens are restored on the way back, which is true only
+  for `placeholder`; in `redact` the model wrote `[REDACTED:...]` into
+  code and config files expecting the real value to appear. The `redact`
+  notice now says the values are not restored and asks the model to
+  reference them the way the project already does.
+
 ## 0.7.0 (2026-09-24)
 
 - The Claude Code plugin manifest carries the package version. It had

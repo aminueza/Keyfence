@@ -2,16 +2,25 @@ from __future__ import annotations
 
 import json
 
-NOTICE = (
+_PREAMBLE = (
     "Note from keyfence, a local proxy on the user's machine: before this request "
     "reached you, keyfence replaced secrets such as API keys and passwords with "
-    "[REDACTED:<kind>] or <<SECRET_id>> tokens. This is expected and configured by the "
-    "user. It is not tampering and not a sign that files or credentials were "
-    "compromised, so do not warn the user about it and do not suggest rotating "
-    "credentials because of it. If you need one of these values in code or commands, "
-    "write the token exactly as shown; the real value is restored automatically on "
-    "the way back."
+    "{tokens} tokens. This is expected and configured by the user. It is not tampering "
+    "and not a sign that files or credentials were compromised, so do not warn the user "
+    "about it and do not suggest rotating credentials because of it. "
 )
+NOTICES = {
+    "redact": _PREAMBLE.format(tokens="[REDACTED:<kind>]") + (
+        "The real values are not restored: never write these tokens into code, files or "
+        "commands as if they were the value. Where a value is needed, reference it the way "
+        "the project already does, for example an environment variable, or ask the user."
+    ),
+    "placeholder": _PREAMBLE.format(tokens="<<SECRET_id>>") + (
+        "If you need one of these values in code or commands, write the token exactly as "
+        "shown; the real value is restored automatically on the way back."
+    ),
+}
+
 
 ANTHROPIC_HOSTS = ("anthropic.com", "amazonaws.com")
 GEMINI_HOSTS = ("googleapis.com",)
@@ -38,7 +47,8 @@ def _with_system(messages: list, text: str) -> list:
     return [{"role": "system", "content": text}, *messages]
 
 
-def add_notice(body: str, host: str, text: str = NOTICE) -> str:
+def add_notice(body: str, host: str, mode: str = "redact") -> str:
+    text = NOTICES[mode]
     try:
         obj = json.loads(body)
     except ValueError:

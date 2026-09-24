@@ -1,6 +1,8 @@
 import json
 
-from keyfence.notice import NOTICE, add_notice
+from keyfence.notice import NOTICES, add_notice
+
+NOTICE = NOTICES["redact"]
 
 
 def load(body: str):
@@ -97,3 +99,12 @@ def test_unicode_survives_reserialisation():
     body = json.dumps({"system": "ação", "messages": []}, ensure_ascii=False)
     out = add_notice(body, "api.anthropic.com")
     assert "ação" in out
+
+
+def test_each_mode_gets_a_notice_that_matches_what_happens_to_the_tokens():
+    body = json.dumps({"system": "sys", "messages": []})
+    redact = load(add_notice(body, "api.anthropic.com", "redact"))["system"]
+    placeholder = load(add_notice(body, "api.anthropic.com", "placeholder"))["system"]
+    assert "[REDACTED:<kind>]" in redact and "not restored" in redact and "<<SECRET_id>>" not in redact
+    assert "<<SECRET_id>>" in placeholder and "restored automatically" in placeholder
+    assert "[REDACTED" not in placeholder
