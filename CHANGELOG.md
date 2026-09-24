@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.7.0 (2026-09-24)
 
 - The Claude Code plugin manifest carries the package version. It had
