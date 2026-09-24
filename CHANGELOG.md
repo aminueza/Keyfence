@@ -56,7 +56,10 @@
   them, `redact` and `placeholder` rewrite them, `block` drops the frame,
   and placeholders are restored in the frames that come back. Audit entries
   for a frame carry `"websocket": true`. Binary frames are still passed
-  through, which `docs/limitations.md` now says.
+  through, which `docs/limitations.md` now says, next to what each mode
+  means on a WebSocket. `keyfence run` and `keyfence exec` also pin
+  mitmproxy's `websocket` option, so a config file that turns it off
+  cannot make frames pass as raw TCP without a line in the log.
 
 ## 0.7.0 (2026-09-24)
 

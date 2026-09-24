@@ -5,8 +5,7 @@ import re
 import pytest
 from mitmproxy import http
 from mitmproxy.test import tflow, tutils
-from mitmproxy.websocket import WebSocketData, WebSocketMessage
-from wsproto.frame_protocol import Opcode
+from mitmproxy.websocket import Opcode, WebSocketData, WebSocketMessage
 
 import keyfence.addon as addon_module
 from keyfence.addon import ENV_VAULT_VAR, MAPPING_KEY, STREAMED_KEY, KeyFence
@@ -759,7 +758,18 @@ def test_websocket_server_frames_are_untouched_without_a_mapping(guard):
     kf = guard("redact")
     flow = make_ws_flow()
     back = send_frame(kf, flow, "<<SECRET_1>> stays", from_client=False)
-    assert back.text == "<<SECRET_1>> stays" and kf.stats["scanned"] == 0
+    assert back.text == "<<SECRET_1>> stays" and not back.dropped
+    assert kf.stats["scanned"] == 0 and kf.stats["errors"] == 0
+
+
+def test_binary_websocket_server_frames_pass_through_a_mapped_connection(guard):
+    kf = guard("placeholder")
+    flow = make_ws_flow()
+    send_frame(kf, flow, json.dumps({"text": f"use {KEY}"}))
+    assert flow.metadata[MAPPING_KEY]
+    audio = b"\x00\x01\x02 <<SECRET_1>> \xff"
+    back = send_frame(kf, flow, audio, from_client=False, opcode=Opcode.BINARY)
+    assert back.content == audio and not back.dropped and kf.stats["errors"] == 0
 
 
 def test_binary_websocket_frames_are_not_scanned(guard):

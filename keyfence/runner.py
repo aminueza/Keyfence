@@ -53,6 +53,7 @@ def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = ()
         "-s", str(addon),
         *listen_args(port, local),
         "--set", "block_global=false",
+        "--set", "websocket=true",
         *(["--set", f"confdir={confdir}"] if confdir else []),
         *extra,
     ]

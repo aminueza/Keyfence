@@ -44,11 +44,20 @@ real incidents. Out of scope:
 - **Binary WebSocket frames.** Text frames sent to a monitored host are
   scanned like a request body and redacted, replaced by placeholders or
   dropped, depending on the mode. Binary frames are passed through
-  untouched: keyfence cannot parse the payload, so it cannot tell a secret
-  from the bytes around it. In `block` mode the frame carrying the secret
-  is dropped and the connection stays open, because a mitmproxy addon
-  cannot close a WebSocket in flight; every later frame is scanned the
-  same way.
+  untouched, in every mode: keyfence cannot parse the payload, so it
+  cannot tell a secret from the bytes around it. A secret split across two
+  frames is not caught either, because each frame is scanned on its own.
+- **What the modes mean on a WebSocket.** `block` drops the frame that
+  carries the secret, so nothing of it reaches the server, and the
+  connection stays open: a mitmproxy addon cannot close a WebSocket in
+  flight ([mitmproxy#4711](https://github.com/mitmproxy/mitmproxy/issues/4711)).
+  Every later frame is scanned the same way. `redact` and `placeholder`
+  rewrite the frame, and a rewritten frame longer than 4000 bytes is sent
+  to the server in 4000-byte fragments, because mitmproxy keeps the
+  original chunking only while the length is unchanged. A server that
+  refuses continuation frames sees those as broken. The system prompt
+  notice is added to request bodies only, so a model on a realtime
+  connection receives the `[REDACTED:...]` markers with no explanation.
 - **Streams ending mid-placeholder.** If a streamed response ends in the
   middle of a placeholder, the last characters are passed through as they
   are.

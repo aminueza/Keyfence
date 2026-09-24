@@ -301,15 +301,16 @@ class KeyFence:
             return
 
         self._record(flow, findings, report.suppressed, host, websocket=True)
-        kinds = sorted({f.kind for f in findings})
 
         if self.config.mode == "audit":
+            kinds = sorted({f.kind for f in findings})
             log.warning("AUDIT -> %s: %d secret(s) sent unchanged in a websocket frame (%s)",
                         host, len(findings), ", ".join(kinds))
             return
 
         if self.config.mode == "block":
             self.stats["blocked"] += 1
+            kinds = sorted({f.kind for f in findings})
             message.drop()
             log.warning("BLOCKED -> %s: %d secret(s) in a websocket frame (%s); frame not sent",
                         host, len(findings), ", ".join(kinds))
