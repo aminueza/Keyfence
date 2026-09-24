@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.5.0 (2026-09-24)
 
 - `main` carries a `.dev0` version between releases, so `keyfence doctor`
