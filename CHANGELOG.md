@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-09-24)
 
 - `main` carries a `.dev0` version between releases, so `keyfence doctor`
   on a checkout of `main` no longer prints the same version as the build
