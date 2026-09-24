@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 (2026-09-24)
 
+- The Claude Code plugin manifest carries the package version. It had
+  stayed at 0.2.1 while `plugin/hooks/guard.py` gained the Bash path
+  rules, the shell-prefix and catalogue rules and the refusal of
+  unreadable input, so the marketplace never offered those to anyone who
+  installed the plugin. A test now ties the manifest version to the last
+  release, and the release steps say to bump it.
 - Two `keyfence exec` sessions can run at once. Each session starts a
   proxy of its own, yet both defaulted to port 8888, so the second one
   died with `Port 8888 is already in use` although it had no reason to

@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -34,6 +35,13 @@ def test_dev_version_is_ahead_of_the_last_release():
     last = tuple(int(p) for p in released[0].split("."))
     current = tuple(int(p) for p in __version__.split(".dev")[0].split("."))
     assert current > last
+
+
+def test_plugin_manifest_carries_the_released_version():
+    manifest = json.loads((ROOT / "plugin" / ".claude-plugin" / "plugin.json").read_text())
+    released = [h for h in changelog_headings() if RELEASE.match(h)]
+    expected = __version__ if RELEASE.match(__version__) else released[0]
+    assert manifest["version"] == expected
 
 
 def test_doctor_reports_the_installed_version(home, monkeypatch):
