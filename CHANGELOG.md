@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 (2026-09-24)
 
 - `keyfence demo` tells the story in plain words and names no provider or
   agent: the request goes to a generic chat endpoint, each mode gets a
