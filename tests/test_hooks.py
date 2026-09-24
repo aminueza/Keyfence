@@ -118,6 +118,17 @@ def test_decide_grep():
     "gcloud auth print-access-token", "gcloud auth application-default print-access-token",
     "az keyvault secret show --name x", "az account get-access-token", "gh auth token",
     "heroku config", "heroku config:get DATABASE_URL", "bw get password github",
+    "{ env; }", "if true; then env; fi", "for i in 1 2; do env; done", "LC_ALL=C env", "FOO=1 BAR=2 printenv",
+    "sudo env", "sudo -E env", "sudo -u root env", "/usr/bin/env", "sudo /usr/bin/env", "eval env", "command env",
+    "echo x | xargs env", "xargs -0 env", "nohup env", "time env", "exec env", "bash -c env", "sh -c 'env'",
+    "bash -lc 'env'", 'zsh -c "env | grep X"', "sudo aws secretsmanager get-secret-value --secret-id x",
+    "/usr/local/bin/op read op://vault/item/password", "if x; then vault kv get secret/app; fi",
+    "sudo gh auth status --show-token", "aws sts get-session-token", "aws sts get-federation-token",
+    "aws sts assume-role --role-arn arn:x --role-session-name s", "aws ecr get-login-password",
+    "aws configure export-credentials", "gh auth status --show-token", "bw list items",
+    "kubectl get secret app -o custom-columns=DATA:.data", "doppler secrets get X", "doppler secrets -p proj -c dev",
+    "echo $GITHUB_TOKEN", "echo ${GITHUB_TOKEN}", "echo ${GITHUB_TOKEN:-unset}", 'echo "token=$API_TOKEN"',
+    "echo $github_token", 'printf "%s" "$AWS_SECRET_ACCESS_KEY"', "printf '%s\\n' \"$DB_PASSWORD\"",
 ])
 def test_bash_commands_that_print_secrets_are_blocked(command):
     reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
@@ -130,9 +141,23 @@ def test_bash_commands_that_print_secrets_are_blocked(command):
     "kubectl describe secret db", "kubectl config view", "vault status", "op --version", "op item get abc",
     "op item list", "git status", "echo environment", "heroku logs --tail", "doppler --version",
     "gh secret list", "gh auth status", "gcloud auth list", "az account show", "aws configure get region",
+    "doppler secrets --only-names", "doppler secrets -p proj --only-names", "sudo apt install x", "sudo -u root apt install x",
+    "time make", "time -p make", "LC_ALL=C sort file", "KUBECONFIG=x kubectl get pods", "xargs rm", "nohup python server.py &",
+    "command -v env", "command -v git", "eval \"$(direnv hook zsh)\"", "exec python app.py", "bash -c 'make test'",
+    "python -c 'print(1)'", "ssh -c aes256-ctr host", "/usr/bin/python3 app.py", "cat /etc/env", "{ make; }",
+    "if [ -f x ]; then make; fi", "for i in 1 2; do echo $i; done", "todo env", "echo done", "echo $HOME", 'echo "$PATH"',
+    "echo ${HOME}/bin", "echo token", 'echo "$USER has key"', "echo cost: $5 tokens", "printf '%s\\n' hello",
+    "aws sts get-caller-identity", "aws ecr describe-repositories", "bw list folders", "kubectl get secret db",
 ])
 def test_ordinary_commands_pass(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+def test_prefixed_secret_command_is_named_without_its_prefix():
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": "sudo -E /usr/local/bin/aws secretsmanager get-secret-value --secret-id x"}})
+    assert "`aws secretsmanager get-secret-value` prints secret values" in reason
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": "if true; then env; fi"}})
+    assert "prints environment variables" in reason
 
 
 @pytest.mark.parametrize("command", [

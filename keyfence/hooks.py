@@ -24,24 +24,30 @@ GREP_TOOLS = {"grep"}
 SHELL_TOOLS = {"bash", "powershell"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
 _WORD_SEPARATORS = re.compile(r"""[\s;&|()`<>"'=,:]+""")
-_START = r"(?:^|[;&|(`])\s*"
+_PREFIXES = (
+    r"(?:(?:sudo|xargs|nohup|time|exec)(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+|(?:command(?:\s+-p)?|builtin|eval)\s+|"
+    r"(?:ba|da|k|z)?sh\s+(?:-\S+\s+)*-\w*c\s+[\"']?|[A-Za-z_]\w*=\S*\s+)*")
+_START = r"(?:^|[;&|(`{]|\b(?:then|do|else)\b)\s*" + _PREFIXES + r"(?:(?:/[\w.-]+)+/)?"
 _DUMP_COMMANDS = re.compile(
-    _START + r"(?:env|printenv|export(?:\s+-p)?|set|declare\s+-x|typeset\s+-x)\s*(?:$|[;&|)>`])",
+    _START + r"(?:env|printenv|export(?:\s+-p)?|set|declare\s+-x|typeset\s+-x)\s*[\"']?\s*(?:$|[;&|)>`])",
     re.MULTILINE)
 _SECRET_VAR = r"[A-Za-z_]*(?:SECRET|TOKEN|KEY|PASSWORD|PASSWD|CREDENTIAL)[A-Za-z_]*"
 _NAMED_DUMP = re.compile(
-    _START + r"printenv\s+" + _SECRET_VAR + r"\b|/proc/(?:self|\d+)/environ", re.IGNORECASE | re.MULTILINE)
+    _START + r"(?:printenv\s+" + _SECRET_VAR + r"\b|(?:echo|printf)\b[^;&|\n]*\$\{?" + _SECRET_VAR + r"\b)|"
+    r"/proc/(?:self|\d+)/environ", re.IGNORECASE | re.MULTILINE)
 _SECRET_COMMANDS = re.compile(
-    _START + r"(?:"
+    _START + r"(?P<cmd>"
     r"aws\s+secretsmanager\s+get-secret-value|aws\s+ssm\s+get-parameters?\b.*--with-decryption|"
-    r"aws\s+configure\s+get\s+\S*(?:secret|token|key)|"
+    r"aws\s+configure\s+(?:get\s+\S*(?:secret|token|key)|export-credentials)|"
+    r"aws\s+sts\s+(?:get-session-token|get-federation-token|assume-role\S*)|aws\s+ecr\s+get-login-password|"
     r"op\s+read|op\s+item\s+get\b(?=.*(?:--reveal|--format[= ]json|--fields))|"
-    r"vault\s+(?:kv\s+get|read)|doppler\s+secrets(?:\s+(?:download|get))?|"
-    r"kubectl\s+get\s+secrets?\b(?=.*(?:-o|--output)[\s=]*(?:yaml|json|jsonpath|go-template))|"
+    r"vault\s+(?:kv\s+get|read)|doppler\s+secrets(?:\s+(?:download|get)\b|(?![^;&|\n]*--only-names))|"
+    r"kubectl\s+get\s+secrets?\b(?=.*(?:-o|--output)[\s=]*(?:yaml|json|jsonpath|go-template|custom-columns))|"
     r"kubectl\s+config\s+view\b(?=.*--raw)|"
     r"gcloud\s+secrets\s+versions\s+access|gcloud\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token|"
     r"az\s+keyvault\s+secret\s+show|az\s+account\s+get-access-token|"
-    r"gh\s+auth\s+token|heroku\s+config(?::get)?|infisical\s+(?:secrets|export)|bw\s+get"
+    r"gh\s+auth\s+(?:token|status\b(?=.*--show-token))|heroku\s+config(?::get)?|infisical\s+(?:secrets|export)|"
+    r"bw\s+(?:get|list\s+items)"
     r")\b", re.IGNORECASE | re.MULTILINE)
 HOOK_COMMAND = "keyfence hook claude-code"
 HOOK_MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash"
@@ -74,7 +80,7 @@ def dumps_secrets(command: str) -> str | None:
         return "it prints environment variables that hold the secrets keyfence protects"
     m = _SECRET_COMMANDS.search(command)
     if m:
-        return f"`{m.group().strip(' ;&|(`')}` prints secret values"
+        return f"`{m.group('cmd')}` prints secret values"
     return None
 
 
