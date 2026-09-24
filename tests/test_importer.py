@@ -210,15 +210,15 @@ def test_import_files_honour_ignore_lists(tmp_path):
 
 
 def test_secret_name_matches_whole_words_only():
-    assert not looks_secret("GIT_AUTHOR_EMAIL", "victor@gnx.net", MIN)
-    assert not looks_secret("GIT_AUTHOR_NAME", "Victor Nogueira", MIN)
+    assert not looks_secret("GIT_AUTHOR_EMAIL", "dev@example.com", MIN)
+    assert not looks_secret("GIT_AUTHOR_NAME", "Jane Doe", MIN)
     assert not looks_secret("KEYBOARD_LAYOUT", "us-intl-mac", MIN)
-    assert not looks_secret("MONKEY_ISLAND", "Guybrush T.", MIN)
+    assert not looks_secret("MONKEY_ISLAND", "game-save-3", MIN)
     assert not looks_secret("COMPASS_URL", "localhost:9000", MIN)
     assert not looks_secret("BYPASS_CACHE", "sometimes", MIN)
     assert not looks_secret("CAPITAL_CITY", "Amsterdam-NL", MIN)
     assert not looks_secret("RAPID_MODE", "always-on", MIN)
-    assert looks_secret("GIT_AUTHOR_TOKEN", "victor@gnx.net", MIN)
+    assert looks_secret("GIT_AUTHOR_TOKEN", "dev@example.com", MIN)
 
 
 def test_one_letter_segment_is_not_a_secret_name():
@@ -232,8 +232,10 @@ def test_secret_name_still_matches_real_secret_names():
     for name in ("GITHUB_TOKEN", "DB_PASSWORD", "STRIPE_SECRET_KEY", "OPENAI_APIKEY",
                  "authToken", "aws_secret_access_key", "credentials", "SESSION_COOKIE",
                  "senha", "SENTRY_DSN", "PRIVATE_KEY", "_authToken", "apiKeys",
-                 "PASSPHRASE", "GPG_PASSPHRASE", "AUTHORIZATION", "PGPASSWORD",
-                 "SSHPASS", "//registry.npmjs.org/:_authToken"):
+                 "PASSPHRASE", "GPG_PASSPHRASE", "SSH_PASSCODE", "AUTHORIZATION",
+                 "PGPASSWORD", "SSHPASS", "ACCESSTOKEN", "REFRESHTOKEN",
+                 "CLIENTSECRET", "DBPASSWORD", "SECRETACCESSKEY",
+                 "//registry.npmjs.org/:_authToken"):
         assert looks_secret(name, "short-value", MIN), name
 
 
@@ -242,6 +244,13 @@ def test_a_name_that_points_at_a_file_is_not_a_secret_name():
     assert not looks_secret("HTPASSWD_PATH", "site.htpasswd", MIN)
 
 
+def test_a_word_glued_in_front_of_a_long_secret_word_still_matches():
+    assert looks_secret("DBPASSWORD", "hunter2hunter", MIN)
+    assert not looks_secret("TOKENIZER_PATH", "bpe-v2.model", MIN)
+    assert not looks_secret("SECRETARY_DESK", "room-14-desk", MIN)
+    assert not looks_secret("MONKEYKEY", "game-save-3", MIN)
+
+
 def test_env_values_keeps_the_git_author_email():
-    environ = {"GIT_AUTHOR_EMAIL": "victor@gnx.net", "GITHUB_TOKEN": "tokenValue123"}
+    environ = {"GIT_AUTHOR_EMAIL": "dev@example.com", "GITHUB_TOKEN": "tokenValue123"}
     assert env_values(environ, MIN) == {"tokenValue123"}

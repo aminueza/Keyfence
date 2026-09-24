@@ -70,14 +70,19 @@
   out with `[REDACTED:vault]` in it. The name is now split on separators
   and camel case, and each segment has to be a secret word or a run of
   them, so `OPENAI_APIKEY`, `authToken` and `aws_secret_access_key` still
-  match while `GIT_AUTHOR_EMAIL` does not. A name that glues a word onto a
-  secret word without a separator no longer matches by name: `DBPASSWORD`,
-  `GITHUBTOKEN` and the `identitytoken` field of the docker config. Long
-  random values still reach the vault through the entropy check; a short
-  one needs a separator (`DB_PASSWORD`), camel case (`dbPassword`) or
-  `keyfence import --all`. The names that a tool fixes and a developer
-  cannot rename are words of their own, so `PGPASSWORD`, `SSHPASS` and
-  `PASSPHRASE` keep matching.
+  match while `GIT_AUTHOR_EMAIL` does not. A segment that ends with
+  `token`, `secret` or `password` counts on its own, so `ACCESSTOKEN`,
+  `CLIENTSECRET`, `DBPASSWORD` and the `identitytoken` field of the docker
+  config keep matching, and so does one that opens with those words and
+  closes on a secret word, such as `SECRETACCESSKEY`. `key` is not in that
+  list, so `MONKEY_ISLAND` stays out. The names a tool fixes and a
+  developer cannot rename are words of their own: `PGPASSWORD`, `SSHPASS`,
+  `PASSPHRASE` and `PASSCODE`.
+
+  What this costs: a short, low-entropy value under a name that glues an
+  ordinary word onto `key` alone, such as `SSHKEY` or `SECKEY`, is no
+  longer registered by name. Use a separator (`SSH_KEY`), camel case
+  (`sshKey`) or `keyfence import --all`.
 
 ## 0.7.0 (2026-09-24)
 

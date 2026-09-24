@@ -81,9 +81,11 @@ directory: `.aws/credentials`, `.netrc`, `.npmrc`, `.pypirc`,
 `.git-credentials`, `.docker/config.json`. Only values that look like secrets
 are registered: names whose words are key, token, secret, password and
 similar, or values with high entropy. The name is read word by word, on
-separator and camel-case boundaries, so `DB_PASSWORD`, `dbPassword` and
-`APIKEY` are registered while `GIT_AUTHOR_EMAIL` and `KEYBOARD_LAYOUT` are
-not. Passwords inside connection URLs are extracted too.
+separator and camel-case boundaries, and a word that ends with `token`,
+`secret` or `password` counts on its own. `DB_PASSWORD`, `dbPassword`,
+`APIKEY` and `ACCESSTOKEN` are registered; `GIT_AUTHOR_EMAIL`,
+`KEYBOARD_LAYOUT` and `MONKEY_ISLAND` are not. Passwords inside connection
+URLs are extracted too.
 `--all` registers every value longer than 8 characters. `--env` adds values
 from environment variables.
 

@@ -13,10 +13,11 @@ from .vault import Vault
 NO_IGNORE = IgnoreList()
 
 SECRET_WORDS = frozenset({
-    "key", "token", "secret", "pass", "passwd", "password", "passphrase", "senha",
-    "credential", "auth", "authorization", "api", "private", "session", "cookie",
-    "bearer", "dsn", "pgpassword", "sshpass",
+    "key", "token", "secret", "pass", "passwd", "password", "passphrase", "passcode",
+    "senha", "credential", "auth", "authorization", "api", "private", "session",
+    "cookie", "bearer", "dsn", "pgpassword", "sshpass",
 })
+SECRET_SUFFIXES = ("token", "secret", "password")
 _LONGEST_SECRET_WORD = max(len(word) for word in SECRET_WORDS)
 _NAME_SEGMENT = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")
 _KV_LINE = re.compile(r"^\s*(?:export\s+)?(?P<key>[A-Za-z_/][A-Za-z0-9_.\-/:@]*)\s*[=:]\s*(?P<val>.+?)\s*$")
@@ -65,9 +66,16 @@ def _joins_secret_words(segment: str) -> bool:
     return len(segment) in reachable
 
 
+def _matches_secret_words(segment: str) -> bool:
+    if _joins_secret_words(segment) or segment.endswith(SECRET_SUFFIXES):
+        return True
+    return segment.startswith(SECRET_SUFFIXES) and any(
+        segment.endswith(word) for word in SECRET_WORDS)
+
+
 def _segment_is_secret(segment: str) -> bool:
-    return _joins_secret_words(segment) or (
-        segment.endswith("s") and _joins_secret_words(segment[:-1]))
+    return _matches_secret_words(segment) or (
+        segment.endswith("s") and _matches_secret_words(segment[:-1]))
 
 
 def _has_secret_name(key: str) -> bool:
