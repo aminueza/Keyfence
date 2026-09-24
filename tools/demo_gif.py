@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import io
-import re
 import sys
 import textwrap
 from pathlib import Path
@@ -12,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from keyfence import demo  # noqa: E402
 
 SCALE = 2
-WIDTH, HEIGHT = 880, 760
+WIDTH, HEIGHT = 880, 880
 WRAP = 98
 PAD = 28
 LINE = 19
@@ -27,21 +25,24 @@ CHROME = (38, 40, 43)
 MONO = "/System/Library/Fonts/Menlo.ttc"
 SANS = "/System/Library/Fonts/HelveticaNeue.ttc"
 SECRETS = (demo.DEMO_TOKEN, demo.DEMO_PASSWORD)
-HIGHLIGHTS = re.compile(r"\[REDACTED:[a-z-]+\]|<<SECRET_[0-9a-f]+>>|HTTP 403|" + "|".join(map(re.escape, SECRETS)))
+HIGHLIGHTS = demo.HIGHLIGHT
 
 
-def output_lines() -> list[str]:
-    buf = io.StringIO()
-    demo.run(buf)
-    lines: list[str] = []
-    for raw in buf.getvalue().splitlines():
+def output_lines() -> list[tuple[str, str]]:
+    lines: list[tuple[str, str]] = []
+    for kind, raw in demo.lines()[2:]:
+        if kind == "mode":
+            name, description = raw.split("\t", 1)
+            lines.append((kind, f"{name:<12} {description}"))
+            continue
         raw = raw.rstrip()
         if len(raw) <= WRAP:
-            lines.append(raw)
+            lines.append((kind, raw))
             continue
         indent = " " * (len(raw) - len(raw.lstrip()))
-        lines.extend(textwrap.wrap(raw, WRAP, initial_indent="", subsequent_indent=indent + "    ",
-                                   break_long_words=False, break_on_hyphens=False))
+        lines.extend((kind, part) for part in textwrap.wrap(
+            raw, WRAP, initial_indent="", subsequent_indent=indent + "    ",
+            break_long_words=False, break_on_hyphens=False))
     return lines
 
 
@@ -63,7 +64,7 @@ def draw_line(draw: ImageDraw.ImageDraw, x: int, y: int, text: str, font, dim: b
     draw.text((x, y), text[pos:], font=font, fill=DIM if dim else TEXT)
 
 
-def frame(prompt: str, lines: list[str], mono, sans, cursor: bool) -> Image.Image:
+def frame(prompt: str, lines: list[tuple[str, str]], mono, sans, cursor: bool) -> Image.Image:
     im = Image.new("RGB", (WIDTH * SCALE, HEIGHT * SCALE), BG)
     draw = ImageDraw.Draw(im)
     draw.rounded_rectangle((0, 0, WIDTH * SCALE - 1, HEIGHT * SCALE - 1), radius=12 * SCALE, outline=FRAME, width=2, fill=BG)
@@ -82,12 +83,13 @@ def frame(prompt: str, lines: list[str], mono, sans, cursor: bool) -> Image.Imag
         cx = px + draw.textlength(prompt, font=mono) + 2 * SCALE
         draw.rectangle((cx, y, cx + 7 * SCALE, y + FONT_SIZE * SCALE + 2 * SCALE), fill=TEXT)
     y += LINE * SCALE * 2
-    for line in lines:
-        dim = line.startswith("mode:") is False and (line.startswith("    provider") or line.startswith("    model") or line.startswith("Every") or line.startswith("Try"))
-        if line.startswith("mode:"):
-            draw.text((x, y), line, font=mono, fill=TEXT)
+    for kind, line in lines:
+        if kind == "mode":
+            name, description = line[:12], line[12:]
+            draw.text((x, y), name, font=mono, fill=TEXT)
+            draw.text((x + draw.textlength(name, font=mono), y), description, font=mono, fill=DIM)
         else:
-            draw_line(draw, x, y, line, mono, dim=dim and not HIGHLIGHTS.search(line))
+            draw_line(draw, x, y, line, mono, dim=kind == "dim")
         y += LINE * SCALE
     return im
 
@@ -104,11 +106,11 @@ def build(out: Path) -> None:
         durations.append(70)
     frames.append(frame(command, [], mono, sans, cursor=False))
     durations.append(400)
-    shown: list[str] = []
-    for line in lines:
-        shown.append(line)
+    shown: list[tuple[str, str]] = []
+    for kind, line in lines:
+        shown.append((kind, line))
         frames.append(frame(command, shown, mono, sans, cursor=False))
-        durations.append(60 if not line.strip() else (900 if line.startswith("mode:") else 220))
+        durations.append(60 if not line.strip() else (900 if kind == "mode" else 220))
     durations[-1] = 4500
     target = (1200, int(HEIGHT * 1200 / WIDTH))
     small = [f.resize(target, Image.LANCZOS).quantize(colors=64, method=Image.MEDIANCUT) for f in frames]
