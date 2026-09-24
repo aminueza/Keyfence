@@ -41,6 +41,14 @@ real incidents. Out of scope:
   `cat kubeconfig` with nothing else in the word is not refused; the
   price of refusing it would be blocking `rg credentials src/`, a text
   search. `cat ./credentials` and `cat ~/kubeconfig` are refused.
+- **Binary WebSocket frames.** Text frames sent to a monitored host are
+  scanned like a request body and redacted, replaced by placeholders or
+  dropped, depending on the mode. Binary frames are passed through
+  untouched: keyfence cannot parse the payload, so it cannot tell a secret
+  from the bytes around it. In `block` mode the frame carrying the secret
+  is dropped and the connection stays open, because a mitmproxy addon
+  cannot close a WebSocket in flight; every later frame is scanned the
+  same way.
 - **Streams ending mid-placeholder.** If a streamed response ends in the
   middle of a placeholder, the last characters are passed through as they
   are.

@@ -10,11 +10,11 @@ fix or a documented decision before any public disclosure.
 ## What keyfence sees and stores
 
 keyfence is a man-in-the-middle proxy for the hosts it monitors. It reads
-the full body of every request to those hosts and, in `placeholder` mode,
-the full response. This is the point of the tool, and it is also why it
-runs only on your machine, listens only on 127.0.0.1 by default, and never
-sends anything anywhere except to the provider you were already talking
-to.
+the full body of every request to those hosts, every text WebSocket frame
+on a connection to them and, in `placeholder` mode, the full response. This
+is the point of the tool, and it is also why it runs only on your machine,
+listens only on 127.0.0.1 by default, and never sends anything anywhere
+except to the provider you were already talking to.
 
 On disk it keeps:
 
@@ -85,7 +85,8 @@ because they usually carry the provider's own key. See
 
 ## Design choices that limit blast radius
 
-- A detector exception fails closed: the request gets a 403.
+- A detector exception fails closed: the request gets a 403, and a
+  WebSocket frame is dropped instead of forwarded.
 - A corrupted vault stops the proxy at startup with a message and makes a
   running proxy fail closed until it is fixed.
 - An empty or missing config file does not change a running proxy.

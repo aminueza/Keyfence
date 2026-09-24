@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 export KEYFENCE_HOME="$(mktemp -d)"
 export KEYFENCE_CONFIG="$KEYFENCE_HOME/config.yaml"
 UPSTREAM_PORT=${UPSTREAM_PORT:-9999}
+WS_PORT=${WS_PORT:-9998}
 PROXY_PORT=${PROXY_PORT:-8899}
 FAKE_KEY="ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
 VAULT_SECRET="senha-interna-sem-formato-2026"
@@ -70,6 +71,29 @@ start_proxy() {
 stop_proxy() { kill "$PROXY_PID" 2>/dev/null; wait "$PROXY_PID" 2>/dev/null || true; }
 post() { curl -s --noproxy "" -x "http://127.0.0.1:$PROXY_PORT" -d "$1" "http://127.0.0.1:$UPSTREAM_PORT$2"; }
 probe() { curl -s --noproxy "" -x "http://127.0.0.1:$PROXY_PORT" http://keyfence.invalid/; }
+ws_send() {
+  WS_PORT=$WS_PORT PROXY_PORT=$PROXY_PORT python3 - "$1" <<'EOF'
+import os, socket, sys
+from wsproto import ConnectionType, WSConnection
+from wsproto.events import Message, Request, TextMessage
+port = os.environ["WS_PORT"]
+ws = WSConnection(ConnectionType.CLIENT)
+sock = socket.create_connection(("127.0.0.1", int(os.environ["PROXY_PORT"])), timeout=10)
+sock.settimeout(5)
+sock.sendall(ws.send(Request(host=f"127.0.0.1:{port}", target=f"http://127.0.0.1:{port}/ws")))
+ws.receive_data(sock.recv(65535))
+list(ws.events())
+sock.sendall(ws.send(Message(data=sys.argv[1])))
+try:
+    ws.receive_data(sock.recv(65535))
+except (TimeoutError, socket.timeout):
+    print("NO FRAME CAME BACK")
+else:
+    for event in ws.events():
+        if isinstance(event, TextMessage):
+            print(event.data)
+EOF
+}
 
 echo "=== 0) the addon is live under mitmproxy's real script loader ==="
 write_config redact
@@ -149,6 +173,71 @@ start_proxy
 RESP=$(curl -s -o /dev/null -w '%{http_code}' --noproxy "" -x "http://127.0.0.1:$PROXY_PORT" -d "{\"content\":\"$FAKE_KEY\"}" "http://127.0.0.1:$UPSTREAM_PORT/v1/x")
 [[ "$RESP" == "403" ]] || { echo "FAILED: expected 403, got $RESP"; exit 1; }
 echo "OK: blocked with 403"
+stop_proxy
+
+echo
+echo "=== 5b) websocket frames to a monitored host ==="
+WS_PORT=$WS_PORT python3 - <<'EOF' &
+import os, socket, threading
+from wsproto import ConnectionType, WSConnection
+from wsproto.events import AcceptConnection, CloseConnection, Message, Request, TextMessage
+LOG = os.path.join(os.environ["KEYFENCE_HOME"], "ws_received.log")
+def handle(conn):
+    ws = WSConnection(ConnectionType.SERVER)
+    while True:
+        data = conn.recv(65535)
+        if not data:
+            return
+        ws.receive_data(data)
+        for event in ws.events():
+            if isinstance(event, Request):
+                conn.sendall(ws.send(AcceptConnection()))
+            elif isinstance(event, TextMessage):
+                with open(LOG, "a") as fh:
+                    fh.write(event.data + "\n")
+                conn.sendall(ws.send(Message(data=event.data)))
+            elif isinstance(event, CloseConnection):
+                conn.sendall(ws.send(event.response()))
+                return
+srv = socket.create_server(("127.0.0.1", int(os.environ["WS_PORT"])))
+while True:
+    conn, _ = srv.accept()
+    threading.Thread(target=handle, args=(conn,), daemon=True).start()
+EOF
+PIDS+=($!)
+for _ in $(seq 1 50); do
+  python3 -c "import socket; socket.create_connection(('127.0.0.1', $WS_PORT), timeout=0.2)" 2>/dev/null && break
+  sleep 0.2
+done
+touch "$KEYFENCE_HOME/ws_received.log"
+
+write_config redact
+start_proxy
+FRAME=$(ws_send "{\"text\":\"my token is $FAKE_KEY ok\"}")
+echo "$FRAME"
+grep -q "REDACTED:github" "$KEYFENCE_HOME/ws_received.log" || { echo "FAILED: the frame was not redacted"; exit 1; }
+! grep -q "$FAKE_KEY" "$KEYFENCE_HOME/ws_received.log" || { echo "FAILED: key reached the websocket server"; exit 1; }
+grep -q '"websocket": true' "$KEYFENCE_HOME/audit.log" || { echo "FAILED: the frame is not in the audit log"; exit 1; }
+echo "OK: the text frame was redacted before it reached the server"
+stop_proxy
+
+write_config block
+start_proxy
+FRAMES_BEFORE=$(wc -l < "$KEYFENCE_HOME/ws_received.log")
+FRAME=$(ws_send "{\"text\":\"$FAKE_KEY\"}")
+[[ "$FRAME" == "NO FRAME CAME BACK" ]] || { echo "FAILED: block mode forwarded the frame: $FRAME"; exit 1; }
+[[ "$(wc -l < "$KEYFENCE_HOME/ws_received.log")" == "$FRAMES_BEFORE" ]] || { echo "FAILED: the blocked frame reached the server"; exit 1; }
+echo "OK: block mode dropped the frame"
+stop_proxy
+
+write_config placeholder
+start_proxy
+FRAME=$(ws_send "{\"text\":\"use $FAKE_KEY now\"}")
+echo "$FRAME"
+[[ "$FRAME" == *"$FAKE_KEY"* ]] || { echo "FAILED: the real value did not come back in the frame"; exit 1; }
+grep -q "<<SECRET_" "$KEYFENCE_HOME/ws_received.log" || { echo "FAILED: the server did not get a placeholder"; exit 1; }
+! grep -q "$FAKE_KEY" "$KEYFENCE_HOME/ws_received.log" || { echo "FAILED: key reached the websocket server"; exit 1; }
+echo "OK: the server saw a placeholder and the client got the real value back"
 stop_proxy
 
 echo

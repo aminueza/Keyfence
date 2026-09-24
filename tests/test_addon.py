@@ -5,6 +5,8 @@ import re
 import pytest
 from mitmproxy import http
 from mitmproxy.test import tflow, tutils
+from mitmproxy.websocket import WebSocketData, WebSocketMessage
+from wsproto.frame_protocol import Opcode
 
 import keyfence.addon as addon_module
 from keyfence.addon import ENV_VAULT_VAR, MAPPING_KEY, STREAMED_KEY, KeyFence
@@ -680,3 +682,125 @@ def test_whole_escapes_leaves_spans_outside_escapes_alone():
     assert addon_module.whole_escapes(2, 3, escapes) == (1, 3)
     assert addon_module.whole_escapes(3, 6, escapes) == (3, 10)
     assert addon_module.whole_escapes(10, 11, escapes) == (10, 11)
+
+
+def make_ws_flow(host="api.openai.com", path=b"/v1/realtime"):
+    flow = tflow.tflow(req=tutils.treq(host=host, method=b"GET", path=path, content=b""))
+    flow.websocket = WebSocketData()
+    return flow
+
+
+def send_frame(kf, flow, content, from_client=True, opcode=Opcode.TEXT):
+    if isinstance(content, str):
+        content = content.encode()
+    message = WebSocketMessage(opcode, from_client, content)
+    flow.websocket.messages.append(message)
+    kf.websocket_message(flow)
+    return message
+
+
+def test_websocket_frame_to_monitored_host_is_redacted(guard, home, caplog):
+    kf = guard("redact")
+    flow = make_ws_flow()
+    with caplog.at_level("WARNING", logger="keyfence"):
+        message = send_frame(kf, flow, json.dumps({"text": f"my token is {KEY}"}))
+    assert not message.dropped
+    assert json.loads(message.text)["text"] == "my token is [REDACTED:github-token]"
+    assert "REDACT -> api.openai.com: 1 secret(s) removed from a websocket frame" in caplog.text
+    entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
+    assert entry["host"] == "api.openai.com" and entry["path"] == "/v1/realtime"
+    assert entry["websocket"] is True and entry["findings"][0]["kind"] == "github-token"
+    assert kf.stats["scanned"] == 1 and kf.stats["findings"] == 1
+
+
+def test_websocket_frame_to_unmonitored_host_is_left_alone(guard):
+    kf = guard("redact")
+    message = send_frame(kf, make_ws_flow(host="example.com"), f"token {KEY}")
+    assert message.text == f"token {KEY}" and kf.stats["scanned"] == 0
+
+
+def test_clean_websocket_frame_passes_untouched(guard, home):
+    kf = guard("redact")
+    message = send_frame(kf, make_ws_flow(), "explain entropy")
+    assert message.text == "explain entropy" and not message.dropped
+    assert kf.stats["scanned"] == 1 and kf.stats["findings"] == 0
+    assert not (home / "audit.log").exists()
+
+
+def test_websocket_frame_in_block_mode_is_dropped(guard, caplog):
+    kf = guard("block")
+    with caplog.at_level("WARNING", logger="keyfence"):
+        message = send_frame(kf, make_ws_flow(), f"token {KEY}")
+    assert message.dropped and message.text == f"token {KEY}"
+    assert kf.stats["blocked"] == 1
+    assert "BLOCKED -> api.openai.com: 1 secret(s) in a websocket frame" in caplog.text
+
+
+def test_websocket_frame_in_audit_mode_is_logged_unchanged(guard, home, caplog):
+    kf = guard("audit")
+    with caplog.at_level("WARNING", logger="keyfence"):
+        message = send_frame(kf, make_ws_flow(), f"token {KEY}")
+    assert not message.dropped and message.text == f"token {KEY}"
+    assert "AUDIT -> api.openai.com: 1 secret(s) sent unchanged in a websocket frame" in caplog.text
+    assert json.loads((home / "audit.log").read_text().splitlines()[-1])["websocket"] is True
+
+
+def test_websocket_placeholders_are_restored_in_the_frames_that_come_back(guard):
+    kf = guard("placeholder")
+    flow = make_ws_flow()
+    sent = send_frame(kf, flow, json.dumps({"text": f"use {KEY} now"}))
+    token = next(iter(flow.metadata[MAPPING_KEY]))
+    assert json.loads(sent.text)["text"] == f"use {token} now"
+    back = send_frame(kf, flow, f"the key is {token}", from_client=False)
+    assert back.text == f"the key is {KEY}" and not back.dropped
+
+
+def test_websocket_server_frames_are_untouched_without_a_mapping(guard):
+    kf = guard("redact")
+    flow = make_ws_flow()
+    back = send_frame(kf, flow, "<<SECRET_1>> stays", from_client=False)
+    assert back.text == "<<SECRET_1>> stays" and kf.stats["scanned"] == 0
+
+
+def test_binary_websocket_frames_are_not_scanned(guard):
+    kf = guard("block")
+    message = send_frame(kf, make_ws_flow(), KEY.encode(), opcode=Opcode.BINARY)
+    assert not message.dropped and kf.stats["scanned"] == 0
+
+
+def test_empty_websocket_frame_is_ignored(guard):
+    kf = guard("redact")
+    message = send_frame(kf, make_ws_flow(), "")
+    assert not message.dropped and kf.stats["scanned"] == 0
+
+
+def test_websocket_message_without_a_frame_is_ignored(guard):
+    kf = guard("redact")
+    flow = make_ws_flow()
+    kf.websocket_message(flow)
+    flow.websocket = None
+    kf.websocket_message(flow)
+    assert kf.stats["scanned"] == 0
+
+
+def test_websocket_detector_crash_drops_the_frame(guard, monkeypatch, caplog):
+    kf = guard("redact")
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("simulated detector crash")
+
+    monkeypatch.setattr(addon_module, "scan_report", boom)
+    with caplog.at_level("ERROR", logger="keyfence"):
+        message = send_frame(kf, make_ws_flow(), f"token {KEY}")
+    assert message.dropped and kf.stats["errors"] == 1
+    assert "failing closed" in caplog.text
+
+
+def test_a_frame_rewrite_that_would_break_the_json_drops_the_frame(guard, monkeypatch, caplog):
+    kf = guard("redact")
+    finding = addon_module.Finding(kind="x", value='{"te', start=0, end=4)
+    monkeypatch.setattr(addon_module, "scan_report", lambda *a, **k: ScanReport([finding]))
+    with caplog.at_level("ERROR", logger="keyfence"):
+        message = send_frame(kf, make_ws_flow(), '{"text": "abc"}')
+    assert message.dropped and kf.stats["errors"] == 1
+    assert "failing closed" in caplog.text
