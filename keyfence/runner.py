@@ -203,6 +203,7 @@ def sweep_stale_env_vaults(directory: Path, max_age: float = STALE_AFTER) -> int
 def build_env_vault(environ: Mapping[str, str], everything: bool = False,
                     config: Config | None = None) -> Vault:
     main = Vault()
+    main.ensure_saved()
     ignore = config.ignore_list(main) if config else IgnoreList()
     directory = DEFAULT_DIR / ENV_VAULT_DIR
     directory.mkdir(parents=True, exist_ok=True)
