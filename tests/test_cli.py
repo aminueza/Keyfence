@@ -346,6 +346,43 @@ def test_install_hooks_global_uses_home(home, tmp_path, monkeypatch, capsys):
     assert "all projects" in capsys.readouterr().out
 
 
+def test_install_hooks_list_reports_each_agent_and_scope(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    project = tmp_path / "proj"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    assert cli.main(["install-hooks", "--list"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "claude-code" and lines[3] == "pi" and len(lines) == 6
+    assert all("not installed" in line for line in lines[1:3] + lines[4:6])
+    assert str(tmp_path / "home" / ".claude" / "settings.json") in lines[1]
+    assert str(project / ".claude" / "settings.json") in lines[2]
+    assert str(tmp_path / "home" / ".pi" / "agent" / "extensions" / "keyfence.ts") in lines[4]
+    assert str(project / ".pi" / "extensions" / "keyfence.ts") in lines[5]
+    assert cli.main(["install-hooks", "claude-code"]) == 0
+    assert cli.main(["install-hooks", "pi", "--project"]) == 0
+    capsys.readouterr()
+    assert cli.main(["install-hooks", "--list"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1].startswith("  global   installed ") and "not installed" in lines[2]
+    assert "not installed" in lines[4] and lines[5].startswith("  project  installed ")
+
+
+def test_install_hooks_list_rejects_an_agent_and_the_other_flags(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    for argv in (["install-hooks", "--list", "pi"], ["install-hooks", "--list", "--project"],
+                 ["install-hooks", "--list", "--remove"], ["install-hooks", "--list", "--force"]):
+        assert cli.main(argv) == 2
+        captured = capsys.readouterr()
+        assert "error: --list takes no agent" in captured.err and captured.out == ""
+    assert cli.main(["install-hooks"]) == 2
+    captured = capsys.readouterr()
+    assert "error: install-hooks needs an agent" in captured.err and captured.out == ""
+    with pytest.raises(SystemExit):
+        cli.main(["install-hooks", "cursor"])
+    assert not (tmp_path / ".claude").exists() and not (tmp_path / ".pi").exists()
+
+
 def test_export_jsonl_and_otlp(home, write_config, monkeypatch, capsys):
     write_config("mode: redact\n")
     (home / "audit.log").write_text(

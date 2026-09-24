@@ -125,3 +125,24 @@ def test_pi_extension_check(home, tmp_path, monkeypatch):
     assert check.status == doctor.OK and "project" in check.detail
     assert pi.install(pi.extension_path(False), "/bin/keyfence")
     assert "global, project" in doctor.check_pi_extension(tmp_path / "proj").detail
+
+
+def test_installed_scopes_names_both_locations_for_each_agent(home, tmp_path, monkeypatch):
+    from keyfence import pi
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    project = tmp_path / "proj"
+    scopes = doctor.installed_scopes("claude-code", project)
+    assert [(scope, path) for scope, path, _ in scopes] == [
+        ("global", tmp_path / ".claude" / "settings.json"), ("project", project / ".claude" / "settings.json")]
+    assert not any(installed for _, _, installed in scopes)
+    assert doctor.hooks.install(tmp_path / ".claude" / "settings.json")
+    assert [installed for _, _, installed in doctor.installed_scopes("claude-code", project)] == [True, False]
+    scopes = doctor.installed_scopes("pi", project)
+    assert [(scope, path) for scope, path, _ in scopes] == [
+        ("global", tmp_path / ".pi" / "agent" / "extensions" / "keyfence.ts"),
+        ("project", project / ".pi" / "extensions" / "keyfence.ts")]
+    assert pi.install(project / ".pi" / "extensions" / "keyfence.ts", "/bin/keyfence")
+    assert [installed for _, _, installed in doctor.installed_scopes("pi", project)] == [False, True]
+    (tmp_path / ".claude" / "settings.json").write_text("not json")
+    assert not doctor.hook_installed(tmp_path / ".claude" / "settings.json")
+    assert doctor.check_hook(project).status == doctor.INFO

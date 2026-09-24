@@ -180,7 +180,24 @@ def _remove_claude_code(path: Path, force: bool) -> int:
     return 0
 
 
+def _list_hooks() -> int:
+    for agent in AGENTS:
+        print(agent)
+        for scope, path, installed in doctor.installed_scopes(agent):
+            print(f"  {scope:<8} {'installed' if installed else 'not installed':<14} {path}")
+    return 0
+
+
 def cmd_install_hooks(args) -> int:
+    if args.list:
+        if args.agent or args.project or args.remove or args.force:
+            print("error: --list takes no agent and cannot be combined with --project, --remove or --force",
+                  file=sys.stderr)
+            return 2
+        return _list_hooks()
+    if not args.agent:
+        print("error: install-hooks needs an agent (claude-code or pi), or --list", file=sys.stderr)
+        return 2
     if args.force and not (args.remove and args.agent == "claude-code"):
         print("error: --force only applies to `install-hooks claude-code --remove`", file=sys.stderr)
         return 2
@@ -312,7 +329,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_hook.add_argument("agent", choices=AGENTS)
 
     p_hooks = sub.add_parser("install-hooks", help="install the hook that stops an agent from reading secret files")
-    p_hooks.add_argument("agent", choices=AGENTS)
+    p_hooks.add_argument("agent", nargs="?", choices=AGENTS)
+    p_hooks.add_argument("--list", action="store_true",
+                         help="show the supported agents and whether the hook is installed for each, then exit")
     p_hooks.add_argument("--project", action="store_true",
                          help="install in ./.claude or ./.pi instead of the home directory")
     p_hooks.add_argument("--remove", action="store_true", help="remove the hook")

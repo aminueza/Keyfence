@@ -116,24 +116,29 @@ def check_local_mode(run: Callable = _run) -> Check:
     return Check(WARN, "--local capture", "network extension waiting for approval in System Settings > General > Login Items & Extensions > Network Extensions")
 
 
+def hook_installed(path: Path) -> bool:
+    try:
+        data = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        return False
+    return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("PreToolUse", []))
+
+
+def installed_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, Path, bool]]:
+    locate, installed = (pi.extension_path, pi.is_ours) if agent == "pi" else (hooks.settings_path, hook_installed)
+    return [(scope, path, installed(path))
+            for scope, path in (("global", locate(False)), ("project", locate(True, cwd)))]
+
+
 def check_hook(cwd: Path | None = None) -> Check:
-    found = []
-    for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
-        try:
-            data = json.loads(path.read_text()) if path.exists() else {}
-        except ValueError:
-            continue
-        if any(hooks._is_ours(e) for e in data.get("hooks", {}).get("PreToolUse", [])):
-            found.append(scope)
+    found = [scope for scope, _, installed in installed_scopes("claude-code", cwd) if installed]
     if found:
         return Check(OK, "Claude Code hook", "installed (" + ", ".join(found) + ")")
     return Check(INFO, "Claude Code hook", "not installed; keyfence install-hooks claude-code stops Claude Code from reading secret files")
 
 
 def check_pi_extension(cwd: Path | None = None) -> Check:
-    found = [scope for scope, path in (("global", pi.extension_path(False)),
-                                       ("project", pi.extension_path(True, cwd)))
-             if pi.is_ours(path)]
+    found = [scope for scope, _, installed in installed_scopes("pi", cwd) if installed]
     if found:
         return Check(OK, "pi extension", "installed (" + ", ".join(found) + ")")
     return Check(INFO, "pi extension", "not installed; keyfence install-hooks pi stops pi from reading secret files")
