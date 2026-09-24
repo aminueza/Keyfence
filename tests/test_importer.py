@@ -207,3 +207,26 @@ def test_import_files_honour_ignore_lists(tmp_path):
     config = tmp_path / "config.json"
     config.write_text(json.dumps({"token": "jsonTokenValue123", "db_host": HOST}))
     assert values_from_file(config, MIN, everything=True, ignore=ignore) == {"jsonTokenValue123"}
+
+
+def test_secret_name_matches_whole_words_only():
+    assert not looks_secret("GIT_AUTHOR_EMAIL", "victor@gnx.net", MIN)
+    assert not looks_secret("GIT_AUTHOR_NAME", "Victor Nogueira", MIN)
+    assert not looks_secret("KEYBOARD_LAYOUT", "us-intl-mac", MIN)
+    assert not looks_secret("MONKEY_ISLAND", "Guybrush T.", MIN)
+    assert not looks_secret("COMPASS_URL", "localhost:9000", MIN)
+    assert not looks_secret("BYPASS_CACHE", "sometimes", MIN)
+    assert not looks_secret("CAPITAL_CITY", "Amsterdam-NL", MIN)
+    assert not looks_secret("RAPID_MODE", "always-on", MIN)
+
+
+def test_secret_name_still_matches_real_secret_names():
+    for name in ("GITHUB_TOKEN", "DB_PASSWORD", "STRIPE_SECRET_KEY", "OPENAI_APIKEY",
+                 "authToken", "aws_secret_access_key", "credentials", "SESSION_COOKIE",
+                 "senha", "SENTRY_DSN", "PRIVATE_KEY", "_authToken", "apiKeys"):
+        assert looks_secret(name, "short-value", MIN), name
+
+
+def test_env_values_keeps_the_git_author_email():
+    environ = {"GIT_AUTHOR_EMAIL": "victor@gnx.net", "GITHUB_TOKEN": "tokenValue123"}
+    assert env_values(environ, MIN) == {"tokenValue123"}

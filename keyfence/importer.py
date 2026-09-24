@@ -12,9 +12,11 @@ from .vault import Vault
 
 NO_IGNORE = IgnoreList()
 
-SECRET_NAME = re.compile(
-    r"(?i)(?:key|token|secret|pass|passwd|password|senha|credential|auth|api|"
-    r"private|session|cookie|bearer|dsn)")
+SECRET_WORDS = frozenset({
+    "key", "token", "secret", "pass", "passwd", "password", "senha", "credential",
+    "auth", "authorization", "api", "private", "session", "cookie", "bearer", "dsn",
+})
+_NAME_SEGMENT = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")
 _KV_LINE = re.compile(r"^\s*(?:export\s+)?(?P<key>[A-Za-z_/][A-Za-z0-9_.\-/:@]*)\s*[=:]\s*(?P<val>.+?)\s*$")
 _NETRC_PASSWORD = re.compile(r"\bpassword\s+(\S+)")
 _SKIP_VALUE = re.compile(r"^(?:\$\{|\$[A-Za-z_]|<|`|/|~|https?://[^@]*$)")
@@ -49,10 +51,27 @@ def _url_password(value: str) -> str | None:
     return unquote(parts.password) if parts.password else None
 
 
+def _joins_secret_words(segment: str) -> bool:
+    reachable = {0}
+    for end in range(1, len(segment) + 1):
+        if any(start in reachable and segment[start:end] in SECRET_WORDS for start in range(end)):
+            reachable.add(end)
+    return len(segment) in reachable
+
+
+def _is_secret_word(segment: str) -> bool:
+    return _joins_secret_words(segment) or (
+        segment.endswith("s") and _joins_secret_words(segment[:-1]))
+
+
+def _has_secret_name(key: str) -> bool:
+    return any(_is_secret_word(segment.lower()) for segment in _NAME_SEGMENT.findall(key))
+
+
 def looks_secret(key: str, value: str, min_length: int) -> bool:
     if len(value) < min_length:
         return False
-    if SECRET_NAME.search(key):
+    if _has_secret_name(key):
         return True
     return len(value) >= 16 and shannon_entropy(value) >= 3.5
 
