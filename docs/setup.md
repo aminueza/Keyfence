@@ -59,6 +59,7 @@ Linux and Windows: see the
 | `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through the proxy |
 | `keyfence run [-p PORT] [--local [NAMES]]` | run the proxy in the foreground on port 8888 |
 | `keyfence install-hooks claude-code\|pi [--project] [--remove [--force]]` | stop the agent from reading secret files at all |
+| `keyfence install-hooks --list` | show the supported agents and whether the hook is installed for each, globally and in this project |
 | `keyfence hook claude-code\|pi` | the hook itself; the agent runs it, you do not |
 | `keyfence export [--since TS] [--otlp URL] [--header K=V] [--all]` | print the audit log as JSONL or send it to a collector |
 | `keyfence scan 'text'`, `keyfence scan -f FILE` | test detection on text, a file or stdin |
@@ -134,7 +135,12 @@ supported by mitmproxy's local mode.
 ## Blocking secret files in your agent
 
 The proxy stops secrets from leaving the machine. The hook stops the agent
-from reading them in the first place.
+from reading them in the first place. `keyfence install-hooks --list`
+shows, for each supported agent, whether the hook is installed globally
+and in the current project and which file it looked at. The hook's
+contract (what goes on stdin, what the exit codes mean, which tool names
+and fields each agent sends, and how to wire up another agent) is in
+[agents.md](agents.md).
 
 ### Claude Code
 

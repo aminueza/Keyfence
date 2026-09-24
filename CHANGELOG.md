@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `keyfence install-hooks --list` prints the supported agents and, for
+  each, whether the hook is installed globally and in the current project,
+  with the file it looked at. `keyfence doctor` already knew, but it runs
+  every other check too and its line does not name the file. `--list`
+  takes no agent and refuses `--project`, `--remove` and `--force` with
+  exit code 2; `install-hooks` with neither an agent nor `--list` is an
+  error as well. The detection is the one `doctor` uses, factored out so
+  the two cannot drift. The hook's contract is written down in
+  `docs/agents.md`: the JSON object on stdin, the exit codes and why
+  anything but 0 and 2 has to count as "guard unavailable", the tool names
+  and input fields the rules read for Claude Code and for pi, what each
+  integration provides, what the agent argument of `keyfence hook` is for,
+  a shell and a Node example, and a checklist for wiring up another
+  agent. Until now that was only visible by reading `hooks.py` and
+  `pi.py`.
 - `docs/setup.md` no longer says that `keyfence import --from` registers
   every value read. Since 0.5.0 the values go through the same
   secret-looking filter as file import, `--all` registers everything, and

@@ -93,6 +93,9 @@ either way.
   the hook and two skills, installable with `/plugin marketplace add aminueza/keyfence`.
 - [Agents](https://github.com/aminueza/keyfence/blob/main/docs/setup.md#blocking-secret-files-in-your-agent):
   what `install-hooks` does for Claude Code and for pi.
+- [Agent hook contract](https://github.com/aminueza/keyfence/blob/main/docs/agents.md):
+  the wire format of `keyfence hook`, the tool names and fields per agent,
+  and how to wire up another agent.
 - [Security](https://github.com/aminueza/keyfence/blob/main/SECURITY.md):
   what the proxy sees, what it stores, how releases are built.
 - [Development](https://github.com/aminueza/keyfence/blob/main/docs/development.md)
