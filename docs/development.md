@@ -15,9 +15,10 @@ bash tests/integration_test.sh    # end-to-end against a real mitmproxy
 
 `pytest` always measures coverage (`addopts` in `pyproject.toml`) and fails
 below 90%. The
-integration script starts an echo server and a real `mitmdump` with the
-keyfence addon, then checks redact, placeholder, streaming, block,
-`keyfence exec` and `keyfence selftest` in every mode end to end.
+integration script starts an echo server, a WebSocket echo server and a
+real `mitmdump` with the keyfence addon, then checks redact, placeholder,
+streaming, block, WebSocket frames, `keyfence exec` and
+`keyfence selftest` in every mode end to end.
 
 Fake keys used in tests are assembled at runtime in `tests/fakes.py` so
 that secret scanners, including GitHub push protection, do not flag them.
@@ -26,7 +27,7 @@ that secret scanners, including GitHub push protection, do not flag them.
 
 | path | role |
 |---|---|
-| `keyfence/addon.py` | mitmproxy addon: request scanning, response restoration, audit log |
+| `keyfence/addon.py` | mitmproxy addon: request and WebSocket frame scanning, response restoration, audit log |
 | `keyfence/detectors.py` | vault, pattern and entropy detection, JSON key tracking |
 | `keyfence/rules.py` | gitleaks TOML loader |
 | `keyfence/rules/gitleaks.toml` | bundled ruleset (MIT, see `GITLEAKS-LICENSE`) |

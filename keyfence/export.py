@@ -50,6 +50,8 @@ def to_log_record(entry: dict) -> dict:
     ]
     if labels:
         attributes.append(_attr("keyfence.canary", ",".join(labels)))
+    if entry.get("websocket"):
+        attributes.append(_attr("keyfence.websocket", True))
     severity = "ERROR" if "canary" in kinds else "WARN"
     return {
         "timeUnixNano": str(int(ts.timestamp() * 1_000_000_000)),

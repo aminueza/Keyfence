@@ -1,6 +1,7 @@
 # Detection
 
-Three checks run on every request body sent to a monitored host.
+Three checks run on every request body sent to a monitored host, and on
+every text WebSocket frame the client sends to one.
 
 ## 1. Vault
 

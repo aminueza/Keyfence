@@ -56,7 +56,7 @@ Set `mode` in `~/.keyfence/config.yaml`.
 | `audit` | log what would have been caught, change nothing; start here to see what your tools send |
 | `redact` (default) | secret becomes `[REDACTED:<kind>]` |
 | `placeholder` | secret becomes `<<SECRET_id>>` and the real value is restored in the response, streaming included |
-| `block` | request gets a 403 and is not sent |
+| `block` | request gets a 403 and is not sent; a WebSocket text frame is dropped |
 
 ## What it catches
 

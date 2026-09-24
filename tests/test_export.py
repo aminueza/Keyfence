@@ -104,3 +104,11 @@ def test_cursor_roundtrip(tmp_path):
     assert export.read_cursor(cursor) == export.parse_ts(ENTRY2["ts"])
     cursor.write_text("garbage")
     assert export.read_cursor(cursor) is None
+
+
+def test_websocket_entries_carry_the_flag():
+    record = export.to_log_record({"ts": "2026-01-01T00:00:00+0000", "host": "api.openai.com",
+                                   "path": "/v1/realtime", "mode": "redact", "count": 1,
+                                   "findings": [{"kind": "vault"}], "websocket": True})
+    attrs = {a["key"]: a["value"] for a in record["attributes"]}
+    assert attrs["keyfence.websocket"] == {"boolValue": True}

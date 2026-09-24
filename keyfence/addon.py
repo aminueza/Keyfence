@@ -13,11 +13,12 @@ _PKG_PARENT = str(Path(__file__).resolve().parent.parent)
 if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
-from mitmproxy import http  # noqa: E402
+from mitmproxy import ctx, http  # noqa: E402
+from mitmproxy.websocket import WebSocketMessage  # noqa: E402
 
 from keyfence import __version__  # noqa: E402
 from keyfence.config import Config  # noqa: E402
-from keyfence.detectors import Finding, scan_report  # noqa: E402
+from keyfence.detectors import Finding, ScanReport, scan_report  # noqa: E402
 from keyfence.ignore import IgnoreList  # noqa: E402
 from keyfence.notice import add_notice  # noqa: E402
 from keyfence.runner import PROBE_HOST  # noqa: E402
@@ -160,6 +161,12 @@ class KeyFence:
                     __version__, self.config.mode, len(self.config.hosts),
                     len(self.config.scan.rules), self.vault.count())
 
+    def running(self) -> None:
+        if not ctx.options.websocket:
+            ctx.options.websocket = True
+            log.warning("websocket interception was off in the mitmproxy configuration; "
+                        "keyfence turned it on, otherwise frames pass unscanned")
+
     def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
         try:
@@ -181,26 +188,50 @@ class KeyFence:
         body = {"keyfence": __version__, "mode": self.config.mode, "hosts": len(self.config.hosts)}
         return http.Response.make(200, json.dumps(body), {"Content-Type": "application/json"})
 
-    def _inspect(self, flow: http.HTTPFlow, host: str) -> None:
-        text = flow.request.get_text(strict=False)
-        if not text:
-            return
+    def _scan(self, text: str, host: str) -> ScanReport:
         self._maybe_reload_vault()
         self.stats["scanned"] += 1
         report = scan_report(text, vault=self.vault, config=self.config.scan, ignore=self.ignore)
-        findings = report.findings
         if report.suppressed:
             self.stats["suppressed"] += report.suppressed
             log.info("%d finding(s) ignored by config for %s", report.suppressed, host)
-        if not findings:
-            return
+        return report
 
+    def _record(self, flow: http.HTTPFlow, findings: list[Finding], suppressed: int, host: str,
+                websocket: bool = False) -> None:
         self.stats["findings"] += len(findings)
-        self._audit(flow, findings, report.suppressed)
+        self._audit(flow, findings, suppressed, websocket)
         tripped = sorted({self.vault.canary_label(f.value) for f in findings if f.kind == "canary"})
         if tripped:
             self.stats["canaries"] += len(tripped)
             log.warning("CANARY tripped -> %s: %s was read and sent", host, ", ".join(tripped))
+
+    def _rewrite(self, text: str, findings: list[Finding], mapping: dict[str, str]) -> str | None:
+        was_json = parses_as_json(text)
+        escapes = json_escapes(text) if was_json else None
+        new_text = text
+        for f in sorted(findings, key=lambda f: f.start, reverse=True):
+            if self.config.mode == "placeholder":
+                token = self._placeholder(f.value, mapping)
+                mapping[token] = f.value
+            else:
+                token = f"[REDACTED:{f.kind}]"
+            start, end = (f.start, f.end) if escapes is None else whole_escapes(f.start, f.end, escapes)
+            new_text = new_text[:start] + token + new_text[end:]
+        if was_json and not parses_as_json(new_text):
+            return None
+        return new_text
+
+    def _inspect(self, flow: http.HTTPFlow, host: str) -> None:
+        text = flow.request.get_text(strict=False)
+        if not text:
+            return
+        report = self._scan(text, host)
+        findings = report.findings
+        if not findings:
+            return
+
+        self._record(flow, findings, report.suppressed, host)
 
         if self.config.mode == "audit":
             kinds = sorted({f.kind for f in findings})
@@ -228,20 +259,9 @@ class KeyFence:
                         host, len(findings), self.config.mode)
             return
 
-        was_json = parses_as_json(text)
-        escapes = json_escapes(text) if was_json else None
         mapping: dict[str, str] = {}
-        new_text = text
-        for f in sorted(findings, key=lambda f: f.start, reverse=True):
-            if self.config.mode == "placeholder":
-                token = self._placeholder(f.value, mapping)
-                mapping[token] = f.value
-            else:
-                token = f"[REDACTED:{f.kind}]"
-            start, end = (f.start, f.end) if escapes is None else whole_escapes(f.start, f.end, escapes)
-            new_text = new_text[:start] + token + new_text[end:]
-
-        if was_json and not parses_as_json(new_text):
+        new_text = self._rewrite(text, findings, mapping)
+        if new_text is None:
             self.stats["errors"] += 1
             log.error("rewriting the JSON body for %s would break it, failing closed", host)
             flow.response = self._blocked_response(
@@ -257,6 +277,73 @@ class KeyFence:
             flow.request.headers["accept-encoding"] = "identity"
         log.warning("%s -> %s: %d secret(s) removed from request",
                     self.config.mode.upper(), host, len(findings))
+
+    def websocket_message(self, flow: http.HTTPFlow) -> None:
+        if flow.websocket is None or not flow.websocket.messages:
+            return
+        message = flow.websocket.messages[-1]
+        host = flow.request.pretty_host
+        try:
+            self._setup()
+            self._maybe_reload_config()
+            if not self.config.host_matches(host):
+                return
+            if message.from_client:
+                self._inspect_frame(flow, message, host)
+            else:
+                self._restore_frame(flow, message)
+        except Exception as exc:
+            self.stats["errors"] += 1
+            log.error("detector failure, failing closed for %s: %r", host, exc)
+            message.drop()
+
+    def _inspect_frame(self, flow: http.HTTPFlow, message: WebSocketMessage, host: str) -> None:
+        if not message.is_text or not message.text:
+            return
+        text = message.text
+        report = self._scan(text, host)
+        findings = report.findings
+        if not findings:
+            return
+
+        self._record(flow, findings, report.suppressed, host, websocket=True)
+
+        if self.config.mode == "audit":
+            kinds = sorted({f.kind for f in findings})
+            log.warning("AUDIT -> %s: %d secret(s) sent unchanged in a websocket frame (%s)",
+                        host, len(findings), ", ".join(kinds))
+            return
+
+        if self.config.mode == "block":
+            self.stats["blocked"] += 1
+            kinds = sorted({f.kind for f in findings})
+            message.drop()
+            log.warning("BLOCKED -> %s: %d secret(s) in a websocket frame (%s); frame not sent",
+                        host, len(findings), ", ".join(kinds))
+            return
+
+        mapping = dict(flow.metadata.get(MAPPING_KEY) or {})
+        new_text = self._rewrite(text, findings, mapping)
+        if new_text is None:
+            self.stats["errors"] += 1
+            log.error("rewriting the JSON websocket frame for %s would break it, failing closed", host)
+            message.drop()
+            return
+
+        message.text = new_text
+        if mapping:
+            flow.metadata[MAPPING_KEY] = mapping
+        log.warning("%s -> %s: %d secret(s) removed from a websocket frame",
+                    self.config.mode.upper(), host, len(findings))
+
+    def _restore_frame(self, flow: http.HTTPFlow, message: WebSocketMessage) -> None:
+        mapping = flow.metadata.get(MAPPING_KEY)
+        if not mapping or not message.is_text:
+            return
+        restored = restore(message.text, mapping)
+        if restored != message.text:
+            message.text = restored
+            log.info("placeholders restored in a websocket frame")
 
     def _placeholder(self, value: str, mapping: dict[str, str]) -> str:
         digest = self.vault.placeholder_digest(value)
@@ -311,7 +398,8 @@ class KeyFence:
             entry["label"] = self.vault.canary_label(f.value)
         return entry
 
-    def _audit(self, flow: http.HTTPFlow, findings: list[Finding], suppressed: int = 0) -> None:
+    def _audit(self, flow: http.HTTPFlow, findings: list[Finding], suppressed: int = 0,
+               websocket: bool = False) -> None:
         try:
             path = Path(self.config.audit_log)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -325,6 +413,8 @@ class KeyFence:
             }
             if suppressed:
                 entry["suppressed"] = suppressed
+            if websocket:
+                entry["websocket"] = True
             with path.open("a") as fh:
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         except OSError as exc:

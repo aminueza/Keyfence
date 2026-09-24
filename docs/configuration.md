@@ -9,7 +9,7 @@ optional.
 | `hosts` | 20 AI provider hosts | hosts to monitor; wildcards allowed |
 | `extra_hosts` | `[]` | hosts to add to the default list |
 | `intercept_all_hosts` | `false` | scan every host, not only AI providers |
-| `notice` | `true` | add the system prompt notice when a request was changed |
+| `notice` | `true` | add the system prompt notice when a request body was changed; WebSocket frames never get it |
 | `scan.patterns` | `true` | built-in pattern rules |
 | `scan.gitleaks` | `true` | bundled gitleaks rules |
 | `scan.gitleaks_rules` | bundled file | path to your own gitleaks-compatible TOML |

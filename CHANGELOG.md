@@ -46,6 +46,22 @@
   merged, and the proxy answered 403 to everything until it was
   restarted. `exec` now saves the vault before it hashes the environment,
   so both use the same salt.
+- WebSocket frames sent to a monitored host are scanned. The addon only
+  implemented `request`, `responseheaders` and `response`, and mitmproxy
+  delivers frames through `websocket_message`, so once a connection had
+  been upgraded every frame reached the provider unscanned. Several hosts
+  on the default list offer a WebSocket API on the same host as their HTTP
+  one, which made this a hole in front of a real path. Text frames from the
+  client now go through the same detectors as a request body: `audit` logs
+  them, `redact` and `placeholder` rewrite them, `block` drops the frame,
+  and placeholders are restored in the frames that come back. Audit entries
+  for a frame carry `"websocket": true`. Binary frames are still passed
+  through, which `docs/limitations.md` now says, next to what each mode
+  means on a WebSocket. The addon also turns mitmproxy's `websocket`
+  option back on at startup, and says so in the log: with the option off,
+  a 101 goes to the raw TCP layer and every frame passes unscanned, and a
+  `websocket: false` in `~/.mitmproxy/config.yaml` beats the command line,
+  so an argument could not close that hole.
 
 ## 0.7.0 (2026-09-24)
 
