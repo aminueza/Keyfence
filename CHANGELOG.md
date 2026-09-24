@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `docs/setup.md` no longer says that `keyfence import --from` registers
+  every value read. Since 0.5.0 the values go through the same
+  secret-looking filter as file import, `--all` registers everything, and
+  `--from` cannot be combined with file paths or `--env`.
 - The agent hook recognises a secret-printing command behind the shell
   constructs that wrap one. `env` was refused but `sudo env`, `LC_ALL=C
   env`, `/usr/bin/env`, `eval env`, `command env`, `xargs env`, `bash -c

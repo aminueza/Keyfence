@@ -81,8 +81,12 @@ Database and Server categories are read, concealed fields only), `vault`
 (HashiCorp, `--path secret/myapp`, KV v1 or v2, one path, no recursion),
 `doppler` (`--path project/config`,
 otherwise the current scope) and `aws` (Secrets Manager, `--path` is the
-secret id; JSON secrets contribute every value). Every value read is
-registered; only hashes are stored.
+secret id; JSON secrets contribute every value). The values read go through
+the same filter as file import: only the ones that look like secrets, by
+name or by entropy, are registered, and `--all` registers every value. The
+command prints how many values were read, how many looked like secrets and
+how many were new. Only hashes are stored. `--from` cannot be combined with
+file paths or `--env`; run those as separate commands.
 
 `keyfence exec` starts the proxy, waits until the keyfence addon answers a
 request for `http://keyfence.invalid/` sent through it (mitmdump listening
