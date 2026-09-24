@@ -70,7 +70,12 @@
   out with `[REDACTED:vault]` in it. The name is now split on separators
   and camel case, and each segment has to be a secret word or a run of
   them, so `OPENAI_APIKEY`, `authToken` and `aws_secret_access_key` still
-  match while `GIT_AUTHOR_EMAIL` does not.
+  match while `GIT_AUTHOR_EMAIL` does not. A name that glues a word onto a
+  secret word without a separator no longer matches by name: `DBPASSWORD`,
+  `GITHUBTOKEN` and the `identitytoken` field of the docker config. Long
+  random values still reach the vault through the entropy check; a short
+  one needs a separator (`DB_PASSWORD`), camel case (`dbPassword`) or
+  `keyfence import --all`.
 
 ## 0.7.0 (2026-09-24)
 

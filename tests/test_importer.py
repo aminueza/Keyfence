@@ -218,12 +218,22 @@ def test_secret_name_matches_whole_words_only():
     assert not looks_secret("BYPASS_CACHE", "sometimes", MIN)
     assert not looks_secret("CAPITAL_CITY", "Amsterdam-NL", MIN)
     assert not looks_secret("RAPID_MODE", "always-on", MIN)
+    assert looks_secret("GIT_AUTHOR_TOKEN", "victor@gnx.net", MIN)
+
+
+def test_one_letter_segment_is_not_a_secret_name():
+    assert not looks_secret("AWS_S3_BUCKET", "acme-bucket", MIN)
+    assert not looks_secret("S3_ENDPOINT", "localhost:9000", MIN)
+    assert not looks_secret("s3Client", "acme-bucket", MIN)
+    assert env_values({"AWS_S3_BUCKET": "acme-bucket"}, MIN) == set()
 
 
 def test_secret_name_still_matches_real_secret_names():
     for name in ("GITHUB_TOKEN", "DB_PASSWORD", "STRIPE_SECRET_KEY", "OPENAI_APIKEY",
                  "authToken", "aws_secret_access_key", "credentials", "SESSION_COOKIE",
-                 "senha", "SENTRY_DSN", "PRIVATE_KEY", "_authToken", "apiKeys"):
+                 "senha", "SENTRY_DSN", "PRIVATE_KEY", "_authToken", "apiKeys",
+                 "PASSPHRASE", "GPG_PASSPHRASE", "AUTHORIZATION",
+                 "//registry.npmjs.org/:_authToken"):
         assert looks_secret(name, "short-value", MIN), name
 
 
