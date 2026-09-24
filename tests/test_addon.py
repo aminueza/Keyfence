@@ -8,6 +8,7 @@ from mitmproxy.test import tflow, tutils
 
 import keyfence.addon as addon_module
 from keyfence.addon import ENV_VAULT_VAR, MAPPING_KEY, STREAMED_KEY, KeyFence
+from keyfence.detectors import ScanReport
 from keyfence.vault import Vault
 
 KEY = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
@@ -530,3 +531,71 @@ def test_injected_config_carries_its_ignore_lists(home):
     flow = make_flow(body=f"host {HOST}".encode())
     kf.request(flow)
     assert flow.response is None and kf.stats["suppressed"] == 1
+
+
+ESCAPED_SECRET = "senha-do-postgres-producao-2026"
+
+
+def test_redact_keeps_json_valid_next_to_escapes(guard):
+    Vault().add(ESCAPED_SECRET)
+    kf = guard("redact")
+    body = json.dumps({"content": "prefix\t" + KEY + "\n" + ESCAPED_SECRET + " end", "note": "caf\u00e9 " + KEY}).encode()
+    flow = make_flow(body=body)
+    kf.request(flow)
+    out = json.loads(flow.request.get_text())
+    assert re.fullmatch(r"prefix\t\[REDACTED:github-[a-z]+\]\n\[REDACTED:vault\] end", out["content"])
+    assert re.fullmatch(r"caf\u00e9 \[REDACTED:github-[a-z]+\]", out["note"])
+    assert flow.response is None and kf.stats["errors"] == 0
+
+
+def test_placeholder_keeps_json_valid_and_restores_next_to_escapes(guard):
+    kf = guard("placeholder")
+    flow = make_flow(body=json.dumps({"content": "line\n" + KEY + "\tend"}).encode())
+    kf.request(flow)
+    out = json.loads(flow.request.get_text())
+    token = next(iter(flow.metadata[MAPPING_KEY]))
+    assert out["content"] == f"line\n{token}\tend"
+    flow.response = tutils.tresp(headers=http.Headers([(b"content-type", b"application/json")]),
+                                 content=json.dumps({"text": f"use {token} now"}).encode())
+    kf.response(flow)
+    assert json.loads(flow.response.get_text())["text"] == f"use {KEY} now"
+
+
+def test_a_replacement_inside_an_escape_is_widened_to_the_whole_escape(guard, monkeypatch):
+    kf = guard("redact")
+    text = '{"content": "caf\\u00e9 secret"}'
+    start = text.index("00e9")
+    finding = addon_module.Finding(kind="x", value="00e9 sec", start=start, end=start + 8)
+    monkeypatch.setattr(addon_module, "scan_report", lambda *a, **k: ScanReport([finding]))
+    flow = make_flow(body=text.encode())
+    kf.request(flow)
+    assert json.loads(flow.request.get_text())["content"] == "caf[REDACTED:x]ret"
+
+
+def test_a_rewrite_that_would_break_the_json_fails_closed(guard, monkeypatch, caplog):
+    kf = guard("redact")
+    finding = addon_module.Finding(kind="x", value='{"con', start=0, end=5)
+    monkeypatch.setattr(addon_module, "scan_report", lambda *a, **k: ScanReport([finding]))
+    flow = make_flow(body=b'{"content": "abc"}')
+    with caplog.at_level("ERROR", logger="keyfence"):
+        kf.request(flow)
+    assert flow.response.status_code == 403
+    assert "breaking its JSON" in json.loads(flow.response.get_text())["error"]["message"]
+    assert kf.stats["errors"] == 1 and "failing closed" in caplog.text
+
+
+def test_non_json_bodies_are_spliced_as_before(guard):
+    kf = guard("redact")
+    flow = make_flow(body=("path C:\\temp\\" + KEY + " done").encode())
+    kf.request(flow)
+    assert flow.request.get_text() == "path C:\\temp\\[REDACTED:github-token] done"
+
+
+def test_whole_escapes_leaves_spans_outside_escapes_alone():
+    text = 'a\\nb\\u0041c'
+    escapes = addon_module.json_escapes(text)
+    assert escapes == ([1, 4], [3, 10])
+    assert addon_module.whole_escapes(0, 1, escapes) == (0, 1)
+    assert addon_module.whole_escapes(2, 3, escapes) == (1, 3)
+    assert addon_module.whole_escapes(3, 6, escapes) == (3, 10)
+    assert addon_module.whole_escapes(10, 11, escapes) == (10, 11)

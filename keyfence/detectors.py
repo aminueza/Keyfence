@@ -105,6 +105,12 @@ def _scan_rules(text: str, rules: list[Rule]) -> list[Finding]:
 
 
 _TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\]+""")
+_JSON_TOKEN_SPLIT = re.compile(r"""(?:\\u[0-9a-fA-F]{4}|\\[ntrbf]|[\s"'`,;{}()\[\]<>\\])+""")
+
+
+def _split_tokens(text: str) -> list[str]:
+    splitter = _JSON_TOKEN_SPLIT if text.lstrip().startswith(("{", "[")) else _TOKEN_SPLIT
+    return splitter.split(text)
 _WORDISH = re.compile(r"^[A-Za-z]+$")
 _HEXISH = re.compile(r"^[0-9a-fA-F]+$")
 _PATHISH = re.compile(r"^[./~]|://|^data:")
@@ -208,7 +214,7 @@ def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5,
     findings: list[Finding] = []
     excluded = _excluded_spans(text, _json_spans(text) if json_spans is None else json_spans)
     pos = 0
-    for raw in _TOKEN_SPLIT.split(text):
+    for raw in _split_tokens(text):
         idx = text.find(raw, pos)
         if idx == -1:
             idx = text.find(raw)
@@ -253,7 +259,7 @@ def _scan_vault(text: str, vault) -> list[Finding]:
     findings: list[Finding] = []
     seen_spans: set[tuple[int, int]] = set()
     candidates: set[str] = set()
-    for raw in _TOKEN_SPLIT.split(text):
+    for raw in _split_tokens(text):
         if len(raw) >= vault.min_length:
             candidates.add(raw)
             candidates.add(raw.strip(".,:=!?&"))
