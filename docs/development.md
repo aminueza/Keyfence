@@ -86,9 +86,16 @@ create the `pypi` environment in the GitHub repository settings.
 
 To release:
 
-1. Bump `__version__` in `keyfence/__init__.py` and add a section to
-   `CHANGELOG.md`.
+1. Set `__version__` in `keyfence/__init__.py` to `X.Y.Z` and rename the
+   `Unreleased` section of `CHANGELOG.md` to `X.Y.Z (date)`.
 2. Commit, then tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. Right after, set `__version__` to the next dev version (`X.Y+1.0.dev0`),
+   open a new `Unreleased` section in `CHANGELOG.md` and commit.
 
 The workflow builds the sdist and wheel, checks that the tag matches the
 package version, and publishes.
+
+Between releases `main` carries a `.dev0` version, so `keyfence doctor`
+tells a checkout of `main` apart from the build published on PyPI.
+`tests/test_version.py` checks that a release version has its changelog
+section and that a dev version has an `Unreleased` one.

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `main` carries a `.dev0` version between releases, so `keyfence doctor`
+  on a checkout of `main` no longer prints the same version as the build
+  published on PyPI.
 - pi support. `keyfence install-hooks pi` installs a pi extension that
   refuses `read`, `write`, `edit`, `grep`, `bash` and `powershell` calls
   aimed at secret files or at commands that print secrets, the same rules
