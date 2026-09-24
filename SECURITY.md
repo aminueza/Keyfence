@@ -18,8 +18,14 @@ to.
 
 On disk it keeps:
 
-- `~/.keyfence/vault.json`: salted HMAC-SHA256 hashes of your secrets, never
-  the values, mode 0600.
+- `~/.keyfence/vault.json`: keyed HMAC-SHA256 digests of your secrets, never
+  the values, mode 0600. The key is a random 256-bit salt kept in the same
+  file, so anyone who can read the file can test guesses against the
+  digests offline, and a short or common password does not survive that.
+  A slow password hash such as PBKDF2 or scrypt is not an option here: the
+  proxy computes one digest per token of every request, a few hundred per
+  request, and must answer in milliseconds. Protect the file like the CA
+  key below, and prefer registering long random values.
 - `~/.keyfence/audit.log`: one line per request with findings, with a masked
   preview (first and last four characters) and the JSON key, never the
   value.
