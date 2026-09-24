@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from bench.corpus import FORMATLESS, Sample, materialize, negatives, positives  # noqa: E402
+from bench.corpus import FORMATLESS, Sample, as_sent, materialize, negatives, positives  # noqa: E402
 from keyfence import __version__  # noqa: E402
 from keyfence.detectors import ScanConfig, scan  # noqa: E402
 from keyfence.rules import load_rules  # noqa: E402
@@ -57,8 +57,11 @@ def gitleaks_detector(samples: list[Sample]) -> Detector | None:
 def evaluate(name: str, detector: Detector, pos: list[Sample], neg: list[Sample]) -> dict:
     start = time.perf_counter()
     recall_by_format: dict[str, list[bool]] = defaultdict(list)
+    recall_by_context: dict[str, list[bool]] = defaultdict(list)
     for s in pos:
-        recall_by_format[s.category].append(_hit(detector(s), s.secret))
+        hit = _hit(detector(s), s.secret)
+        recall_by_format[s.category].append(hit)
+        recall_by_context[s.context].append(hit)
     fp_by_category: dict[str, list[bool]] = defaultdict(list)
     fp_findings = 0
     for s in neg:
@@ -74,6 +77,7 @@ def evaluate(name: str, detector: Detector, pos: list[Sample], neg: list[Sample]
     return {
         "name": name,
         "recall_by_format": {k: sum(v) / len(v) for k, v in recall_by_format.items()},
+        "recall_by_context": {k: sum(v) / len(v) for k, v in recall_by_context.items()},
         "fp_by_category": {k: sum(v) / len(v) for k, v in fp_by_category.items()},
         "fp_samples": fp_samples,
         "fp_findings": fp_findings,
@@ -88,10 +92,14 @@ def pct(x: float) -> str:
     return f"{100 * x:.0f}%"
 
 
-def render(results: list[dict], pos: list[Sample], neg: list[Sample]) -> str:
+def _context_cell(sent: float, raw: float) -> str:
+    return pct(sent) if pct(sent) == pct(raw) else f"{pct(sent)} (raw {pct(raw)})"
+
+
+def render(results: list[dict], pos: list[Sample], neg: list[Sample], raw: list[dict] | None = None) -> str:
     names = [r["name"] for r in results]
     lines = [f"keyfence {__version__}, {len(pos)} positive and {len(neg)} negative samples, "
-             f"{sum(len(s.text) for s in pos + neg) // 1024} KB.", ""]
+             f"{sum(len(s.text) for s in pos + neg) // 1024} KB, as sent to the provider.", ""]
     lines.append("| | " + " | ".join(names) + " |")
     lines.append("|---|" + "---|" * len(names))
     lines.append("| recall on formatted secrets | " + " | ".join(pct(r["recall"]) for r in results) + " |")
@@ -102,6 +110,13 @@ def render(results: list[dict], pos: list[Sample], neg: list[Sample]) -> str:
     lines += ["", "Recall by format:", "", "| format | " + " | ".join(names) + " |", "|---|" + "---|" * len(names)]
     for fmt in sorted({s.category for s in pos}):
         lines.append(f"| {fmt} | " + " | ".join(pct(r["recall_by_format"].get(fmt, 0)) for r in results) + " |")
+    if raw is not None:
+        lines += ["", "Recall by context, as sent (raw text in parentheses where it differs):", "",
+                  "| context | " + " | ".join(names) + " |", "|---|" + "---|" * len(names)]
+        for ctx in sorted({s.context for s in pos}):
+            lines.append(f"| {ctx} | " + " | ".join(
+                _context_cell(r["recall_by_context"].get(ctx, 0), w["recall_by_context"].get(ctx, 0))
+                for r, w in zip(results, raw)) + " |")
     lines += ["", "False positive rate by negative category (share of samples with at least one finding):", "",
               "| category | samples | " + " | ".join(names) + " |", "|---|---|" + "---|" * len(names)]
     counts = defaultdict(int)
@@ -120,11 +135,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
-    pos = positives(args.seed, args.per_format)
-    neg = negatives(args.seed)
+    raw_pos = positives(args.seed, args.per_format)
+    raw_neg = negatives(args.seed)
+    pos, neg = as_sent(raw_pos, args.seed), as_sent(raw_neg, args.seed + 1)
     rules = load_rules()
     vault = Vault(path=Path(tempfile.mkdtemp(prefix="keyfence-bench-vault-")) / "vault.json")
-    vault.add_many(s.secret for s in pos if s.category in FORMATLESS)
+    vault.add_many(s.secret for s in raw_pos if s.category in FORMATLESS)
 
     detectors = [
         ("builtin patterns", keyfence_detector(ScanConfig(entropy_enabled=False))),
@@ -132,16 +148,21 @@ def main(argv: list[str] | None = None) -> int:
         ("+ entropy (default)", keyfence_detector(ScanConfig(rules=rules))),
         ("default + vault", keyfence_detector(ScanConfig(rules=rules), vault)),
     ]
-    if not args.no_gitleaks:
-        gl = gitleaks_detector(pos + neg)
-        if gl is not None:
-            detectors.append(("gitleaks binary", gl))
 
-    results = [evaluate(name, det, pos, neg) for name, det in detectors]
+    def run_view(p: list[Sample], n: list[Sample]) -> list[dict]:
+        view = list(detectors)
+        if not args.no_gitleaks:
+            gl = gitleaks_detector(p + n)
+            if gl is not None:
+                view.append(("gitleaks binary", gl))
+        return [evaluate(name, det, p, n) for name, det in view]
+
+    results = run_view(pos, neg)
+    raw = run_view(raw_pos, raw_neg)
     if args.json:
-        print(json.dumps(results, indent=2))
+        print(json.dumps({"as_sent": results, "raw": raw}, indent=2))
     else:
-        print(render(results, pos, neg))
+        print(render(results, pos, neg, raw))
     return 0
 
 

@@ -5,7 +5,7 @@ import json
 import random
 import string
 import sysconfig
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 ALNUM = string.ascii_letters + string.digits
@@ -23,6 +23,8 @@ class Sample:
     category: str
     text: str
     secret: str | None = None
+    context: str = ""
+    body: bool = False
 
 
 def _rand(r: random.Random, n: int, alphabet: str = ALNUM) -> str:
@@ -71,7 +73,9 @@ CONTEXTS = {
     "tool-result": lambda s, r: json.dumps({"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_01" + _rand(r, 24), "content": f"     1→DB_PASSWORD={s}\n     2→PORT=5432\n"}]}]}),
 }
 
+BODY_CONTEXTS = {"json-message", "tool-result"}
 BLOCK_CONTEXTS = {"pem-private-key": ("prose", "json-message", "tool-result", "code")}
+ASCII_SHARE = 1 / 3
 
 
 def positives(seed: int = 7, per_format: int = 3) -> list[Sample]:
@@ -82,7 +86,8 @@ def positives(seed: int = 7, per_format: int = 3) -> list[Sample]:
         for i in range(per_format):
             for ctx in contexts:
                 secret = make(r)
-                out.append(Sample(f"{name}/{ctx}/{i}", name, CONTEXTS[ctx](secret, r), secret))
+                out.append(Sample(f"{name}/{ctx}/{i}", name, CONTEXTS[ctx](secret, r), secret,
+                                  ctx, ctx in BODY_CONTEXTS))
     return out
 
 
@@ -141,7 +146,7 @@ def _claude_code_bodies(r: random.Random, n: int) -> list[Sample]:
             ],
             "metadata": {"user_id": json.dumps({"device_id": _rand(r, 64, HEX), "session_id": f"{_rand(r, 8, HEX)}-{_rand(r, 4, HEX)}-{_rand(r, 4, HEX)}-{_rand(r, 4, HEX)}-{_rand(r, 12, HEX)}"})},
         }
-        out.append(Sample(f"claude-code/{i}", "claude-code-body", json.dumps(body)))
+        out.append(Sample(f"claude-code/{i}", "claude-code-body", json.dumps(body), body=True))
     return out
 
 
@@ -149,7 +154,7 @@ def _telemetry(r: random.Random, n: int) -> list[Sample]:
     out = []
     for i in range(n):
         events = [base64.b64encode(json.dumps({"user": _rand(r, 40, HEX), "session": _rand(r, 24), "n": k}).encode()).decode() for k in range(r.randint(5, 30))]
-        out.append(Sample(f"telemetry/{i}", "telemetry", json.dumps({"events": events})))
+        out.append(Sample(f"telemetry/{i}", "telemetry", json.dumps({"events": events}), body=True))
     return out
 
 
@@ -196,6 +201,21 @@ def negatives(seed: int = 7) -> list[Sample]:
         *_logs(r, 20),
         *_lockfiles(r, 10),
     ]
+
+
+def tool_result_body(text: str, tool_use_id: str, ensure_ascii: bool) -> str:
+    return json.dumps({"model": "claude-fable-5-1", "messages": [{"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": tool_use_id, "content": text}]}]}, ensure_ascii=ensure_ascii)
+
+
+def as_sent(samples: list[Sample], seed: int = 7) -> list[Sample]:
+    r = random.Random(seed)
+    out = []
+    for s in samples:
+        tool_use_id = "toolu_01" + _rand(r, 24)
+        ensure_ascii = r.random() < ASCII_SHARE
+        out.append(s if s.body else replace(s, text=tool_result_body(s.text, tool_use_id, ensure_ascii), body=True))
+    return out
 
 
 def materialize(samples: list[Sample], root: Path) -> dict[str, Path]:
