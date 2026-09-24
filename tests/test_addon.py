@@ -219,6 +219,64 @@ def test_block_mode(guard):
     assert kf.stats["blocked"] == 1
 
 
+BEDROCK = "bedrock-runtime.us-east-1.amazonaws.com"
+SIGV4 = "AWS4-HMAC-SHA256 Credential=EXAMPLE/20260924/us-east-1/bedrock/aws4_request, SignedHeaders=host;x-amz-date, Signature=0f1e"
+SIGV4A = "AWS4-ECDSA-P256-SHA256 Credential=EXAMPLE/20260924/bedrock/aws4_request, SignedHeaders=host, Signature=3045"
+
+
+def signed_flow(body=BODY, authorization=SIGV4, path=b"/model/anthropic.claude/invoke"):
+    flow = make_flow(body=body, host=BEDROCK, path=path)
+    if authorization:
+        flow.request.headers["authorization"] = authorization
+    return flow
+
+
+@pytest.mark.parametrize("mode", ["redact", "placeholder"])
+@pytest.mark.parametrize("authorization", [SIGV4, SIGV4A])
+def test_sigv4_signed_request_with_a_secret_is_blocked_instead_of_rewritten(guard, home, mode, authorization):
+    kf = guard(mode)
+    flow = signed_flow(authorization=authorization)
+    kf.request(flow)
+    assert flow.response.status_code == 403
+    message = json.loads(flow.response.get_text())["error"]["message"]
+    assert "SigV4" in message and "github-token" in message
+    assert flow.request.content == BODY and MAPPING_KEY not in flow.metadata
+    assert kf.stats["blocked"] == 1
+    assert json.loads((home / "audit.log").read_text().splitlines()[-1])["host"] == BEDROCK
+
+
+def test_presigned_url_counts_as_signed(guard):
+    kf = guard("redact")
+    flow = signed_flow(authorization=None,
+                       path=b"/model/x/invoke?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=0f1e")
+    kf.request(flow)
+    assert flow.response.status_code == 403 and "SigV4" in flow.response.get_text()
+
+
+def test_unsigned_request_to_bedrock_is_still_redacted(guard):
+    kf = guard("redact")
+    flow = signed_flow(authorization="Bearer bedrock-api-key-example")
+    kf.request(flow)
+    assert flow.response is None
+    assert "[REDACTED:github-token]" in flow.request.get_text()
+
+
+def test_sigv4_signed_request_in_audit_mode_passes_unchanged(guard):
+    kf = guard("audit")
+    flow = signed_flow()
+    kf.request(flow)
+    assert flow.response is None and flow.request.content == BODY
+
+
+def test_clean_sigv4_signed_request_passes_untouched(guard):
+    kf = guard("redact")
+    body = b'{"messages":[{"role":"user","content":"explain entropy"}]}'
+    flow = signed_flow(body=body)
+    kf.request(flow)
+    assert flow.response is None and flow.request.content == body
+    assert kf.stats["blocked"] == 0
+
+
 TOKEN_RE = re.compile(r"<<SECRET_[0-9a-f]{10}>>")
 
 

@@ -15,6 +15,7 @@ B64URL = ALNUM + "-_"
 WORDS = ("correct", "horse", "battery", "staple", "purple", "monkey", "dish", "washer",
          "river", "stone", "cloud", "apple", "tiger", "piano", "silver", "maple")
 REPO = Path(__file__).resolve().parent.parent
+BENCHMARK_DOC = REPO / "docs" / "benchmark.md"
 
 
 @dataclass
@@ -118,6 +119,8 @@ def _code_samples() -> list[Sample]:
 def _prose_samples() -> list[Sample]:
     out = []
     for f in sorted((REPO / "docs").glob("*.md")) + [REPO / "README.md"]:
+        if f == BENCHMARK_DOC:
+            continue
         for i, chunk in enumerate(_chunks(f, 40)):
             out.append(Sample(f"prose/{f.name}/{i}", "prose", chunk))
     return out

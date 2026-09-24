@@ -1,8 +1,8 @@
 # Benchmark
 
-Measured on 2026-09-24 with keyfence 0.8.0.dev0 and gitleaks 8.30.1, on a
-synthetic corpus of 411 positive and 310 negative samples (866 KB as sent).
-Reproduce with:
+Measured on 2026-09-24 with keyfence 0.8.0.dev0, gitleaks 8.30.1 and
+Python 3.13, on a synthetic corpus of 411 positive and 307 negative samples
+(862 KB as sent). Reproduce with:
 
 ```bash
 python bench/run.py
@@ -25,10 +25,16 @@ Negatives are content that should never be flagged:
 |---|---|---|
 | code | 176 | chunks of keyfence's own source and of the Python standard library |
 | claude-code-body | 40 | request bodies shaped like Claude Code's, with tool ids, thinking signatures, base64 images and hashes in tool output |
-| prose | 34 | chunks of this project's documentation |
+| prose | 31 | chunks of this project's documentation, except this page |
 | telemetry | 20 | batches of base64-encoded JSON events |
 | logs | 20 | log lines with UUIDs, trace ids, commit hashes and IPs |
 | lockfile | 20 | `package-lock.json` entries with `sha512-` integrity hashes and `go.sum` lines |
+
+The code samples include modules of the standard library of the Python that
+runs the benchmark, so their count depends on the Python version: 176 on
+3.13, 202 on 3.14. The output names the version it ran on. This page is left
+out of the prose samples: it holds the results, so regenerating it would
+change the corpus it describes.
 
 ## As sent
 
@@ -58,7 +64,7 @@ gitleaks binary run over the same bodies as files.
 |---|---|---|---|---|---|
 | recall on formatted secrets | 100% | 100% | 100% | 100% | 81% |
 | precision (per sample) | 99% | 99% | 99% | 99% | 100% |
-| negatives with a finding | 2 / 310 | 2 / 310 | 2 / 310 | 2 / 310 | 0 / 310 |
+| negatives with a finding | 2 / 307 | 2 / 307 | 2 / 307 | 2 / 307 | 0 / 307 |
 | total false findings | 4 | 4 | 4 | 4 | 0 |
 | time | 0.3s | 0.6s | 0.6s | 0.6s | 0.0s |
 
@@ -108,7 +114,7 @@ finding):
 | code | 176 | 1% | 1% | 1% | 1% | 0% |
 | lockfile | 20 | 0% | 0% | 0% | 0% | 0% |
 | logs | 20 | 0% | 0% | 0% | 0% | 0% |
-| prose | 34 | 3% | 3% | 3% | 3% | 0% |
+| prose | 31 | 3% | 3% | 3% | 3% | 0% |
 | telemetry | 20 | 0% | 0% | 0% | 0% | 0% |
 
 

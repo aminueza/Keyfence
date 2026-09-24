@@ -98,7 +98,8 @@ def _context_cell(sent: float, raw: float) -> str:
 
 def render(results: list[dict], pos: list[Sample], neg: list[Sample], raw: list[dict] | None = None) -> str:
     names = [r["name"] for r in results]
-    lines = [f"keyfence {__version__}, {len(pos)} positive and {len(neg)} negative samples, "
+    python = f"{sys.version_info.major}.{sys.version_info.minor}"
+    lines = [f"keyfence {__version__} on Python {python}, {len(pos)} positive and {len(neg)} negative samples, "
              f"{sum(len(s.text) for s in pos + neg) // 1024} KB, as sent to the provider.", ""]
     lines.append("| | " + " | ".join(names) + " |")
     lines.append("|---|" + "---|" * len(names))

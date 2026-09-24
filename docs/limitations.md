@@ -21,6 +21,14 @@ real incidents. Out of scope:
   travels in `Authorization` or, for Gemini, in `?key=`, and redacting it
   would break authentication. A secret you put in a query string yourself
   is not caught.
+- **Requests signed with AWS SigV4 cannot be rewritten.** Bedrock clients
+  that use AWS credentials sign each request, and the signature covers the
+  body. Removing a secret from it would make AWS reject the request, so in
+  `redact` and `placeholder` mode keyfence answers a signed request that
+  carries a secret with its own 403, saying why, as `block` mode would.
+  Nothing is sent. Requests authenticated with a Bedrock API key
+  (`Authorization: Bearer ...`) are not signed and are redacted as usual.
+  `audit` mode lets signed requests through unchanged, like any other.
 - **The agent hook cannot see what a search returns.** It refuses a grep
   aimed at a secret file, but a grep for `API_KEY` over the whole
   project with content output still returns the matching line of `.env`.

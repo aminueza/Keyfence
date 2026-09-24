@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from bench import run as bench  # noqa: E402
 from bench.corpus import (  # noqa: E402
-    BODY_CONTEXTS, FORMATLESS, FORMATS, Sample, as_sent, materialize, negatives, positives,
+    BENCHMARK_DOC, BODY_CONTEXTS, FORMATLESS, FORMATS, Sample, as_sent, materialize, negatives, positives,
 )
 from keyfence.detectors import ScanConfig  # noqa: E402
 
@@ -60,6 +60,7 @@ def test_main_runs_without_gitleaks(capsys):
     assert bench.main(["--no-gitleaks", "--per-format", "1", "--seed", "2"]) == 0
     out = capsys.readouterr().out
     assert "recall on formatted secrets" in out and "as sent to the provider" in out
+    assert f"on Python {sys.version_info.major}.{sys.version_info.minor}," in out
     assert "Recall by context" in out
     assert all(fmt in out for fmt in FORMATLESS)
 
@@ -114,3 +115,11 @@ def test_context_table_shows_raw_recall_only_where_it_differs():
     table = bench.render(results, sent, [], raw)
     assert "| code | 0% (raw 100%) |" in table
     assert "| env-line | 100% |" in table
+
+
+def test_prose_negatives_leave_out_the_benchmark_doc_they_are_published_in():
+    assert BENCHMARK_DOC.exists()
+    sources = {s.label.split("/")[1] for s in negatives(seed=3) if s.category == "prose"}
+    assert "benchmark.md" not in sources
+    assert {"README.md", "limitations.md", "setup.md"} <= sources
+
