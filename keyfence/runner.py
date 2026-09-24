@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import contextlib
+import http.client
+import json
 import os
 import shutil
 import socket
@@ -15,6 +17,8 @@ from .importer import env_values
 from .vault import DEFAULT_DIR, Vault
 
 ADDON_PATH = Path(__file__).parent / "addon.py"
+PROBE_HOST = "keyfence.invalid"
+PROBE_URL = f"http://{PROBE_HOST}/"
 CONFDIR = Path(os.environ["MITMPROXY_CONFDIR"]) if os.environ.get("MITMPROXY_CONFDIR") else None
 CA_CERT = (CONFDIR or Path.home() / ".mitmproxy") / "mitmproxy-ca-cert.pem"
 ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
@@ -56,6 +60,19 @@ def port_open(port: int, host: str = "127.0.0.1") -> bool:
             return True
     except OSError:
         return False
+
+
+def addon_live(port: int, timeout: float = 1.0) -> bool:
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+    try:
+        conn.request("GET", PROBE_URL, headers={"Host": PROBE_HOST})
+        resp = conn.getresponse()
+        body = json.loads(resp.read().decode("utf-8", "replace"))
+        return resp.status == 200 and isinstance(body, dict) and "keyfence" in body
+    except (OSError, ValueError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
 
 
 def wait_for(predicate: Callable[[], bool], timeout: float, interval: float = 0.1) -> bool:
@@ -142,6 +159,10 @@ def run(command: Sequence[str], port: int, everything: bool = False,
         if not ready:
             print(f"keyfence proxy did not come up on port {port} within {timeout:.0f}s; "
                   f"see {DEFAULT_DIR / 'proxy.log'}")
+            return 1
+        if not wait_for(lambda: proxy.poll() is None and addon_live(port), timeout):
+            print(f"mitmdump is listening on port {port} but the keyfence addon is not answering, "
+                  f"so the command was not started; see {DEFAULT_DIR / 'proxy.log'}")
             return 1
         code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert))
         if linger > 0 and proxy.poll() is None:

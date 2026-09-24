@@ -31,23 +31,58 @@ def make_response_flow(mapping, headers, body=b""):
 def guard(write_config):
     def _make(mode="redact", extra=""):
         write_config(f"mode: {mode}\n{extra}")
-        return KeyFence()
+        kf = KeyFence()
+        kf.load(None)
+        return kf
     return _make
 
 
-def test_package_import_builds_no_addon_and_touches_no_files(home):
-    assert addon_module.addons == []
+def test_package_import_declares_the_addon_and_touches_no_files(home):
+    assert len(addon_module.addons) == 1 and isinstance(addon_module.addons[0], KeyFence)
+    assert addon_module.addons[0].config is None and addon_module.addons[0].vault is None
     assert not (home / "vault.json").exists()
-    assert isinstance(addon_module.build(), KeyFence)
 
 
-def test_mitmproxy_script_load_builds_the_addon(home, write_config):
+@pytest.mark.parametrize("module_name", ["__mitmproxy_script__.addon", "__mitmproxy_addon__.addon", "addon"])
+def test_addon_is_declared_whatever_the_loader_names_the_module(home, write_config, module_name):
     import importlib.util
-    write_config("mode: redact\n")
-    spec = importlib.util.spec_from_file_location("__mitmproxy_script__.keyfence_addon", addon_module.__file__)
+    write_config("mode: block\n")
+    spec = importlib.util.spec_from_file_location(module_name, addon_module.__file__)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert len(module.addons) == 1 and type(module.addons[0]).__name__ == "KeyFence"
+    assert not (home / "vault.json").exists()
+    module.addons[0].load(None)
+    assert module.addons[0].config.mode == "block" and (home / "vault.json").exists()
+
+
+def test_probe_host_is_answered_by_the_addon_and_never_forwarded(guard):
+    from keyfence import __version__
+    kf = guard("block")
+    flow = make_flow(body=b"", host=addon_module.PROBE_HOST, path=b"/")
+    kf.request(flow)
+    assert flow.response.status_code == 200
+    assert json.loads(flow.response.get_text()) == {"keyfence": __version__, "mode": "block", "hosts": len(kf.config.hosts)}
+    assert kf.stats["scanned"] == 0
+
+
+def test_request_before_load_sets_up_lazily(home, write_config):
+    write_config("mode: block\n")
+    kf = KeyFence()
+    flow = make_flow()
+    kf.request(flow)
+    assert flow.response.status_code == 403 and kf.config.mode == "block"
+
+
+def test_request_fails_closed_when_setup_fails(home, write_config, caplog):
+    write_config("mode: redact\n")
+    (home / "vault.json").write_text("x")
+    kf = KeyFence()
+    flow = make_flow(body=b"", host=addon_module.PROBE_HOST, path=b"/")
+    with caplog.at_level("ERROR", logger="keyfence"):
+        kf.request(flow)
+    assert flow.response.status_code == 403 and "failing closed" in caplog.text
+    assert kf.stats["errors"] == 1
 
 
 def test_load_logs_summary(guard, caplog):
@@ -358,12 +393,13 @@ def test_invalid_config_reload_keeps_previous(guard, home, write_config, caplog)
 def test_corrupted_vault_stops_startup_with_a_message(home, write_config, monkeypatch, capsys):
     write_config("mode: redact\n")
     (home / "vault.json").write_text("x")
+    kf = KeyFence()
     with pytest.raises(addon_module.VaultError) as exc:
-        KeyFence()
+        kf._setup()
     assert "keyfence import" in str(exc.value)
     monkeypatch.setattr(addon_module.os, "_exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
     with pytest.raises(SystemExit) as stop:
-        addon_module.build()
+        kf.load(None)
     assert stop.value.code == 1
     err = capsys.readouterr().err
     assert err.startswith("keyfence: ") and "Traceback" not in err

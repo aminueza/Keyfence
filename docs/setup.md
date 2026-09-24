@@ -84,10 +84,14 @@ otherwise the current scope) and `aws` (Secrets Manager, `--path` is the
 secret id; JSON secrets contribute every value). Every value read is
 registered; only hashes are stored.
 
-`keyfence exec` starts the proxy, sets `HTTPS_PROXY`, `HTTP_PROXY` and the CA
-variables for the command, snapshots environment variables with secret-like
-names into a temporary vault, runs the command, and stops the proxy when it
-exits. `--all-env` snapshots every environment variable value. The snapshot
+`keyfence exec` starts the proxy, waits until the keyfence addon answers a
+request for `http://keyfence.invalid/` sent through it (mitmdump listening
+is not enough: without the addon it would be a plain proxy), sets
+`HTTPS_PROXY`, `HTTP_PROXY` and the CA variables for the command, snapshots
+environment variables with secret-like names into a temporary vault, runs
+the command, and stops the proxy when it exits. If the addon never answers,
+the command is not started and the reason is in `~/.keyfence/proxy.log`.
+`keyfence doctor` sends the same probe to a proxy that is already running. `--all-env` snapshots every environment variable value. The snapshot
 is a hash file under `~/.keyfence/env/` that the proxy reads once at
 startup and deletes. If the command is killed before the proxy gets that
 far, the next `keyfence exec` removes anything older than a minute from

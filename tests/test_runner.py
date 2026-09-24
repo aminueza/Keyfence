@@ -34,6 +34,7 @@ def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or FakeProxy())
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
     assert runner.run(["/usr/local/bin/claude", "-p"], 8899, ca_cert=ca, timeout=1, local="") == 0
     assert "local:claude" in seen["cmd"]
@@ -53,6 +54,7 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
     slept = []
     monkeypatch.setattr(runner.time, "sleep", lambda s: slept.append(s))
@@ -184,6 +186,7 @@ def test_run_success(home, monkeypatch, tmp_path):
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(proxy_cmd=cmd, proxy_env=env, stdout=stdout) or proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: "proxy_cmd" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
 
     def fake_call(command, env):
         seen["command"] = command
@@ -208,6 +211,58 @@ def test_run_when_mitmdump_missing(home, monkeypatch, capsys):
     monkeypatch.setattr(runner.subprocess, "Popen", missing)
     assert runner.run(["echo"], 8899) == 1
     assert "mitmdump not found" in capsys.readouterr().out
+
+
+def test_run_refuses_to_start_the_command_when_the_addon_is_not_answering(home, monkeypatch, tmp_path, capsys):
+    proxy = FakeProxy()
+    seen = {}
+    ca = tmp_path / "ca.pem"
+    ca.write_text("cert")
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
+    monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: False)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: pytest.fail("must not start the command"))
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=0.05) == 1
+    assert "addon is not answering" in capsys.readouterr().out
+    assert proxy.terminated
+
+
+def _serve(status, body):
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            payload = body.encode()
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *_args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_addon_live_probe_distinguishes_keyfence_from_anything_else():
+    servers = {
+        "live": _serve(200, '{"keyfence": "0.6.0.dev0", "mode": "redact", "hosts": 9}'),
+        "plain_proxy": _serve(200, '{"upstream_received": {}}'),
+        "blocked": _serve(403, '{"error": {"type": "keyfence_blocked"}}'),
+        "not_json": _serve(200, "<html>bad gateway</html>"),
+        "json_list": _serve(200, '["keyfence"]'),
+    }
+    try:
+        assert runner.addon_live(servers["live"].server_port)
+        assert all(not runner.addon_live(servers[name].server_port) for name in servers if name != "live")
+    finally:
+        for server in servers.values():
+            server.shutdown()
+            server.server_close()
+    assert not runner.addon_live(servers["live"].server_port)
 
 
 def test_run_times_out_and_kills_stuck_proxy(home, monkeypatch, tmp_path, capsys):

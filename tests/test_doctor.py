@@ -53,7 +53,11 @@ def test_config_and_vault_checks(home, write_config):
 
 def test_proxy_and_environment_checks(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "port_open", lambda port: True)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
     assert doctor.check_proxy(8888).status == doctor.OK
+    monkeypatch.setattr(runner, "addon_live", lambda port: False)
+    assert doctor.check_proxy(8888).status == doctor.WARN
+    assert "not scanned" in doctor.check_proxy(8888).detail
     monkeypatch.setattr(runner, "port_open", lambda port: False)
     assert doctor.check_proxy(8888).status == doctor.INFO
     ca = tmp_path / "ca.pem"
