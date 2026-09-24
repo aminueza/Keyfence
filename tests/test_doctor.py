@@ -24,6 +24,9 @@ def test_render_summarises(home):
     text = doctor.render([doctor.Check(doctor.OK, "a", ""), doctor.Check(doctor.INFO, "b", "later")])
     assert "info  b: later" in text and "info lines are optional" in text and "Everything keyfence exec needs" in text
     assert "1 problem(s) to fix" in doctor.render([doctor.Check(doctor.FAIL, "a", "")])
+    assert "keyfence selftest" not in doctor.render([doctor.Check(doctor.FAIL, "a", "")])
+    assert "keyfence selftest sends a throwaway secret" in text
+    assert doctor.format_checks(checks) == ["ok    a: fine", "warn  b: meh"]
 
 
 def test_ca_checks(tmp_path, monkeypatch):

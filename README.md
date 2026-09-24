@@ -35,7 +35,9 @@ stops the proxy when the command exits. No `sudo`, nothing changes on
 your system.
 
 Not sure it is working? `keyfence doctor` checks every piece and says what
-to fix. `keyfence status` shows what has been caught.
+to fix; `keyfence selftest` sends a throwaway secret through a fresh proxy
+and checks what comes out the other side. `keyfence status` shows what has
+been caught.
 
 Two more layers, both optional:
 

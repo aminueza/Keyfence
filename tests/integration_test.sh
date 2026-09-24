@@ -166,6 +166,38 @@ grep -q "CANARY tripped -> 127.0.0.1: .*/.env was read and sent" "$KEYFENCE_HOME
 echo "OK: CANARY tripped with the file path is in proxy.log"
 
 echo
+echo "=== 8) keyfence selftest proves each mode end to end without touching this home ==="
+AUDIT_LINES_BEFORE=$(wc -l < "$KEYFENCE_HOME/audit.log")
+VAULT_BEFORE=$(cat "$KEYFENCE_HOME/vault.json")
+for mode in block redact placeholder audit; do
+  write_config "$mode"
+  python3 -m keyfence selftest > "$KEYFENCE_HOME/selftest_$mode.txt" || { cat "$KEYFENCE_HOME/selftest_$mode.txt"; echo "FAILED: selftest exited non-zero in $mode mode"; exit 1; }
+  cat "$KEYFENCE_HOME/selftest_$mode.txt"
+  ! grep -q "^FAIL" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest printed a FAIL line in $mode mode"; exit 1; }
+  for step in mitmdump config proxy addon "CA certificate" mode request response "audit log"; do
+    grep -q "^ok    $step:" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest has no ok line for $step in $mode mode"; exit 1; }
+  done
+  grep -q "^ok    mode: the proxy reports $mode, as configured" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest did not confirm $mode mode"; exit 1; }
+  grep -q "^ok    CA certificate: $HOME/.mitmproxy/mitmproxy-ca-cert.pem" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest CA path is not the exec one"; exit 1; }
+  grep -q "in $mode mode" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest summary missing in $mode mode"; exit 1; }
+  echo "OK: selftest passed in $mode mode"
+done
+grep -q "the listener received \[REDACTED:vault\]" "$KEYFENCE_HOME/selftest_redact.txt" || { echo "FAILED: redact selftest did not see the redaction"; exit 1; }
+grep -q "the real value was restored in the response" "$KEYFENCE_HOME/selftest_placeholder.txt" || { echo "FAILED: placeholder selftest did not see the restoration"; exit 1; }
+grep -q "HTTP 403 from the proxy, nothing reached the listener" "$KEYFENCE_HOME/selftest_block.txt" || { echo "FAILED: block selftest did not see the 403"; exit 1; }
+grep -q "reached the listener unchanged, as audit mode should" "$KEYFENCE_HOME/selftest_audit.txt" || { echo "FAILED: audit selftest did not see the unchanged value"; exit 1; }
+[[ "$(wc -l < "$KEYFENCE_HOME/audit.log")" == "$AUDIT_LINES_BEFORE" ]] || { echo "FAILED: selftest wrote to this home's audit log"; exit 1; }
+[[ "$(cat "$KEYFENCE_HOME/vault.json")" == "$VAULT_BEFORE" ]] || { echo "FAILED: selftest changed this home's vault"; exit 1; }
+echo "OK: this home's vault and audit log are untouched"
+printf 'mode: nonsense\n' > "$KEYFENCE_CONFIG"
+if python3 -m keyfence selftest > "$KEYFENCE_HOME/selftest_broken.txt"; then echo "FAILED: selftest passed with an invalid config"; exit 1; fi
+cat "$KEYFENCE_HOME/selftest_broken.txt"
+grep -q "^FAIL  config: .*invalid mode" "$KEYFENCE_HOME/selftest_broken.txt" || { echo "FAILED: selftest did not name the broken config"; exit 1; }
+grep -q "NOT protecting traffic: config failed" "$KEYFENCE_HOME/selftest_broken.txt" || { echo "FAILED: selftest summary missing for the broken config"; exit 1; }
+echo "OK: selftest exits 1 and names the failed step"
+write_config redact
+
+echo
 echo "=== proxy log ==="
 cat "$KEYFENCE_HOME/proxy.log"
 

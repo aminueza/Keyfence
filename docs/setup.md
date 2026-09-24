@@ -18,6 +18,7 @@ keyfence demo                # what each mode does, offline
 keyfence import              # register your secrets, hashes only
 keyfence exec -- claude      # run a tool through the proxy
 keyfence doctor              # check every piece of the setup
+keyfence selftest            # prove the proxy changes or stops a secret, end to end
 ```
 
 Start with `mode: audit` in `~/.keyfence/config.yaml` if you want to see
@@ -53,6 +54,7 @@ Linux and Windows: see the
 | `keyfence import [files] [--env] [--all]` | register secrets from files or the environment |
 | `keyfence import --from op\|vault\|doppler\|aws [--path P]` | register secrets read from a secret manager CLI |
 | `keyfence doctor [-p PORT]` | check mitmdump, CA, config, vault, proxy, shell, local mode, hook and audit log |
+| `keyfence selftest [-p PORT] [--timeout SECONDS]` | start a proxy, send a throwaway secret through it to a local listener and check the outcome for your mode |
 | `keyfence demo` | show what each mode does to a fake request, offline |
 | `keyfence add-secret` | register one secret typed at a hidden prompt |
 | `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
@@ -110,6 +112,54 @@ log and `keyfence status`.
 
 To upgrade an isolated install: `uv tool upgrade keyfence` or
 `pipx upgrade keyfence`.
+
+## Proving that the proxy protects traffic
+
+`keyfence doctor` looks at the pieces one by one, so a proxy that starts
+and scans nothing passes every check. `keyfence selftest` proves the whole
+chain instead:
+
+```
+$ keyfence selftest
+ok    mitmdump: /opt/keyfence/bin/mitmdump
+ok    config: mode=redact, 20 hosts from ~/.keyfence/config.yaml; copied to a temporary home with 127.0.0.1 added to the hosts, your config and vault untouched
+ok    proxy: mitmdump up on 127.0.0.1:55460
+ok    addon: answering the probe for http://keyfence.invalid/
+ok    CA certificate: ~/.mitmproxy/mitmproxy-ca-cert.pem, the path keyfence exec hands to child processes
+ok    mode: the proxy reports redact, as configured, with 127.0.0.1 monitored
+ok    request: the listener received [REDACTED:vault] instead of the value
+ok    response: HTTP 200 passed back with the redaction in place
+ok    audit log: 1 entry(ies) with a vault finding written for the request
+info  TLS: not exercised: the request was plain HTTP, so the CA above is only checked to exist, not trusted by a client
+
+The proxy is protecting traffic in redact mode.
+```
+
+It starts a proxy the way `keyfence exec` does, on a free port, with a copy
+of your config and a vault holding one throwaway value in a temporary
+directory, so your config, vault and audit log are not touched while your
+configured mode, hosts and scan settings are the ones under test. It then
+starts a small HTTP listener on 127.0.0.1, adds that address to the
+monitored hosts of the copy, sends one request carrying the throwaway
+value through the proxy to the listener, never to a provider, and checks
+what came out: a 403 and an empty listener in `block`, `[REDACTED:vault]`
+at the listener in `redact`, a `<<SECRET_...>>` placeholder at the listener
+and the real value restored in the response in `placeholder`, the value
+unchanged at the listener in `audit`, plus an audit entry in every mode.
+The exit code is 0 when the outcome matches the mode and 1 otherwise, and
+the first `FAIL` line says which step broke: mitmdump missing, the proxy
+not coming up, the addon not answering the probe, the config not applied
+(mode or host count differ from what the proxy reports), the value reaching
+the listener unchanged, the placeholder not restored, no audit entry. The
+last lines of the proxy's own log are printed under the failed step; the
+full log is in `~/.keyfence/selftest.log`.
+
+What is not covered: the request is plain HTTP, so TLS interception and
+whether a client trusts the CA are not exercised; the CA is only checked to
+exist at the path `keyfence exec` hands to child processes. `--local`
+capture and the agent hooks are not part of it either; `keyfence doctor`
+reports on those. `-p` picks the proxy port instead of a free one, and
+`--timeout` how long to wait for the proxy and the addon.
 
 ## Capturing tools that ignore proxy variables
 

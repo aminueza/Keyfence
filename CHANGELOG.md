@@ -17,6 +17,27 @@
   a shell and a Node example, and a checklist for wiring up another
   agent. Until now that was only visible by reading `hooks.py` and
   `pi.py`.
+- `keyfence selftest` proves end to end that the proxy is protecting
+  traffic. `keyfence doctor` checks the pieces one by one, so a proxy that
+  starts and scans nothing passes every check. The new command starts a
+  proxy the way `keyfence exec` does, on a free port, with a copy of your
+  config and a throwaway vault in a temporary home (your config, vault and
+  audit log are not touched, your configured mode is), sends one request
+  carrying a throwaway secret through it to a listener it starts on
+  127.0.0.1, never to a provider, and checks the outcome for the mode: a
+  403 in `block`, `[REDACTED:vault]` at the listener in `redact`, a
+  `<<SECRET_...>>` placeholder at the listener and the real value back in
+  the response in `placeholder`, the value unchanged in `audit`, plus an
+  audit entry in every mode and the CA at the path `keyfence exec` hands to
+  child processes. It prints one line per step in the `doctor` style and
+  exits 1 on the first step that fails, naming it: mitmdump missing, proxy
+  not up, addon not answering the probe, config not applied, value reached
+  the listener unchanged, placeholder not restored, no audit entry, each
+  with the tail of the proxy log. The request is plain HTTP, so TLS
+  interception and CA trust are not exercised; the output says so.
+  `keyfence exec` and `selftest` now share one proxy start-up path in
+  `runner.start_proxy`, and `keyfence doctor` points to `selftest` when
+  nothing is wrong.
 - `docs/setup.md` no longer says that `keyfence import --from` registers
   every value read. Since 0.5.0 the values go through the same
   secret-looking filter as file import, `--all` registers everything, and
