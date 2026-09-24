@@ -22,7 +22,7 @@ FILE_TOOLS = {"read", "edit", "write", "multiedit", "notebookedit"}
 GREP_TOOLS = {"grep"}
 SHELL_TOOLS = {"bash", "powershell"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
-_PATH_TOKEN = re.compile(r"""(?<![\w-])(?:~|\.{0,2}/)?[\w.~/@-]*(?:\.env(?:\.\w+)?|\.pem|\.key|\.p12|\.pfx|\.jks|\.ppk|\.kdbx|\.tfvars|\.netrc|\.npmrc|\.pypirc|\.git-credentials|credentials(?:\.\w+)?|id_rsa|id_ed25519|id_ecdsa|\.ssh/[\w.-]+|\.aws/credentials|\.docker/config\.json|\.kube/config)(?![\w-])""", re.IGNORECASE)
+_WORD_SEPARATORS = re.compile(r"""[\s;&|()`<>"'=,:]+""")
 _START = r"(?:^|[;&|(`])\s*"
 _DUMP_COMMANDS = re.compile(
     _START + r"(?:env|printenv|export(?:\s+-p)?|set|declare\s+-x|typeset\s+-x)\s*(?:$|[;&|)>`])",
@@ -59,11 +59,13 @@ def is_sensitive(path: str) -> bool:
         return False
     if any(fnmatch.fnmatch(name, pattern) for pattern in SENSITIVE_NAMES):
         return True
-    return any(fnmatch.fnmatch(str(posix), pattern) for pattern in SENSITIVE_PATHS)
+    full = str(posix) if posix.is_absolute() else "/" + str(posix)
+    return any(fnmatch.fnmatch(full, pattern) for pattern in SENSITIVE_PATHS)
 
 
 def paths_in_command(command: str) -> list[str]:
-    return [m.group() for m in _PATH_TOKEN.finditer(command)]
+    return [word for word in _WORD_SEPARATORS.split(command)
+            if word and not word.startswith("-") and any(c in word for c in "/._")]
 
 
 def dumps_secrets(command: str) -> str | None:

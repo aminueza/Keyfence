@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The agent hook refuses the same files in Bash commands as in file tools.
+  Paths inside a command were matched by a second, shorter list, so
+  `secrets.yaml`, `service-account*.json`, `kubeconfig`, `.envrc`,
+  `id_dsa`, `_netrc`, `*.keystore` and files under `.gnupg` were refused
+  for `Read` and allowed for `cat`. Every word of the command that looks
+  like a path now goes through the one list the file tools use, including
+  words inside quotes, after `=` in options and assignments, and in
+  `volume:mount` pairs. Relative paths under `.ssh`, `.kube`, `.docker`,
+  `.aws` and `.gnupg` are recognised too. A bare name without `/`, `.` or
+  `_` such as `cat credentials` is still not treated as a path, so that
+  `rg credentials src/` keeps working.
 - `keyfence import --from op` raises a clean error when an item from `op item list`
   has no `id` field instead of crashing with a `KeyError` traceback.
 
