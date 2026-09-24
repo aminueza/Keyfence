@@ -58,7 +58,7 @@ Linux and Windows: see the
 | `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
 | `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through the proxy |
 | `keyfence run [-p PORT] [--local [NAMES]]` | run the proxy in the foreground on port 8888 |
-| `keyfence install-hooks claude-code\|pi [--project] [--remove]` | stop the agent from reading secret files at all |
+| `keyfence install-hooks claude-code\|pi [--project] [--remove [--force]]` | stop the agent from reading secret files at all |
 | `keyfence hook claude-code\|pi` | the hook itself; the agent runs it, you do not |
 | `keyfence export [--since TS] [--otlp URL] [--header K=V] [--all]` | print the audit log as JSONL or send it to a collector |
 | `keyfence scan 'text'`, `keyfence scan -f FILE` | test detection on text, a file or stdin |
@@ -133,7 +133,8 @@ from reading them in the first place.
 ```bash
 keyfence install-hooks claude-code            # all projects (~/.claude/settings.json)
 keyfence install-hooks claude-code --project  # this project (./.claude/settings.json)
-keyfence install-hooks claude-code --remove
+keyfence install-hooks claude-code --remove           # takes out only what keyfence added
+keyfence install-hooks claude-code --remove --force   # also deny rules an install before 0.5.0 left unrecorded
 ```
 
 The same hook ships as a Claude Code plugin, together with `/keyfence:status`
@@ -170,7 +171,15 @@ for `Read` on `.env` files, `*.pem`, `*.key`, `credentials*`, `secrets.*`,
 Code's own declarative rules: they need no Python on the path, and they
 are what managed settings can enforce for a whole organisation. Existing
 hooks and rules in the settings file are kept, and `--remove` takes out
-only what keyfence added.
+only what keyfence added: the rules it adds are listed in
+`keyfence-deny-rules.json` next to the settings file, and rules that were
+already there stay, even when they are identical to keyfence's.
+
+Installations made with 0.4.0 have no such list. There `--remove` takes
+out the hook, leaves every deny rule in place, prints the ones that match
+keyfence's and says that there is no way to tell who added them.
+`--remove --force` removes all of those, yours included, so read the list
+first. `--force` without `--remove` is an error.
 
 ### pi
 

@@ -166,14 +166,29 @@ def _install_pi(args) -> int:
     return 0
 
 
+def _remove_claude_code(path: Path, force: bool) -> int:
+    result = hooks.uninstall(path, force=force)
+    print(f"Hook removed from {path}." if result.hook else f"No keyfence hook in {path}.")
+    if result.rules:
+        print(f"{result.rules} deny rule(s) removed.")
+    if result.unrecorded:
+        print(f"{len(result.unrecorded)} deny rule(s) in {path} match the ones keyfence installs, but there is "
+              "no record of which ones keyfence added (installs before 0.5.0 kept none), so they were left in place:")
+        for rule in result.unrecorded:
+            print(f"  {rule}")
+        print("Re-run with --remove --force to remove all of them.")
+    return 0
+
+
 def cmd_install_hooks(args) -> int:
+    if args.force and not (args.remove and args.agent == "claude-code"):
+        print("error: --force only applies to `install-hooks claude-code --remove`", file=sys.stderr)
+        return 2
     if args.agent == "pi":
         return _install_pi(args)
     path = hooks.settings_path(args.project)
     if args.remove:
-        changed = hooks.uninstall(path)
-        print(f"Hook removed from {path}." if changed else f"No keyfence hook in {path}.")
-        return 0
+        return _remove_claude_code(path, args.force)
     changed = hooks.install(path)
     scope = "this project" if args.project else "all projects"
     if changed:
@@ -301,6 +316,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_hooks.add_argument("--project", action="store_true",
                          help="install in ./.claude or ./.pi instead of the home directory")
     p_hooks.add_argument("--remove", action="store_true", help="remove the hook")
+    p_hooks.add_argument("--force", action="store_true",
+                         help="with claude-code --remove: also remove every deny rule keyfence installs when "
+                              "there is no record of which ones it added (installs before 0.5.0)")
 
     p_doctor = sub.add_parser("doctor", help="check the installation and say what is missing")
     p_doctor.add_argument("-p", "--port", type=int, default=8888)

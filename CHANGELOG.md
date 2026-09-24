@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code --remove` no longer deletes deny
+  rules you wrote yourself when `keyfence-deny-rules.json` is missing.
+  0.5.0 started recording the rules it adds in that file and removing only
+  those, but with no record, which is the state of every install made with
+  0.4.0, it fell back to removing every rule in its own list, so a
+  `Read(./.env)` you had added by hand went with them. Without a record
+  `--remove` now takes out the hook, leaves the deny rules alone, prints
+  the ones that match keyfence's and says there is no way to tell who
+  added them; `--remove --force` removes all of those. `--force` without
+  `--remove` is an error, and a record that cannot be parsed counts as
+  missing. `--remove` also reports how many deny rules it removed.
 - The agent hook refuses the same files in Bash commands as in file tools.
   Paths inside a command were matched by a second, shorter list, so
   `secrets.yaml`, `service-account*.json`, `kubeconfig`, `.envrc`,

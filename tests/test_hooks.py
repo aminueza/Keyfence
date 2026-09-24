@@ -186,8 +186,9 @@ def test_install_and_uninstall_merge_with_existing_settings(tmp_path):
     assert data["hooks"]["PreToolUse"][1]["hooks"][0]["command"] == hooks.HOOK_COMMAND
     assert data["hooks"]["PreToolUse"][1]["matcher"] == hooks.HOOK_MATCHER
     assert set(hooks.DENY_RULES) <= set(data["permissions"]["deny"])
-    assert hooks.uninstall(path)
-    assert not hooks.uninstall(path)
+    result = hooks.uninstall(path)
+    assert result.changed and result.hook and result.rules == len(hooks.DENY_RULES) and result.unrecorded == []
+    assert not hooks.uninstall(path).changed
     data = json.loads(path.read_text())
     assert len(data["hooks"]["PreToolUse"]) == 1
     assert "permissions" not in data
@@ -202,27 +203,85 @@ def test_install_keeps_foreign_deny_rules_and_fills_missing_ones(tmp_path):
     assert set(hooks.DENY_RULES) <= set(deny)
     record = tmp_path / "keyfence-deny-rules.json"
     assert hooks.DENY_RULES[0] not in json.loads(record.read_text())
-    assert hooks.uninstall(path)
+    assert hooks.uninstall(path).changed
     assert json.loads(path.read_text())["permissions"]["deny"] == ["Bash(rm -rf *)", hooks.DENY_RULES[0]]
     assert not record.exists()
 
 
-def test_uninstall_without_record_falls_back_to_the_full_list(tmp_path):
+def test_uninstall_without_record_removes_the_hook_but_keeps_every_deny_rule(tmp_path):
     path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"permissions": {"deny": ["Read(./.env)", "Bash(rm -rf *)"]}}))
     assert hooks.install(path)
     (tmp_path / "keyfence-deny-rules.json").unlink()
-    assert hooks.uninstall(path)
+    before = json.loads(path.read_text())["permissions"]["deny"]
+    result = hooks.uninstall(path)
+    assert result.hook and result.rules == 0 and result.changed
+    assert result.unrecorded == [rule for rule in before if rule in hooks.DENY_RULES]
+    assert "Read(./.env)" in result.unrecorded and "Bash(rm -rf *)" not in result.unrecorded
+    data = json.loads(path.read_text())
+    assert "hooks" not in data and data["permissions"]["deny"] == before
+    again = hooks.uninstall(path)
+    assert not again.changed and again.unrecorded == result.unrecorded
+    assert json.loads(path.read_text())["permissions"]["deny"] == before
+
+
+def test_uninstall_force_removes_every_keyfence_shaped_rule_and_any_recorded_one(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"permissions": {"deny": ["Read(./.env)", "Bash(rm -rf *)"]}}))
+    assert hooks.install(path)
+    (tmp_path / "keyfence-deny-rules.json").unlink()
+    result = hooks.uninstall(path, force=True)
+    assert result.hook and result.rules == len(hooks.DENY_RULES) and result.unrecorded == []
+    assert json.loads(path.read_text()) == {"permissions": {"deny": ["Bash(rm -rf *)"]}}
+    assert not hooks.uninstall(path, force=True).changed
+    record = tmp_path / "keyfence-deny-rules.json"
+    path.write_text(json.dumps({"permissions": {"deny": ["Read(./old-rule)", "Bash(rm -rf *)", hooks.DENY_RULES[3]]}}))
+    record.write_text(json.dumps(["Read(./old-rule)"]))
+    result = hooks.uninstall(path, force=True)
+    assert result.rules == 2 and not result.hook
+    assert json.loads(path.read_text()) == {"permissions": {"deny": ["Bash(rm -rf *)"]}}
+    assert not record.exists()
+
+
+def test_added_rules_record_is_none_when_missing_or_unreadable(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    assert hooks._added_rules(path) is None
+    for content in ("garbage", "[1, 2]", '{"a": 1}', '"text"'):
+        record.write_text(content)
+        assert hooks._added_rules(path) is None
+    record.write_text('["Read(./x)"]')
+    assert hooks._added_rules(path) == ["Read(./x)"]
+    record.write_text("garbage")
+    path.write_text(json.dumps({"permissions": {"deny": [hooks.DENY_RULES[0], "Bash(rm -rf *)"]}}))
+    result = hooks.uninstall(path)
+    assert not result.changed and result.unrecorded == [hooks.DENY_RULES[0]]
+    assert json.loads(path.read_text())["permissions"]["deny"] == [hooks.DENY_RULES[0], "Bash(rm -rf *)"]
+    assert record.read_text() == "garbage"
+    assert hooks.install(path)
+    assert json.loads(record.read_text()) == sorted(hooks.DENY_RULES[1:])
+
+
+def test_install_merges_new_rules_into_an_existing_record(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    assert hooks.install(path)
+    data = json.loads(path.read_text())
+    data["permissions"]["deny"].remove(hooks.DENY_RULES[2])
+    path.write_text(json.dumps(data))
+    assert hooks.install(path)
+    assert json.loads(record.read_text()) == sorted(hooks.DENY_RULES)
+    assert hooks.uninstall(path).rules == len(hooks.DENY_RULES)
     assert json.loads(path.read_text()) == {}
-    (tmp_path / "keyfence-deny-rules.json").write_text("garbage")
-    assert hooks._added_rules(path) == list(hooks.DENY_RULES)
 
 
 def test_install_creates_file_and_uninstall_cleans_empty_sections(tmp_path):
     path = tmp_path / "settings.json"
     assert hooks.install(path)
-    assert hooks.uninstall(path)
+    assert hooks.uninstall(path).changed
     assert json.loads(path.read_text()) == {}
-    assert not hooks.uninstall(tmp_path / "missing.json")
+    missing = hooks.uninstall(tmp_path / "missing.json")
+    assert not missing.changed and missing.unrecorded == []
 
 
 def test_settings_path(tmp_path, monkeypatch):

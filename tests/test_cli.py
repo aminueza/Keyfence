@@ -298,9 +298,45 @@ def test_install_hooks_project_and_remove(home, tmp_path, monkeypatch, capsys):
     assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
     assert "already present" in capsys.readouterr().out
     assert cli.main(["install-hooks", "claude-code", "--project", "--remove"]) == 0
-    assert "Hook removed" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Hook removed" in out and f"{len(cli.hooks.DENY_RULES)} deny rule(s) removed" in out
+    assert "left in place" not in out
     assert cli.main(["install-hooks", "claude-code", "--project", "--remove"]) == 0
-    assert "No keyfence hook" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "No keyfence hook" in out and "removed." not in out
+
+
+def test_install_hooks_remove_without_record_keeps_user_rules_until_forced(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({"permissions": {"deny": ["Read(./.env)", "Bash(rm -rf *)"]}}))
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    (tmp_path / ".claude" / "keyfence-deny-rules.json").unlink()
+    capsys.readouterr()
+    assert cli.main(["install-hooks", "claude-code", "--project", "--remove"]) == 0
+    out = capsys.readouterr().out
+    assert "Hook removed" in out and "no record of which ones keyfence added" in out
+    assert "  Read(./.env)\n" in out and "Bash(rm -rf *)" not in out
+    assert "--remove --force" in out and "rule(s) removed" not in out
+    deny = json.loads(settings.read_text())["permissions"]["deny"]
+    assert deny[:2] == ["Read(./.env)", "Bash(rm -rf *)"] and set(cli.hooks.DENY_RULES) <= set(deny)
+    assert cli.main(["install-hooks", "claude-code", "--project", "--remove", "--force"]) == 0
+    out = capsys.readouterr().out
+    assert "No keyfence hook" in out and f"{len(cli.hooks.DENY_RULES)} deny rule(s) removed" in out
+    assert "left in place" not in out
+    assert json.loads(settings.read_text()) == {"permissions": {"deny": ["Bash(rm -rf *)"]}}
+
+
+def test_install_hooks_force_requires_claude_code_remove(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    for argv in (["install-hooks", "claude-code", "--project", "--force"],
+                 ["install-hooks", "pi", "--project", "--remove", "--force"]):
+        assert cli.main(argv) == 2
+        captured = capsys.readouterr()
+        assert "error: --force only applies to `install-hooks claude-code --remove`" in captured.err
+        assert captured.out == ""
+    assert not (tmp_path / ".claude").exists() and not (tmp_path / ".pi").exists()
 
 
 def test_install_hooks_global_uses_home(home, tmp_path, monkeypatch, capsys):
