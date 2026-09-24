@@ -69,10 +69,27 @@ start_proxy() {
 }
 stop_proxy() { kill "$PROXY_PID" 2>/dev/null; wait "$PROXY_PID" 2>/dev/null || true; }
 post() { curl -s --noproxy "" -x "http://127.0.0.1:$PROXY_PORT" -d "$1" "http://127.0.0.1:$UPSTREAM_PORT$2"; }
+probe() { curl -s --noproxy "" -x "http://127.0.0.1:$PROXY_PORT" http://keyfence.invalid/; }
 
-echo "=== 1) redact mode ==="
+echo "=== 0) the addon is live under mitmproxy's real script loader ==="
 write_config redact
 start_proxy
+VERSION=$(python3 -c "import keyfence; print(keyfence.__version__)")
+PROBE=""
+for _ in $(seq 1 50); do
+  PROBE=$(probe)
+  [[ "$PROBE" == *"\"keyfence\": \"$VERSION\""* ]] && break
+  sleep 0.2
+done
+echo "$PROBE"
+[[ "$PROBE" == *"\"keyfence\": \"$VERSION\""* ]] || { echo "FAILED: addon not answering the probe: $PROBE"; exit 1; }
+[[ "$PROBE" == *'"mode": "redact"'* ]]           || { echo "FAILED: probe did not report the mode"; exit 1; }
+echo "OK: mitmdump loaded keyfence/addon.py and the addon answers"
+python3 -c "from keyfence import runner; import sys; sys.exit(0 if runner.addon_live($PROXY_PORT) else 1)" || { echo "FAILED: runner.addon_live says the addon is down"; exit 1; }
+echo "OK: runner.addon_live agrees"
+
+echo
+echo "=== 1) redact mode ==="
 RESP=$(post "{\"messages\":[{\"role\":\"user\",\"content\":\"my token is $FAKE_KEY and the password is $VAULT_SECRET\"}]}" /v1/chat/completions)
 echo "$RESP"
 [[ "$RESP" != *"$FAKE_KEY"* ]]     || { echo "FAILED: key leaked"; exit 1; }

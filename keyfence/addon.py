@@ -13,9 +13,11 @@ if _PKG_PARENT not in sys.path:
 
 from mitmproxy import http  # noqa: E402
 
+from keyfence import __version__  # noqa: E402
 from keyfence.config import Config  # noqa: E402
 from keyfence.detectors import Finding, scan  # noqa: E402
 from keyfence.notice import add_notice  # noqa: E402
+from keyfence.runner import PROBE_HOST  # noqa: E402
 from keyfence.streaming import SSERestorer, restore  # noqa: E402
 from keyfence.vault import Vault, VaultError  # noqa: E402
 
@@ -29,14 +31,25 @@ PLACEHOLDER_ID_LENGTH = 10
 
 class KeyFence:
     def __init__(self, config: Config | None = None, vault: Vault | None = None):
-        self.config = config or Config.load()
-        self._config_path = Config.path()
-        self._config_mtime = self._mtime(self._config_path)
-        self._env_vault = None
+        self.config = config
+        self.vault = vault
         self._fixed = config is not None or vault is not None
-        self.vault = vault or self._load_vault()
-        self._vault_mtime = self._mtime(self.vault.path)
+        self._config_path = Config.path()
+        self._config_mtime = 0.0
+        self._vault_mtime = 0.0
+        self._env_vault = None
         self.stats = {"scanned": 0, "findings": 0, "blocked": 0, "errors": 0, "canaries": 0}
+        if self._fixed:
+            self._setup()
+
+    def _setup(self) -> None:
+        if self.config is None:
+            self._config_path = Config.path()
+            self.config = Config.load()
+            self._config_mtime = self._mtime(self._config_path)
+        if self.vault is None:
+            self.vault = self._load_vault()
+            self._vault_mtime = self._mtime(self.vault.path)
 
     @staticmethod
     def _mtime(path: Path) -> float:
@@ -91,22 +104,35 @@ class KeyFence:
             log.error("config reload failed, keeping the previous one: %s", exc)
 
     def load(self, loader):
+        try:
+            self._setup()
+        except VaultError as exc:
+            print(f"keyfence: {exc}", file=sys.stderr, flush=True)
+            os._exit(1)
         log.info("mode=%s | %d hosts monitored | %d rules | vault with %d secret(s)",
                  self.config.mode, len(self.config.hosts),
                  len(self.config.scan.rules), self.vault.count())
 
     def request(self, flow: http.HTTPFlow) -> None:
-        self._maybe_reload_config()
         host = flow.request.pretty_host
-        if not self.config.host_matches(host):
-            return
         try:
+            self._setup()
+            self._maybe_reload_config()
+            if host == PROBE_HOST:
+                flow.response = self._probe_response()
+                return
+            if not self.config.host_matches(host):
+                return
             self._inspect(flow, host)
         except Exception as exc:
             self.stats["errors"] += 1
             log.error("detector failure, failing closed for %s: %r", host, exc)
             flow.response = self._blocked_response(
                 f"keyfence internal error ({type(exc).__name__}); request not sent.")
+
+    def _probe_response(self) -> http.Response:
+        body = {"keyfence": __version__, "mode": self.config.mode, "hosts": len(self.config.hosts)}
+        return http.Response.make(200, json.dumps(body), {"Content-Type": "application/json"})
 
     def _inspect(self, flow: http.HTTPFlow, host: str) -> None:
         text = flow.request.get_text(strict=False)
@@ -230,12 +256,4 @@ class KeyFence:
             log.warning("could not write audit log: %s", exc)
 
 
-def build() -> KeyFence:
-    try:
-        return KeyFence()
-    except VaultError as exc:
-        print(f"keyfence: {exc}", file=sys.stderr, flush=True)
-        os._exit(1)
-
-
-addons = [build()] if __name__.startswith("__mitmproxy_script__") else []
+addons = [KeyFence()]

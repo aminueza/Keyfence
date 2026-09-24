@@ -79,9 +79,12 @@ def check_vault() -> Check:
 
 
 def check_proxy(port: int) -> Check:
-    if runner.port_open(port):
-        return Check(OK, "proxy", f"something is listening on 127.0.0.1:{port}")
-    return Check(INFO, "proxy", f"nothing on 127.0.0.1:{port}; keyfence exec starts its own, keyfence run starts one here")
+    if not runner.port_open(port):
+        return Check(INFO, "proxy", f"nothing on 127.0.0.1:{port}; keyfence exec starts its own, keyfence run starts one here")
+    if runner.addon_live(port):
+        return Check(OK, "proxy", f"keyfence is answering on 127.0.0.1:{port}")
+    return Check(WARN, "proxy", f"something is listening on 127.0.0.1:{port} but the keyfence addon is not answering; "
+                                "requests through it are not scanned")
 
 
 def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_CERT) -> Check:

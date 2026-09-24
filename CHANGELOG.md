@@ -4,6 +4,20 @@
 
 - `keyfence import --from op` raises a clean error when an item from `op item list`
   has no `id` field instead of crashing with a `KeyError` traceback.
+- The mitmproxy addon no longer depends on the name mitmproxy gives the
+  script module. `keyfence/addon.py` declared the addon only when the module
+  name started with `__mitmproxy_script__`, an undocumented detail of
+  mitmproxy's loader; on a mismatch mitmdump ran as a plain proxy and every
+  request reached the provider unscanned, with nothing on stderr and a
+  healthy `keyfence doctor`. The addon is now always declared and reads the
+  config and the vault in mitmproxy's `load` hook, so importing
+  `keyfence.addon` still touches no files.
+- `keyfence exec` checks that the addon is live before starting the
+  command: it sends a request for `http://keyfence.invalid/` through the
+  proxy, which only the addon answers, and refuses to start the command if
+  the answer does not come. `keyfence doctor` runs the same probe against a
+  proxy that is already listening and warns when whatever is on the port
+  is not keyfence.
 
 ## 0.5.0 (2026-09-24)
 
