@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `keyfence demo` tells the story in plain words and names no provider or
+  agent: the request goes to a generic chat endpoint, each mode gets a
+  one-line description, and the closing lines point at `keyfence import`,
+  `keyfence exec -- <agent>` and `keyfence selftest`. On a terminal the
+  secret values are red and the replacements green; `NO_COLOR` and a
+  non-tty output keep it plain. The README animation is rendered from the
+  new output.
 - `keyfence install-hooks --list` prints the supported agents and, for
   each, whether the hook is installed globally and in the current project,
   with the file it looked at. `keyfence doctor` already knew, but it runs

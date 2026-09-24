@@ -103,16 +103,16 @@ def test_doctor_and_demo_commands(home, monkeypatch, capsys):
     capsys.readouterr()
     assert cli.main(["demo"]) == 0
     out = capsys.readouterr().out
-    assert "mode: audit" in out and "mode: block" in out and "HTTP 403" in out
+    assert out.startswith("keyfence demo\n") and "HTTP 403" in out
     from keyfence import demo
-    assert demo.DEMO_PASSWORD not in out.split("mode: redact")[1].split("mode: placeholder")[0]
+    assert demo.DEMO_PASSWORD not in out.split("\nredact ")[1].split("\nplaceholder ")[0]
 
 
 def test_demo_ignores_a_broken_home(home, write_config, capsys):
     write_config("mode: bogus\n")
     (home / "vault.json").write_text("x")
     assert cli.main(["demo"]) == 0
-    assert "mode: block" in capsys.readouterr().out
+    assert "\nblock " in capsys.readouterr().out
     assert (home / "vault.json").read_text() == "x"
 
 
