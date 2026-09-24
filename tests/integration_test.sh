@@ -102,6 +102,19 @@ echo "=== 2) clean request passes untouched ==="
 RESP=$(post '{"messages":[{"role":"user","content":"explain entropy"}]}' /v1/chat/completions)
 [[ "$RESP" == *"explain entropy"* ]] || { echo "FAILED: body altered"; exit 1; }
 echo "OK: body intact"
+
+echo
+echo "=== 2b) redact keeps JSON valid when a secret sits next to an escape ==="
+BODY=$(python3 -c "import json; print(json.dumps({'content': 'prefix\t$FAKE_KEY\n$VAULT_SECRET end'}))")
+RESP=$(post "$BODY" /v1/chat/completions)
+echo "$RESP"
+python3 - "$RESP" <<'EOF' || { echo "FAILED: JSON broken or secret left next to the escape"; exit 1; }
+import json, sys
+content = json.loads(sys.argv[1])["upstream_received"]["content"]
+import re
+assert re.fullmatch(r"prefix\t\[REDACTED:github-[a-z]+\]\n\[REDACTED:vault\] end", content), content
+EOF
+echo "OK: upstream parsed the body, tab and newline kept, both secrets replaced"
 stop_proxy
 
 echo

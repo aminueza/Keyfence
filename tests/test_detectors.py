@@ -449,3 +449,34 @@ def test_ignored_value_does_not_shadow_an_overlapping_secret(vault):
     assert [f.kind for f in scan(pem, vault=vault, config=NO_ENTROPY)] == ["vault"]
     report = scan_report(pem, vault=vault, config=NO_ENTROPY, ignore=IgnoreList(vault.salt, values=[line]))
     assert [f.kind for f in report.findings] == ["pem-private-key"] and report.suppressed == 1
+
+
+ESCAPED_SECRET = "senha-do-postgres-producao-2026"
+
+
+@pytest.mark.parametrize("escape", ["\\t", "\\n", "\\r", "\\b", "\\f", "\\u0009", "\\\"", "\\\\"])
+def test_vault_secret_next_to_a_json_escape_is_found_whole(vault, escape):
+    vault.add(ESCAPED_SECRET)
+    text = '{"content": "x' + escape + ESCAPED_SECRET + escape + 'y"}'
+    findings = scan(text, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("vault", ESCAPED_SECRET)]
+    assert findings[0].start == text.index(ESCAPED_SECRET)
+
+
+def test_entropy_span_after_a_json_escape_starts_at_the_value():
+    secret = "xK9vQ2mZ8pL4nR7tW3yB6cH1dF5gJ0sA"
+    text = json.dumps({"content": "prefix\t" + secret + " suffix\n"})
+    findings = [f for f in scan(text) if f.kind == "entropy"]
+    assert [text[f.start:f.end] for f in findings] == [secret]
+
+
+def test_a_path_after_a_tab_is_not_an_entropy_finding():
+    path = "/private/tmp/claude-501/-Users-victor-Repositories-GNX/465047be-5046-4991-9abd-63a734f1818f/scratchpad/gnx-3408/SPEC.md"
+    text = json.dumps({"content": "prefix\t" + path + " suffix\n"})
+    assert scan(text) == []
+
+
+def test_plain_text_keeps_the_letter_after_a_backslash(vault):
+    vault.add("token-abc-def-ghi-jkl-mno-2026")
+    text = "C:\\repo\\token-abc-def-ghi-jkl-mno-2026 next"
+    assert [f.value for f in scan(text, vault=vault, config=NO_ENTROPY)] == ["token-abc-def-ghi-jkl-mno-2026"]

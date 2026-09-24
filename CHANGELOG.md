@@ -9,6 +9,18 @@
   certificate error. `keyfence doctor` now checks every CA variable
   `keyfence exec` sets, not only `NODE_EXTRA_CA_CERTS`, and names the
   missing ones.
+- A secret right after a JSON escape no longer breaks the request. In a
+  JSON body, `\t`, `\n` and the other escapes are two characters, and the
+  tokenizer split only at the backslash, so a value following `\t` was
+  seen as `t` plus the value: the vault never matched it, and the
+  `[REDACTED:...]` or `<<SECRET_...>>` splice started one character into
+  the escape, leaving `\[REDACTED:...]`, which the provider rejected with
+  `400 invalid escape`. Escapes now separate tokens in JSON bodies, so a
+  secret after a tab or a newline is found and replaced with the escape
+  kept intact, and the proxy widens any replacement that would still cut
+  an escape in half. If a rewrite would leave the body unparsable anyway,
+  the request is refused with a 403 that says so, instead of being sent
+  broken.
 - CI and release workflows run `actions/checkout@v7`,
   `actions/setup-python@v7`, `actions/upload-artifact@v7` and
   `actions/download-artifact@v8`, the current majors built for Node 24,

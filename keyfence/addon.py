@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 import time
+from bisect import bisect_right
 from pathlib import Path
 
 _PKG_PARENT = str(Path(__file__).resolve().parent.parent)
@@ -28,6 +30,35 @@ MAPPING_KEY = "keyfence_mapping"
 STREAMED_KEY = "keyfence_streamed"
 AUDIT_PREVIEW_LIMIT = 50
 PLACEHOLDER_ID_LENGTH = 10
+_JSON_ESCAPE = re.compile(r"\\(?:u[0-9a-fA-F]{4}|.)", re.DOTALL)
+
+
+def parses_as_json(text: str) -> bool:
+    try:
+        json.loads(text)
+    except ValueError:
+        return False
+    return True
+
+
+def json_escapes(text: str) -> tuple[list[int], list[int]]:
+    starts: list[int] = []
+    ends: list[int] = []
+    for m in _JSON_ESCAPE.finditer(text):
+        starts.append(m.start())
+        ends.append(m.end())
+    return starts, ends
+
+
+def whole_escapes(start: int, end: int, escapes: tuple[list[int], list[int]]) -> tuple[int, int]:
+    starts, ends = escapes
+    i = bisect_right(starts, start) - 1
+    if i >= 0 and starts[i] < start < ends[i]:
+        start = starts[i]
+    j = bisect_right(starts, end) - 1
+    if j >= 0 and starts[j] < end < ends[j]:
+        end = ends[j]
+    return start, end
 
 
 class KeyFence:
@@ -179,6 +210,8 @@ class KeyFence:
             log.warning("BLOCKED -> %s: %d secret(s)", host, len(findings))
             return
 
+        was_json = parses_as_json(text)
+        escapes = json_escapes(text) if was_json else None
         mapping: dict[str, str] = {}
         new_text = text
         for f in sorted(findings, key=lambda f: f.start, reverse=True):
@@ -187,7 +220,16 @@ class KeyFence:
                 mapping[token] = f.value
             else:
                 token = f"[REDACTED:{f.kind}]"
-            new_text = new_text[:f.start] + token + new_text[f.end:]
+            start, end = (f.start, f.end) if escapes is None else whole_escapes(f.start, f.end, escapes)
+            new_text = new_text[:start] + token + new_text[end:]
+
+        if was_json and not parses_as_json(new_text):
+            self.stats["errors"] += 1
+            log.error("rewriting the JSON body for %s would break it, failing closed", host)
+            flow.response = self._blocked_response(
+                "keyfence could not remove the secrets from this request without breaking its JSON; "
+                "request not sent.")
+            return
 
         if self.config.notice:
             new_text = add_notice(new_text, host)
