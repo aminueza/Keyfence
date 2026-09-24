@@ -22,7 +22,7 @@ from keyfence.detectors import Finding, ScanReport, scan_report  # noqa: E402
 from keyfence.ignore import IgnoreList  # noqa: E402
 from keyfence.notice import add_notice  # noqa: E402
 from keyfence.runner import PROBE_HOST  # noqa: E402
-from keyfence.streaming import SSERestorer, restore  # noqa: E402
+from keyfence.streaming import SSERestorer, restore, restore_json  # noqa: E402
 from keyfence.vault import Vault, VaultError  # noqa: E402
 
 log = logging.getLogger("keyfence")
@@ -340,7 +340,7 @@ class KeyFence:
         mapping = flow.metadata.get(MAPPING_KEY)
         if not mapping or not message.is_text:
             return
-        restored = restore(message.text, mapping)
+        restored = self._restore_body(message.text, mapping)
         if restored != message.text:
             message.text = restored
             log.info("placeholders restored in a websocket frame")
@@ -387,10 +387,19 @@ class KeyFence:
             restorer = SSERestorer(mapping)
             restored = (restorer.feed(text.encode("utf-8")) + restorer.feed(b"")).decode("utf-8")
         else:
-            restored = restore(text, mapping)
+            restored = self._restore_body(text, mapping)
         if restored != text:
             flow.response.set_text(restored)
             log.info("placeholders restored in response")
+
+    @staticmethod
+    def _restore_body(text: str, mapping: dict[str, str]) -> str:
+        if parses_as_json(text):
+            return restore_json(text, mapping)
+        lines = text.splitlines(keepends=True)
+        if all(parses_as_json(line) for line in lines if line.strip()):
+            return "".join(restore_json(line, mapping) for line in lines)
+        return restore(text, mapping)
 
     def _audit_finding(self, f: Finding) -> dict:
         entry = {"kind": f.kind, "preview": f.masked, "key": f.key}

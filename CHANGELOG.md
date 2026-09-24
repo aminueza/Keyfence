@@ -18,9 +18,8 @@
   of them with `ensure_ascii`; the raw text is still measured, a new table
   shows recall by context with the raw number where it differs, and
   `--json` returns both views under `as_sent` and `raw`.
-  `docs/benchmark.md` has the new numbers: 90% instead of 100% for
-  secrets in code, 38% instead of 52% for random passwords found by
-  patterns alone. The page is no longer one of its own prose samples, so
+  `docs/benchmark.md` has the numbers for both views. The page is no
+  longer one of its own prose samples, so
   regenerating it does not change the counts it publishes, and the output
   names the Python version, since the code samples come partly from its
   standard library.
@@ -29,9 +28,8 @@
   tab, and a rule that needs a word boundary, such as the built-in
   `github-token`, missed it. The gitleaks twin still caught a GitHub token
   under another label; a rule that exists only as a built-in missed the
-  value entirely. Rules now run on a copy of the body where each escape
-  that stands for a character is blanked with spaces, which keeps every
-  offset, and report the value as sent.
+  value entirely. Rules now see such an escape as the separator it
+  stands for, so the built-in label is the one reported.
 - The system prompt notice matches the mode. It used to tell the model in
   every mode that tokens are restored on the way back, which is true only
   for `placeholder`; in `redact` the model wrote `[REDACTED:...]` into
@@ -62,6 +60,36 @@
   a 101 goes to the raw TCP layer and every frame passes unscanned, and a
   `websocket: false` in `~/.mitmproxy/config.yaml` beats the command line,
   so an argument could not close that hole.
+- Detection reads a request the way the model reads it. Every provider
+  request is JSON, and the detectors ran on the raw body, where a quote
+  arrives as `\"`, a newline as `\n` and an accented letter can arrive
+  as `\u00e7`. Several detectors assume plain text, so
+  `password: "Hunter2Hunter2x"` was missed, because the backslash ends
+  the value group of `generic-assignment`; a vault secret holding a
+  comma, brackets or a space was split by the tokenizer and only matched
+  right after `=` or `:` without quotes, and a passphrase with spaces
+  never matched; a non-ASCII vault secret was missed whenever the client
+  serialised with `ensure_ascii`; and a builtin rule right after an
+  escape lost its `\b` boundary, which is why a `ghp_` token after a tab
+  was labelled `github-pat` by the gitleaks twin instead of
+  `github-token`. Scanning now runs over the decoded string values and
+  maps each finding back to the escaped span it came from, so requests
+  are still rewritten where the secret really is and stay valid JSON.
+  Placeholder mappings hold the decoded value and it is escaped again
+  when a response or a websocket frame is rewritten, so a PEM sent as an
+  ordinary JSON string
+  comes back byte for byte, buffered or streamed, and a placeholder
+  inside a field that carries JSON of its own (`partial_json`,
+  `arguments`) is escaped one level more. A secret that was already
+  nested that deep in the request keeps one level of escaping, since the
+  body is decoded once, so a PEM sent inside `arguments` comes back with
+  its newlines still written as `\n`. The `heroku-uuid-key` rule now
+  measures its 20-character window across line breaks, because the
+  newline it used to reach over is a real one on a decoded body. Decoding the body covers the word-boundary case
+  above for every detector, so the pass that blanked escapes with spaces
+  is gone. `docs/benchmark.md` is measured again on Python 3.13: the
+  `code` context goes from 90% to 100% and pattern-only recall for a
+  random password from 38% to 52%, with precision unchanged.
 
 ## 0.7.0 (2026-09-24)
 

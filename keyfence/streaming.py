@@ -4,14 +4,37 @@ import codecs
 import json
 from typing import Any
 
+from .detectors import string_value_spans
+
 JsonPath = tuple[Any, ...]
 
 
-def restore(text: str, mapping: dict[str, str]) -> str:
+NESTED_JSON_FIELDS = ("partial_json", "arguments")
+
+
+def json_escaped(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)[1:-1]
+
+
+def restore(text: str, mapping: dict[str, str], escape: int = 0) -> str:
     for token, original in mapping.items():
         if token in text:
-            text = text.replace(token, original)
+            value = original
+            for _ in range(escape):
+                value = json_escaped(value)
+            text = text.replace(token, value)
     return text
+
+
+def restore_json(text: str, mapping: dict[str, str]) -> str:
+    parts: list[str] = []
+    pos = 0
+    for start, end, key in string_value_spans(text):
+        parts.append(text[pos:start])
+        parts.append(restore(text[start:end], mapping, 2 if key in NESTED_JSON_FIELDS else 1))
+        pos = end
+    parts.append(text[pos:])
+    return "".join(parts)
 
 
 def partial_suffix(text: str, tokens: tuple[str, ...], max_len: int) -> str:
@@ -124,7 +147,8 @@ class SSERestorer:
                 prev_event, partial = previous
                 prev_event.set(path, prev_event.get(path)[:-len(partial)])
                 s = partial + s
-            s = restore(s, self.mapping)
+            nested = bool(path) and path[-1] in NESTED_JSON_FIELDS
+            s = restore(s, self.mapping, 1 if nested else 0)
             suffix = partial_suffix(s, self.tokens, self.max_len)
             if suffix:
                 self.held[path] = (event, suffix)

@@ -175,3 +175,23 @@ def test_stream_never_yields_an_empty_chunk():
 def test_stream_returns_the_same_bytes_as_feed():
     events = (openai_event("a <<SECRET_1>> b") + openai_event("c")).encode()
     assert b"".join(SSERestorer(MAPPING).stream(events)) == SSERestorer(MAPPING).feed(events)
+
+
+NESTED_VALUE = 'line1\nsays "hi"\tend'
+
+
+def test_restore_escapes_when_writing_into_raw_json_text():
+    text = json.dumps({"text": "<<SECRET_1>>"})
+    restored = restore(text, {"<<SECRET_1>>": NESTED_VALUE}, escape=1)
+    assert json.loads(restored)["text"] == NESTED_VALUE
+
+
+def test_nested_json_field_gets_one_more_level_of_escaping():
+    restorer = SSERestorer({"<<SECRET_1>>": NESTED_VALUE})
+    payload = {"type": "content_block_delta", "index": 0,
+               "delta": {"type": "input_json_delta",
+                         "partial_json": json.dumps({"key": "<<SECRET_1>>"})}}
+    raw = f"data: {json.dumps(payload)}\n\n".encode()
+    out = (restorer.feed(raw) + restorer.feed(b"")).decode()
+    event = json.loads(out.split("data: ", 1)[1])
+    assert json.loads(event["delta"]["partial_json"]) == {"key": NESTED_VALUE}
