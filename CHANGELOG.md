@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The benchmark measures every sample as it reaches the proxy, inside a
+  JSON request body. Only the tool result template was wrapped before, and
+  it used the one assignment form that survives JSON escaping, so the
+  published recall for quoted values was higher than what the proxy
+  delivers. Plain samples are now the content of a `tool_result`, a third
+  of them with `ensure_ascii`; the raw text is still measured, a new table
+  shows recall by context with the raw number where it differs, and
+  `--json` returns both views under `as_sent` and `raw`.
+  `docs/benchmark.md` has the new numbers: 90% instead of 100% for
+  secrets in code, 38% instead of 52% for random passwords found by
+  patterns alone.
 - Pattern rules see a JSON escape as a separator. In a JSON body `\t` is
   two characters, so the `t` sat right before a secret that followed a
   tab, and a rule that needs a word boundary, such as the built-in
