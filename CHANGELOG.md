@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- CI and release workflows run `actions/checkout@v7`,
+  `actions/setup-python@v7`, `actions/upload-artifact@v7` and
+  `actions/download-artifact@v8`, the current majors built for Node 24,
+  and pin the Linux jobs to `ubuntu-24.04` instead of `ubuntu-latest`,
+  which GitHub moves to Ubuntu 26 in October 2026.
 ## 0.6.0 (2026-09-24)
 
 - `keyfence demo` tells the story in plain words and names no provider or
