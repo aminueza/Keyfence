@@ -48,12 +48,18 @@ def from_op(path: str | None, run: Callable = _run) -> list[Pair]:
     if path:
         command += ["--vault", path]
     items = _json(run(command), "op item list") or []
+    if not isinstance(items, list):
+        raise SourceError("op item list did not return an item list")
     pairs: list[Pair] = []
     for item in items:
-        detail = _json(run(["op", "item", "get", item["id"], "--format", "json", "--reveal"]), "op item get") or {}
-        for field in detail.get("fields", []):
-            if field.get("type") == "CONCEALED" and field.get("value"):
-                pairs.append(("password", field["value"]))
+        if not isinstance(item, dict) or not item.get("id"):
+            raise SourceError("op item list returned an item without an id")
+        detail = _json(run(["op", "item", "get", str(item["id"]), "--format", "json", "--reveal"]), "op item get") or {}
+        fields = detail.get("fields", []) if isinstance(detail, dict) else []
+        if isinstance(fields, list):
+            for field in fields:
+                if isinstance(field, dict) and field.get("type") == "CONCEALED" and field.get("value"):
+                    pairs.append(("password", str(field["value"])))
     return pairs
 
 
