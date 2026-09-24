@@ -148,6 +148,26 @@ cat "$KEYFENCE_HOME/exec_resp.txt"; echo
 grep -q "REDACTED:vault" "$KEYFENCE_HOME/exec_resp.txt" || { echo "FAILED: env secret not redacted via exec"; exit 1; }
 ! grep -q "$ENV_SECRET" "$KEYFENCE_HOME/upstream_received.log" || { echo "FAILED: env secret reached upstream"; exit 1; }
 echo "OK: value only known from the environment was caught"
+grep -q "keyfence $VERSION: mode=redact | .* hosts monitored | .* rules | vault with .* secret(s)" "$KEYFENCE_HOME/proxy.log" || { echo "FAILED: startup summary missing from proxy.log"; exit 1; }
+grep -q "REDACT -> 127.0.0.1: 1 secret(s) removed from request" "$KEYFENCE_HOME/proxy.log" || { echo "FAILED: detection line missing from proxy.log"; exit 1; }
+! grep -qi "proxy listening\|Loading script" "$KEYFENCE_HOME/proxy.log" || { echo "FAILED: mitmproxy info chatter in proxy.log"; exit 1; }
+echo "OK: proxy.log has the startup summary and the detection line, nothing else"
+
+echo
+echo "=== 7) keyfence exec: a canary hit is logged in proxy.log ==="
+python3 -m keyfence canary "$KEYFENCE_HOME/.env" --name PLANTED_TOKEN
+CANARY_VALUE=$(sed -n 's/^PLANTED_TOKEN=//p' "$KEYFENCE_HOME/.env")
+CANARY_VALUE="$CANARY_VALUE" PROXY_PORT=$PROXY_PORT UPSTREAM_PORT=$UPSTREAM_PORT \
+  python3 -m keyfence exec -p "$PROXY_PORT" -- bash -c \
+  'curl -s --noproxy "" -d "{\"content\":\"token=$CANARY_VALUE\"}" "http://127.0.0.1:$UPSTREAM_PORT/v1/x"' > "$KEYFENCE_HOME/exec_canary.txt"
+cat "$KEYFENCE_HOME/exec_canary.txt"; echo
+grep -q "REDACTED:canary" "$KEYFENCE_HOME/exec_canary.txt" || { echo "FAILED: canary not redacted via exec"; exit 1; }
+grep -q "CANARY tripped -> 127.0.0.1: .*/.env was read and sent" "$KEYFENCE_HOME/proxy.log" || { echo "FAILED: CANARY tripped missing from proxy.log"; exit 1; }
+echo "OK: CANARY tripped with the file path is in proxy.log"
+
+echo
+echo "=== proxy log ==="
+cat "$KEYFENCE_HOME/proxy.log"
 
 echo
 echo "=== audit log ==="

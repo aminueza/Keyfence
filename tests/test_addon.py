@@ -85,11 +85,14 @@ def test_request_fails_closed_when_setup_fails(home, write_config, caplog):
     assert kf.stats["errors"] == 1
 
 
-def test_load_logs_summary(guard, caplog):
-    kf = guard()
-    with caplog.at_level("INFO", logger="keyfence"):
-        kf.load(None)
-    assert "mode=redact" in caplog.text
+def test_load_logs_summary_at_warning_level(home, write_config, caplog):
+    from keyfence import __version__
+    write_config("mode: redact\n")
+    with caplog.at_level("WARNING", logger="keyfence"):
+        KeyFence().load(None)
+    assert [record.levelname for record in caplog.records] == ["WARNING"]
+    assert f"keyfence {__version__}: mode=redact | " in caplog.text
+    assert "hosts monitored" in caplog.text and "rules" in caplog.text and "vault with 0 secret(s)" in caplog.text
 
 
 def test_unmonitored_host_is_ignored(guard):

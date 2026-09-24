@@ -109,9 +109,9 @@ class KeyFence:
         except VaultError as exc:
             print(f"keyfence: {exc}", file=sys.stderr, flush=True)
             os._exit(1)
-        log.info("mode=%s | %d hosts monitored | %d rules | vault with %d secret(s)",
-                 self.config.mode, len(self.config.hosts),
-                 len(self.config.scan.rules), self.vault.count())
+        log.warning("keyfence %s: mode=%s | %d hosts monitored | %d rules | vault with %d secret(s)",
+                    __version__, self.config.mode, len(self.config.hosts),
+                    len(self.config.scan.rules), self.vault.count())
 
     def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host

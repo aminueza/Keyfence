@@ -13,10 +13,16 @@ from keyfence.vault import Vault
 def test_proxy_command():
     cmd = runner.proxy_command(9000, extra=["--set", "x=1"])
     assert Path(cmd[0]).name.lower() in ("mitmdump", "mitmdump.exe")
-    assert cmd[1] == "-q"
     assert "--listen-port" in cmd and "9000" in cmd
     assert cmd[-2:] == ["--set", "x=1"]
     assert str(runner.ADDON_PATH).endswith("addon.py")
+
+
+def test_proxy_command_keeps_warnings_visible_and_flows_quiet():
+    cmd = runner.proxy_command(9000)
+    assert "-q" not in cmd and "--quiet" not in cmd
+    assert cmd[1:5] == ["--set", "termlog_verbosity=warn", "--set", "flow_detail=0"]
+    assert "-v" not in cmd and "--verbose" not in cmd
 
 
 def test_listen_args():
@@ -41,9 +47,9 @@ def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
 
 
 def test_confdir_is_passed_to_mitmdump(tmp_path):
-    assert "--set" in runner.proxy_command(1, confdir=None) and "confdir=" not in " ".join(runner.proxy_command(1, confdir=None))
+    assert "confdir=" not in " ".join(runner.proxy_command(1, confdir=None))
     cmd = runner.proxy_command(1, confdir=tmp_path / "conf")
-    assert cmd[cmd.index("--set", cmd.index("--set") + 1) + 1] == f"confdir={tmp_path / 'conf'}"
+    assert cmd[cmd.index(f"confdir={tmp_path / 'conf'}") - 1] == "--set"
 
 
 def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):

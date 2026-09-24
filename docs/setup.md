@@ -97,7 +97,11 @@ startup and deletes. If the command is killed before the proxy gets that
 far, the next `keyfence exec` removes anything older than a minute from
 that directory. The proxy's own output
 goes to `~/.keyfence/proxy.log` so it does not mix with the command's
-terminal; detections are in the audit log and `keyfence status`.
+terminal: a startup line with the version, mode, host count, rule count
+and vault size, one line per detection (`REDACT`, `PLACEHOLDER`,
+`BLOCKED`, `AUDIT`, `CANARY tripped`), and mitmproxy's own warnings, such
+as a client that does not trust the CA. Detections are also in the audit
+log and `keyfence status`.
 
 To upgrade an isolated install: `uv tool upgrade keyfence` or
 `pipx upgrade keyfence`.
@@ -248,6 +252,10 @@ export REQUESTS_CA_BUNDLE=~/.mitmproxy/mitmproxy-ca-cert.pem
 ```
 
 For desktop apps, set the system proxy to `127.0.0.1:8888`.
+
+`keyfence run` prints the same startup line and detection lines that
+`keyfence exec` writes to `~/.keyfence/proxy.log`, and nothing per
+request otherwise.
 
 ## Docker
 
