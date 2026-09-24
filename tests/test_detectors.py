@@ -4,7 +4,8 @@ import base64
 import json
 
 from keyfence.detectors import (
-    BUILTIN_RULES, Finding, ScanConfig, ScanReport, _scan_rules, scan, scan_report, shannon_entropy,
+    BUILTIN_RULES, Finding, ScanConfig, ScanReport, _scan_rules, blank_escapes, scan, scan_report,
+    shannon_entropy,
     string_value_spans,
 )
 from keyfence.ignore import IgnoreList
@@ -480,3 +481,46 @@ def test_plain_text_keeps_the_letter_after_a_backslash(vault):
     vault.add("token-abc-def-ghi-jkl-mno-2026")
     text = "C:\\repo\\token-abc-def-ghi-jkl-mno-2026 next"
     assert [f.value for f in scan(text, vault=vault, config=NO_ENTROPY)] == ["token-abc-def-ghi-jkl-mno-2026"]
+
+
+GHP = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+
+
+@pytest.mark.parametrize("escape", ["\\t", "\\n", "\\r", "\\b", "\\f", "\\u0009"])
+def test_builtin_rule_after_a_json_escape_keeps_its_own_label(escape):
+    text = '{"content": "x' + escape + GHP + '"}'
+    [finding] = scan(text, config=NO_ENTROPY)
+    assert finding.kind == "github-token" and finding.value == GHP
+    assert text[finding.start:finding.end] == GHP
+
+
+def test_a_rule_spanning_an_escape_reports_the_text_as_sent():
+    pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7fakefakefake\n-----END RSA PRIVATE KEY-----"
+    sent = json.dumps(pem)[1:-1]
+    text = json.dumps({"content": pem})
+    [finding] = scan(text, config=NO_ENTROPY)
+    assert finding.kind == "pem-private-key" and finding.value == sent
+    assert text[finding.start:finding.end] == sent
+
+
+def test_blank_escapes_keeps_offsets_and_literal_escapes():
+    text = '{"a": "x\\ty\\u00e9z\\"q\\\\n\\/"}'
+    masked = blank_escapes(text)
+    assert len(masked) == len(text)
+    assert masked == '{"a": "x  y      z\\"q\\\\n\\/"}'
+
+
+def test_escaped_backslash_before_a_letter_is_not_a_boundary():
+    text = json.dumps({"content": "C:\\t" + GHP})
+    assert scan(text, config=NO_ENTROPY) == []
+    findings = scan(text, config=ScanConfig(entropy_enabled=False, rules=load_rules()))
+    assert [(f.kind, f.value) for f in findings] == [("github-pat", GHP)]
+
+
+def test_plain_text_is_scanned_unmasked():
+    assert blank_escapes("a\\tb") == "a  b"
+    text = "x\\t" + GHP
+    assert scan(text, config=NO_ENTROPY) == []
+    findings = scan(text, config=ScanConfig(entropy_enabled=False, rules=load_rules()))
+    assert [(f.kind, f.value) for f in findings] == [("github-pat", GHP)]
+

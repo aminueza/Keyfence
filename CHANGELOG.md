@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Pattern rules see a JSON escape as a separator. In a JSON body `\t` is
+  two characters, so the `t` sat right before a secret that followed a
+  tab, and a rule that needs a word boundary, such as the built-in
+  `github-token`, missed it. The gitleaks twin still caught a GitHub token
+  under another label; a rule that exists only as a built-in missed the
+  value entirely. Rules now run on a copy of the body where each escape
+  that stands for a character is blanked with spaces, which keeps every
+  offset, and report the value as sent.
 - The system prompt notice matches the mode. It used to tell the model in
   every mode that tokens are restored on the way back, which is true only
   for `placeholder`; in `redact` the model wrote `[REDACTED:...]` into

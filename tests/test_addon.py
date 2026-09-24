@@ -566,8 +566,8 @@ def test_redact_keeps_json_valid_next_to_escapes(guard):
     flow = make_flow(body=body)
     kf.request(flow)
     out = json.loads(flow.request.get_text())
-    assert re.fullmatch(r"prefix\t\[REDACTED:github-[a-z]+\]\n\[REDACTED:vault\] end", out["content"])
-    assert re.fullmatch(r"caf\u00e9 \[REDACTED:github-[a-z]+\]", out["note"])
+    assert re.fullmatch(r"prefix\t\[REDACTED:github-token\]\n\[REDACTED:vault\] end", out["content"])
+    assert re.fullmatch(r"caf\u00e9 \[REDACTED:github-token\]", out["note"])
     assert flow.response is None and kf.stats["errors"] == 0
 
 
