@@ -83,18 +83,28 @@ def _overlaps(start: int, end: int, spans) -> bool:
     return any(not (end <= s or start >= e) for s, e in spans)
 
 
-def _scan_rules(text: str, rules: list[Rule]) -> list[Finding]:
+_ESCAPE = re.compile(r"\\(?:u[0-9a-fA-F]{4}|.)", re.DOTALL)
+_LITERAL_ESCAPES = frozenset('"\\/')
+
+
+def blank_escapes(text: str) -> str:
+    return _ESCAPE.sub(
+        lambda m: m.group() if m.group()[1] in _LITERAL_ESCAPES else " " * len(m.group()), text)
+
+
+def _scan_rules(text: str, rules: list[Rule], masked: str | None = None) -> list[Finding]:
+    masked = text if masked is None else masked
     findings: list[Finding] = []
     claimed: list[tuple[int, int]] = []
-    present = present_keywords(text.lower(), rules)
+    present = present_keywords(masked.lower(), rules)
     for rule in rules:
         if not rule.applies_with(present):
             continue
-        for m in rule.pattern.finditer(text):
-            value = m.group(rule.secret_group)
-            if not value:
+        for m in rule.pattern.finditer(masked):
+            if not m.group(rule.secret_group):
                 continue
             start, end = m.span(rule.secret_group)
+            value = text[start:end]
             if rule.min_entropy and shannon_entropy(value) < rule.min_entropy:
                 continue
             if rule.is_ignored(value) or _overlaps(start, end, claimed):
@@ -304,7 +314,8 @@ def scan_report(text: str, vault=None, config: ScanConfig | None = None, ignore=
 
     findings.extend(_scan_vault(text, vault))
     if config.patterns_enabled:
-        findings.extend(_scan_rules(text, BUILTIN_RULES + config.rules))
+        masked = blank_escapes(text) if json_spans else text
+        findings.extend(_scan_rules(text, BUILTIN_RULES + config.rules, masked))
         findings.extend(_scan_url_query(text))
     if config.entropy_enabled:
         findings.extend(_scan_entropy(

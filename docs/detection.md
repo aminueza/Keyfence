@@ -47,6 +47,12 @@ appears in the text. Rules with an entropy threshold apply it to the matched
 secret. Rule-level allowlists from the gitleaks file are honoured. Rules with
 a single capture group report that group as the secret, as gitleaks does.
 
+In a JSON body, pattern rules see each escape that stands for a
+character (`\n`, `\t`, `\r`, `\b`, `\f`, `\uXXXX`) as spaces of the same
+length, so a rule with a word boundary still matches a secret that follows
+one, and offsets stay those of the body as sent. `\"`, `\\` and `\/` are
+left as they are. The reported value is the text as sent, escapes included.
+
 The built-in assignment rule ignores placeholder values such as `changeme`
 or `${VAR}`, values that contain parentheses, and values that are already
 a redaction token, so a model repeating `TOKEN=[REDACTED]` is not flagged
