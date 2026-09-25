@@ -1,6 +1,5 @@
 import json
 import os
-import re
 import socket
 import stat
 import subprocess
@@ -9,6 +8,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from mitmproxy import ctx as mitm_ctx
+from mitmproxy.addons import next_layer as mitm_next_layer
+from mitmproxy.connection import Client
+from mitmproxy.options import Options
+from mitmproxy.proxy import layer as mitm_layer
+from mitmproxy.proxy.context import Context
 
 from fakes import CA_PEM
 from keyfence import runner
@@ -39,63 +44,85 @@ def test_listen_args():
     assert "local:claude" in cmd and "--listen-port" not in cmd
 
 
-def test_host_regex_matches_the_host_and_its_port():
-    assert re.search(runner.host_regex("api.openai.com"), "api.openai.com:443")
-    assert re.search(runner.host_regex("api.openai.com"), "sub.api.openai.com")
-    assert re.search(runner.host_regex("api.openai.com"), "API.OpenAI.com:443", re.IGNORECASE)
-    assert not re.search(runner.host_regex("api.openai.com"), "evil.com/api.openai.com")
-    assert not re.search(runner.host_regex("api.openai.com"), "notapi.openai.com")
-    assert not re.search(runner.host_regex("api.openai.com"), "evil.comapi.openai.com")
-    assert not re.search(runner.host_regex("api.openai.com"), "api.openai.com.evil.com")
+def _tunnels(host, port=443, patterns=("api.openai.com",), peername=("93.184.216.34", 443)):
+    return _tunnels_with_argv(runner.allow_hosts_args(_config_with(patterns)), host, port, peername)
 
 
-def test_host_regex_wildcard_crosses_dots_like_the_config_matcher():
-    pattern = "*.services.ai.azure.com"
-    assert re.search(runner.host_regex(pattern), "eastus.services.ai.azure.com:443")
-    assert re.search(runner.host_regex(pattern), "a.b.services.ai.azure.com:443")
-    assert not re.search(runner.host_regex(pattern), "services.ai.azure.com.evil.com:443")
-
-
-def test_host_regex_treats_dots_as_literal_and_nothing_else():
-    assert re.search(runner.host_regex("*.openai.azure.com"), "x.openai.azure.com")
-    assert not re.search(runner.host_regex("*.openai.azure.com"), "x.openaiXazure.com")
-
-
-def test_allow_hosts_args_listens_only_to_the_monitored_hosts():
+def _config_with(patterns):
     config = Config()
-    config.hosts = ["api.openai.com", "*.azure.com"]
+    config.hosts = list(patterns)
     config.intercept_all_hosts = False
-    assert runner.allow_hosts_args(config) == [
-        "--allow-hosts", r"^(?:.*\.)?api\.openai\.com(?::[0-9]+)?\Z",
-        "--allow-hosts", r"^(?:.*\.)?.*\.azure\.com(?::[0-9]+)?\Z",
-        "--allow-hosts", r"^(?:.*\.)?keyfence\.invalid(?::[0-9]+)?\Z",
-    ]
+    return config
 
 
-def test_allow_hosts_args_are_empty_when_every_host_is_intercepted():
-    config = Config()
-    config.hosts = ["api.openai.com"]
+def _tunnels_with_argv(argv, host, port=443, peername=("93.184.216.34", 443)):
+    options = Options()
+    options.allow_hosts = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--allow-hosts"]
+    options.ignore_hosts = []
+    original = getattr(mitm_ctx, "options", None)
+    mitm_ctx.options = options
+    try:
+        context = Context(Client(peername=("127.0.0.1", 5555), sockname=("127.0.0.1", 1234)), options)
+        context.server.address = (host, port)
+        context.server.peername = peername
+        probe = mitm_layer.NextLayer(context)
+        context.layers.append(probe)
+        mitm_next_layer.NextLayer().next_layer(probe)
+        return probe.layer.flow is None
+    finally:
+        mitm_ctx.options = original
+
+
+def test_a_monitored_host_is_intercepted_and_every_other_one_is_tunneled():
+    assert not _tunnels("api.openai.com")
+    assert _tunnels("evil.com")
+
+
+def test_the_proxy_intercepts_the_host_with_its_port_and_in_any_case():
+    assert not _tunnels("api.openai.com", 8443)
+    assert not _tunnels("API.OpenAI.com")
+
+
+def test_the_proxy_tunnels_a_host_whose_name_only_looks_like_a_monitored_one():
+    assert _tunnels("apiXopenai.com")
+    assert _tunnels("api.openai.com.evil.com")
+    assert _tunnels("evil.com/api.openai.com")
+
+
+def test_the_proxy_intercepts_a_subdomain_because_the_addon_monitors_it_too():
+    config = _config_with(["api.openai.com"])
+    assert not _tunnels("sub.api.openai.com")
+    assert config.host_matches("sub.api.openai.com")
+    assert not _tunnels("evil.com.api.openai.com")
+    assert config.host_matches("evil.com.api.openai.com")
+
+
+def test_the_wildcard_crosses_dots_like_the_config_matcher():
+    assert not _tunnels("eastus.services.ai.azure.com", patterns=["*.services.ai.azure.com"])
+    assert not _tunnels("a.b.services.ai.azure.com", patterns=["*.services.ai.azure.com"])
+    assert _tunnels("services.ai.azure.com.evil.com", patterns=["*.services.ai.azure.com"])
+
+
+def test_the_proxy_intercepts_every_host_when_the_list_is_empty():
+    config = _config_with(["api.openai.com"])
     config.intercept_all_hosts = True
     assert runner.allow_hosts_args(config) == []
+    assert not _tunnels_with_argv(runner.allow_hosts_args(config), "evil.com")
 
 
-def test_allow_hosts_args_keep_the_probe_reachable_and_deduplicate():
-    config = Config()
-    config.hosts = ["127.0.0.1", "127.0.0.1", "keyfence.invalid"]
-    config.intercept_all_hosts = False
-    args = runner.allow_hosts_args(config)
-    assert args.count(runner.host_regex(runner.PROBE_HOST)) == 1
-    assert args.count("--allow-hosts") == 2
+def test_a_monitored_address_intercepts_every_host_that_resolves_to_it():
+    assert not _tunnels("example.com", patterns=["127.0.0.1"], peername=("127.0.0.1", 9997))
+
+
+def test_the_probe_host_stays_reachable_because_it_is_in_the_list():
+    assert not _tunnels(runner.PROBE_HOST)
 
 
 def test_every_default_host_stays_intercepted_once_allow_hosts_is_passed():
     for pattern in Config().hosts:
-        config = Config()
-        config.hosts = [pattern]
-        regex = runner.host_regex(pattern)
         for host in _hosts_covered_by(pattern):
-            assert config.host_matches(host), (pattern, host)
-            assert re.search(regex, f"{host}:443"), (pattern, host)
+            assert _config_with([pattern]).host_matches(host), (pattern, host)
+            assert not _tunnels(host, patterns=(pattern,)), (pattern, host)
 
 
 def _hosts_covered_by(pattern):
@@ -128,9 +155,9 @@ def test_run_tells_mitmdump_to_tunnel_the_hosts_it_does_not_monitor(home, write_
     write_config("mode: audit\nhosts:\n  - api.openai.com\n")
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
     assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
-    pairs = [seen["cmd"][i:i + 2] for i in range(len(seen["cmd"]) - 1)]
-    assert ["--allow-hosts", runner.host_regex("api.openai.com")] in pairs
-    assert ["--allow-hosts", runner.host_regex(runner.PROBE_HOST)] in pairs
+    assert not _tunnels_with_argv(seen["cmd"], "api.openai.com")
+    assert _tunnels_with_argv(seen["cmd"], "evil.com")
+    assert not _tunnels_with_argv(seen["cmd"], runner.PROBE_HOST)
 
 
 def test_run_still_tunnels_the_hosts_it_does_not_monitor_while_recording(home, write_config, monkeypatch, tmp_path):
@@ -139,9 +166,13 @@ def test_run_still_tunnels_the_hosts_it_does_not_monitor_while_recording(home, w
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
     record = tmp_path / "flows"
     assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
-    pairs = [seen["cmd"][i:i + 2] for i in range(len(seen["cmd"]) - 1)]
-    assert ["-w", str(record)] in pairs
-    assert ["--allow-hosts", runner.host_regex("api.openai.com")] in pairs
+    assert ["-w", str(record.resolve())] in _pairs(seen["cmd"])
+    assert not _tunnels_with_argv(seen["cmd"], "api.openai.com")
+    assert _tunnels_with_argv(seen["cmd"], "evil.com")
+
+
+def _pairs(argv):
+    return [argv[i:i + 2] for i in range(len(argv) - 1)]
 
 
 def test_run_keeps_intercepting_every_host_when_asked_to(home, write_config, monkeypatch, tmp_path):
@@ -149,7 +180,7 @@ def test_run_keeps_intercepting_every_host_when_asked_to(home, write_config, mon
     write_config("mode: audit\nintercept_all_hosts: true\n")
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
     assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
-    assert "--allow-hosts" not in seen["cmd"]
+    assert not _tunnels_with_argv(seen["cmd"], "evil.com")
 
 
 def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
