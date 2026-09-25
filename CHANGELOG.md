@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- The claude-code hook no longer refuses a command that mentions
+  `mitmproxy-ca-cert.pem`. That is the certificate keyfence hands to every
+  child process through `CA_ENV_VARS` and prints as "CA certificate" in
+  `keyfence doctor`, so refusing it as a secret worked against keyfence
+  itself. It is the only name added to the safe list, matched on the
+  basename, so the entry still holds when `MITMPROXY_CONFDIR` moves the
+  directory. `mitmproxy-ca.pem` stays refused: it holds the private key,
+  which forges TLS for any host.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence
