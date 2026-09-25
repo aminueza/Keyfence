@@ -148,7 +148,7 @@ def run_hook(stdin=None, stderr=None) -> int:
             return 2
         return 0
     except BaseException as exc:
-        print(f"keyfence blocked this call because its guard crashed: {exc!r}", file=stderr)
+        print(f"keyfence blocked this call because its guard crashed: {type(exc).__name__}", file=stderr)
         return 2
 
 
