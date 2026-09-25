@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `keyfence selftest` now exercises TLS through the proxy. It used to send
+  its request over plain HTTP and print `info  TLS: not exercised`, so it
+  proved the addon scans and rewrites but never that a TLS client trusts the
+  CA the way `keyfence exec` hands it out. It now starts an HTTPS listener
+  with a self-signed certificate, sends the request with `HTTPSConnection`
+  configured with the CA bundle (the system roots plus the mitmproxy CA, the
+  way `keyfence exec` hands it to child processes), and asserts the handshake
+  to the proxy succeeds with mitmproxy's minted certificate while the body is
+  still redacted. The upstream leg (proxy to listener) uses `ssl_insecure`
+  because the listener's certificate is self-signed and not in any trust
+  store; the client-to-proxy leg verifies for real against the bundle. The
+  TLS line changes from `info  TLS: not exercised` to `ok    TLS: handshake
+  to proxy succeeded with mitmproxy's certificate, body redacted`. A
+  deliberately wrong CA bundle path makes the step fail with a message that
+  names the path, proving the check is not vacuous. Issues #35 and #41 were
+  both TLS-only failures that `keyfence doctor` reported as fine; this
+  change catches that class of problem. There is no cost to the user: the
+  selftest still runs in a temporary home with a throwaway secret and leaves
+  your config, vault and audit log untouched.
 - Child processes get a CA bundle instead of the single mitmproxy
   certificate. `keyfence exec` pointed `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` at
