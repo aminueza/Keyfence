@@ -185,7 +185,7 @@ def _unescape(escape: str) -> str:
     if len(escape) == 12:
         high, low = int(escape[2:6], 16), int(escape[8:12], 16)
         return chr(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
-    if escape[1] == "u":
+    if escape[1] == "u" and len(escape) == 6:
         code = int(escape[2:6], 16)
         return escape if 0xD800 <= code <= 0xDFFF else chr(code)
     return _SIMPLE_ESCAPES.get(escape[1], escape[1])

@@ -590,3 +590,16 @@ def test_a_lone_surrogate_escape_does_not_break_the_scan(vault):
 def test_heroku_key_stays_found_across_a_newline(text):
     findings = scan(text, config=NO_ENTROPY)
     assert [f.kind for f in findings] == ["heroku-uuid-key"]
+
+
+def test_bare_backslash_u_in_text_body_does_not_raise():
+    text = r'[INFO] opened "C:\users\me\app.ini"'
+    findings = scan(text, config=NO_ENTROPY)
+    assert findings == []
+
+
+def test_bare_backslash_u_in_json_string_value_is_kept_raw(vault):
+    vault.add("secret-value-2026")
+    body = '{"content": "path C:\\\\users\\\\me secret-value-2026"}'
+    findings = scan(body, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("vault", "secret-value-2026")]
