@@ -70,7 +70,7 @@ def test_doctor_fails_when_there_is_no_system_roots_for_the_bundle(home, tmp_pat
     assert "no system trust store" in check.detail and missing in check.detail
 
 
-def test_the_shell_check_wants_the_bundle_in_the_four_replacing_variables(home, tmp_path):
+def test_the_shell_check_wants_the_bundle_in_every_replacing_variable(home, tmp_path):
     ca = tmp_path / "ca.pem"
     bundle = tmp_path / "ca-bundle.pem"
     good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
@@ -80,6 +80,29 @@ def test_the_shell_check_wants_the_bundle_in_the_four_replacing_variables(home, 
     check = doctor.check_environment(8888, one_off, ca, bundle, system="Linux")
     assert check.status == doctor.WARN
     assert "CURL_CA_BUNDLE" in check.detail and str(bundle) in check.detail
+
+
+def test_the_shell_check_names_cargo_when_only_its_cainfo_is_missing(home, tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
+            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
+    assert doctor.check_environment(8888, good, ca, bundle, system="Linux").status == doctor.OK
+    short = {name: value for name, value in good.items() if name != "CARGO_HTTP_CAINFO"}
+    check = doctor.check_environment(8888, short, ca, bundle, system="Linux")
+    assert check.status == doctor.WARN
+    assert check.detail.count("CARGO_HTTP_CAINFO") == 1
+    assert "the 5 that replace the trust store" in check.detail
+
+
+def test_the_shell_check_counts_cargo_among_the_ca_variables_it_reports(home, tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
+            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
+    check = doctor.check_environment(8888, good, ca, bundle, system="Linux")
+    assert check.detail == "HTTPS_PROXY and the 6 CA variables point at keyfence on port 8888"
+    assert "CARGO_HTTP_CAINFO" in runner.CA_ENV_VARS
 
 
 def test_config_and_vault_checks(home, write_config):
@@ -127,7 +150,7 @@ def test_environment_check_warns_when_git_for_windows_ignores_the_ca(tmp_path, m
     check = doctor.check_environment(8888, good, ca, bundle, run=unset, system="Windows")
     assert check.status == doctor.WARN and "schannel" in check.detail
     assert "git config --global http.schannelUseSSLCAInfo true" in check.detail
-    assert check.detail.startswith("HTTPS_PROXY and the 5 CA variables point at keyfence on port 8888, but")
+    assert check.detail.startswith("HTTPS_PROXY and the 6 CA variables point at keyfence on port 8888, but")
     configured = lambda cmd: (0, "true\n") if cmd[-1] == "http.schannelUseSSLCAInfo" else (1, "")
     assert doctor.check_environment(8888, good, ca, bundle, run=configured, system="Windows").status == doctor.OK
     openssl = lambda cmd: (0, "openssl\n") if cmd[-1] == "http.sslBackend" else (1, "")
