@@ -828,3 +828,108 @@ def test_running_turns_websocket_interception_back_on(guard, caplog):
         caplog.clear()
         kf.running()
         assert tctx.options.websocket is True and "websocket interception was off" not in caplog.text
+PEM = ("-----BEGIN " + "PRIVATE KEY-----\n"
+       "MIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAyRt8QhOZ1vKcJf3m\n"
+       "WqLd2sXn6TgB0pYzE7RuAiVj4H5DcNlKbW9FxUmPtQoHgZaSrYvEjDIwLnCkBxTe\n"
+       "-----END " + "PRIVATE KEY-----")
+
+
+def pem_flow(kf):
+    flow = make_flow(body=json.dumps({"content": PEM}).encode())
+    kf.request(flow)
+    mapping = flow.metadata[MAPPING_KEY]
+    token = next(t for t, value in mapping.items() if value == PEM)
+    assert json.loads(flow.request.get_text())["content"] == token
+    return flow, token
+
+
+def test_placeholder_restores_a_pem_byte_for_byte_in_a_buffered_response(guard):
+    kf = guard("placeholder")
+    flow, token = pem_flow(kf)
+    flow.response = tutils.tresp(headers=http.Headers([(b"content-type", b"application/json")]),
+                                 content=json.dumps({"text": f"here:\n{token}\n"}).encode())
+    kf.response(flow)
+    assert json.loads(flow.response.get_text())["text"] == f"here:\n{PEM}\n"
+
+
+def test_placeholder_restores_a_pem_byte_for_byte_in_a_streamed_response(guard):
+    kf = guard("placeholder")
+    flow, token = pem_flow(kf)
+    flow.response = tutils.tresp(headers=http.Headers([(b"content-type", b"text/event-stream")]),
+                                 content=b"")
+    kf.responseheaders(flow)
+    payload = {"type": "content_block_delta", "delta": {"type": "text_delta", "text": token}}
+    event = f"data: {json.dumps(payload)}\n\n".encode()
+    out = b"".join(flow.response.stream(event) + flow.response.stream(b""))
+    assert json.loads(out.decode().split("data: ", 1)[1])["delta"]["text"] == PEM
+
+
+def test_placeholder_restores_a_pem_inside_a_tool_call_arguments_string(guard):
+    kf = guard("placeholder")
+    flow, token = pem_flow(kf)
+    body = {"choices": [{"message": {"tool_calls": [
+        {"function": {"name": "write_file", "arguments": json.dumps({"key": token})}}]}}]}
+    flow.response = tutils.tresp(headers=http.Headers([(b"content-type", b"application/json")]),
+                                 content=json.dumps(body).encode())
+    kf.response(flow)
+    out = json.loads(flow.response.get_text())
+    arguments = out["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(arguments) == {"key": PEM}
+
+
+def test_a_secret_nested_in_json_comes_back_with_its_newlines_still_escaped(guard):
+    kf = guard("placeholder")
+    arguments = json.dumps({"key": PEM})
+    flow = make_flow(body=json.dumps({"content": arguments}).encode())
+    kf.request(flow)
+    mapping = flow.metadata[MAPPING_KEY]
+    token, value = next(iter(mapping.items()))
+    assert value == json.dumps(PEM)[1:-1]
+    assert json.loads(json.loads(flow.request.get_text())["content"]) == {"key": token}
+    flow.response = tutils.tresp(headers=http.Headers([(b"content-type", b"application/json")]),
+                                 content=json.dumps({"choices": [{"message": {"tool_calls": [
+                                     {"function": {"arguments": json.dumps({"key": token})}}]}}]}).encode())
+    kf.response(flow)
+    out = json.loads(flow.response.get_text())
+    restored = out["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(restored) == {"key": json.dumps(PEM)[1:-1]}
+
+
+def test_ndjson_response_lines_stay_valid_json(guard):
+    kf = guard("placeholder")
+    flow, token = pem_flow(kf)
+    lines = [json.dumps({"message": {"content": f"key {token}"}}), json.dumps({"done": True})]
+    flow.response = tutils.tresp(headers=http.Headers([(b"content-type", b"application/x-ndjson")]),
+                                 content=("\n".join(lines) + "\n").encode())
+    kf.response(flow)
+    out = flow.response.get_text().splitlines()
+    assert json.loads(out[0])["message"]["content"] == f"key {PEM}"
+    assert json.loads(out[1]) == {"done": True}
+
+
+def test_a_response_body_that_is_not_json_gets_the_value_verbatim(guard):
+    kf = guard("placeholder")
+    flow, token = pem_flow(kf)
+    flow.response = tutils.tresp(headers=http.Headers([(b"content-type", b"text/plain")]),
+                                 content=f"the key is {token} ok".encode())
+    kf.response(flow)
+    assert flow.response.get_text() == f"the key is {PEM} ok"
+
+
+def test_a_lone_surrogate_in_the_body_does_not_block_the_request(guard, home):
+    Vault().add("senha-de-teste-para-medir-2026")
+    kf = guard("redact")
+    body = '{"content": "broken \\ud83d here senha-de-teste-para-medir-2026"}'
+    flow = make_flow(body=body.encode())
+    kf.request(flow)
+    assert flow.response is None and kf.stats["errors"] == 0
+    assert json.loads(flow.request.get_text())["content"] == "broken \ud83d here [REDACTED:vault]"
+
+
+def test_a_placeholder_restored_in_a_json_websocket_frame_keeps_it_valid(guard):
+    kf = guard("placeholder")
+    flow = make_ws_flow()
+    send_frame(kf, flow, json.dumps({"text": f"key {PEM}"}))
+    token = next(t for t, value in flow.metadata[MAPPING_KEY].items() if value == PEM)
+    message = send_frame(kf, flow, json.dumps({"text": f"key {token}"}), from_client=False)
+    assert json.loads(message.text)["text"] == f"key {PEM}"

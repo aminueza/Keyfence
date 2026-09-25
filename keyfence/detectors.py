@@ -67,7 +67,7 @@ BUILTIN_RULES: list[Rule] = [
     _rule("doppler-token", r"\bdp\.pt\.[A-Za-z0-9]{40,}\b"),
     _rule("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
     _rule("heroku-uuid-key",
-          r"(?i)heroku[^\n]{0,20}\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"),
+          r"(?i)heroku[\s\S]{0,20}\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"),
     Rule("generic-assignment", _GENERIC_ASSIGNMENT,
          secret_group=_GENERIC_ASSIGNMENT.groupindex["val"],
          ignore_regexes=(
@@ -83,28 +83,18 @@ def _overlaps(start: int, end: int, spans) -> bool:
     return any(not (end <= s or start >= e) for s, e in spans)
 
 
-_ESCAPE = re.compile(r"\\(?:u[0-9a-fA-F]{4}|.)", re.DOTALL)
-_LITERAL_ESCAPES = frozenset('"\\/')
-
-
-def blank_escapes(text: str) -> str:
-    return _ESCAPE.sub(
-        lambda m: m.group() if m.group()[1] in _LITERAL_ESCAPES else " " * len(m.group()), text)
-
-
-def _scan_rules(text: str, rules: list[Rule], masked: str | None = None) -> list[Finding]:
-    masked = text if masked is None else masked
+def _scan_rules(text: str, rules: list[Rule]) -> list[Finding]:
     findings: list[Finding] = []
     claimed: list[tuple[int, int]] = []
-    present = present_keywords(masked.lower(), rules)
+    present = present_keywords(text.lower(), rules)
     for rule in rules:
         if not rule.applies_with(present):
             continue
-        for m in rule.pattern.finditer(masked):
-            if not m.group(rule.secret_group):
+        for m in rule.pattern.finditer(text):
+            value = m.group(rule.secret_group)
+            if not value:
                 continue
             start, end = m.span(rule.secret_group)
-            value = text[start:end]
             if rule.min_entropy and shannon_entropy(value) < rule.min_entropy:
                 continue
             if rule.is_ignored(value) or _overlaps(start, end, claimed):
@@ -114,13 +104,11 @@ def _scan_rules(text: str, rules: list[Rule], masked: str | None = None) -> list
     return findings
 
 
-_TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\]+""")
-_JSON_TOKEN_SPLIT = re.compile(r"""(?:\\u[0-9a-fA-F]{4}|\\[ntrbf]|[\s"'`,;{}()\[\]<>\\])+""")
+_TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\\x00-\x1f\ufffd]+""")
 
 
 def _split_tokens(text: str) -> list[str]:
-    splitter = _JSON_TOKEN_SPLIT if text.lstrip().startswith(("{", "[")) else _TOKEN_SPLIT
-    return splitter.split(text)
+    return _TOKEN_SPLIT.split(text)
 _WORDISH = re.compile(r"^[A-Za-z]+$")
 _HEXISH = re.compile(r"^[0-9a-fA-F]+$")
 _PATHISH = re.compile(r"^[./~]|://|^data:")
@@ -180,11 +168,100 @@ def string_value_spans(text: str) -> list[tuple[int, int, str | None]]:
     return spans
 
 
+def string_key_spans(text: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    stack: list[str] = []
+    for m in _JSON_TOKEN.finditer(text):
+        tok = m.group()
+        if tok == "{":
+            stack.append("{")
+        elif tok == "[":
+            stack.append("[")
+        elif tok in "}]":
+            if stack:
+                stack.pop()
+        elif stack and stack[-1] == "{" and _KEY_FOLLOWS.match(text, m.end()):
+            spans.append((m.start() + 1, m.end() - 1))
+    return spans
+
+
 def _json_spans(text: str) -> list[tuple[int, int, str | None]]:
     stripped = text.lstrip()
     if not stripped or stripped[0] not in "{[":
         return []
     return string_value_spans(text)
+
+
+_ESCAPE = re.compile(
+    r"\\u[dD][89abAB][0-9a-fA-F]{2}\\u[dD][c-fC-F][0-9a-fA-F]{2}|"
+    r"\\u[0-9a-fA-F]{4}|"
+    r'\\["\\\\/bfnrt]',
+    re.DOTALL)
+_SIMPLE_ESCAPES = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t",
+                   '"': '"', "\\": "\\", "/": "/"}
+_REPLACEMENT_CHAR = "\ufffd"
+
+
+def _unescape(escape: str) -> str:
+    if len(escape) == 12:
+        high, low = int(escape[2:6], 16), int(escape[8:12], 16)
+        return chr(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+    if escape[1] == "u" and len(escape) == 6:
+        code = int(escape[2:6], 16)
+        if 0xD800 <= code <= 0xDFFF:
+            return _REPLACEMENT_CHAR
+        return chr(code)
+    return _SIMPLE_ESCAPES.get(escape[1], escape)
+
+
+@dataclass
+class DecodedBody:
+    text: str
+    spans: list[tuple[int, int, str | None]]
+    chunks: list[tuple[int, int, int, bool]] = field(default_factory=list)
+
+    def raw_span(self, start: int, end: int) -> tuple[int, int]:
+        if not self.chunks:
+            return start, end
+        first = self.chunks[bisect.bisect_right(self.chunks, start, key=lambda c: c[0]) - 1]
+        last = self.chunks[
+            bisect.bisect_right(self.chunks, max(start, end - 1), key=lambda c: c[0]) - 1]
+        return (first[1] + start - first[0] if first[3] else first[1],
+                last[1] + end - last[0] if last[3] else last[2])
+
+
+def decode_body(text: str) -> DecodedBody:
+    spans = _json_spans(text)
+    if not spans or "\\" not in text:
+        return DecodedBody(text, spans)
+    parts: list[str] = []
+    chunks: list[tuple[int, int, int, bool]] = []
+    decoded_spans: list[tuple[int, int, str | None]] = []
+    out = pos = 0
+
+    def emit(start: int, end: int, value: str) -> None:
+        nonlocal out
+        parts.append(value)
+        chunks.append((out, start, end, end - start == len(value)))
+        out += len(value)
+
+    for start, end, key in spans:
+        if start > pos:
+            emit(pos, start, text[pos:start])
+        span_start = out
+        cursor = start
+        for m in _ESCAPE.finditer(text, start, end):
+            if m.start() > cursor:
+                emit(cursor, m.start(), text[cursor:m.start()])
+            emit(m.start(), m.end(), _unescape(m.group()))
+            cursor = m.end()
+        if cursor < end:
+            emit(cursor, end, text[cursor:end])
+        decoded_spans.append((span_start, out, key))
+        pos = end
+    if pos < len(text):
+        emit(pos, len(text), text[pos:])
+    return DecodedBody("".join(parts), decoded_spans, chunks)
 
 
 def _enclosing(start: int, end: int, spans: list[tuple]) -> tuple | None:
@@ -263,18 +340,29 @@ def _scan_url_query(text: str) -> list[Finding]:
     ]
 
 
-def _scan_vault(text: str, vault) -> list[Finding]:
+_QUOTED_VALUE = re.compile(r"""(?=["'`]([^"'`\x00-\x1f]{8,4096})["'`])""")
+
+
+def _scan_vault(text: str, vault, spans: list[tuple[int, int, str | None]] = ()) -> list[Finding]:
     if vault is None or vault.is_empty():
         return []
     findings: list[Finding] = []
     seen_spans: set[tuple[int, int]] = set()
     candidates: set[str] = set()
+
+    def offer(value: str) -> None:
+        for candidate in (value, value.strip(" .,:=!?&")):
+            if len(candidate) >= vault.min_length:
+                candidates.add(candidate)
+
     for raw in _split_tokens(text):
-        if len(raw) >= vault.min_length:
-            candidates.add(raw)
-            candidates.add(raw.strip(".,:=!?&"))
+        offer(raw)
     for m in re.finditer(r"[:=]\s*([^\s\"'\\]{%d,})" % vault.min_length, text):
         candidates.add(m.group(1))
+    for m in _QUOTED_VALUE.finditer(text):
+        offer(m.group(1))
+    for start, end, _key in spans:
+        offer(text[start:end])
 
     for cand in candidates:
         if vault.contains(cand):
@@ -310,16 +398,16 @@ class ScanReport:
 def scan_report(text: str, vault=None, config: ScanConfig | None = None, ignore=None) -> ScanReport:
     config = config or ScanConfig()
     findings: list[Finding] = []
-    json_spans = _json_spans(text)
+    body = decode_body(text)
+    decoded, json_spans = body.text, body.spans
 
-    findings.extend(_scan_vault(text, vault))
+    findings.extend(_scan_vault(decoded, vault, json_spans))
     if config.patterns_enabled:
-        masked = blank_escapes(text) if json_spans else text
-        findings.extend(_scan_rules(text, BUILTIN_RULES + config.rules, masked))
-        findings.extend(_scan_url_query(text))
+        findings.extend(_scan_rules(decoded, BUILTIN_RULES + config.rules))
+        findings.extend(_scan_url_query(decoded))
     if config.entropy_enabled:
         findings.extend(_scan_entropy(
-            text, config.entropy_min_length, config.entropy_threshold,
+            decoded, config.entropy_min_length, config.entropy_threshold,
             config.entropy_max_length, json_spans))
 
     if config.allowlist:
@@ -342,6 +430,8 @@ def scan_report(text: str, vault=None, config: ScanConfig | None = None, ignore=
             continue
         result.append(f)
     result.sort(key=lambda f: f.start)
+    for f in result:
+        f.start, f.end = body.raw_span(f.start, f.end)
     return ScanReport(result, suppressed)
 
 

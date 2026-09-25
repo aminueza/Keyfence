@@ -1,8 +1,8 @@
 # Benchmark
 
 Measured on 2026-09-24 with keyfence 0.8.0.dev0, gitleaks 8.30.1 and
-Python 3.13, on a synthetic corpus of 411 positive and 307 negative samples
-(862 KB as sent). Reproduce with:
+Python 3.13, on a synthetic corpus of 411 positive and 311 negative samples
+(871 KB as sent). Reproduce with:
 
 ```bash
 python bench/run.py
@@ -23,16 +23,16 @@ Negatives are content that should never be flagged:
 
 | category | samples | what it is |
 |---|---|---|
-| code | 176 | chunks of keyfence's own source and of the Python standard library |
+| code | 179 | chunks of keyfence's own source and of the Python standard library |
 | claude-code-body | 40 | request bodies shaped like Claude Code's, with tool ids, thinking signatures, base64 images and hashes in tool output |
-| prose | 31 | chunks of this project's documentation, except this page |
+| prose | 32 | chunks of this project's documentation, except this page |
 | telemetry | 20 | batches of base64-encoded JSON events |
 | logs | 20 | log lines with UUIDs, trace ids, commit hashes and IPs |
 | lockfile | 20 | `package-lock.json` entries with `sha512-` integrity hashes and `go.sum` lines |
 
 The code samples include modules of the standard library of the Python that
-runs the benchmark, so their count depends on the Python version: 176 on
-3.13, 202 on 3.14. The output names the version it ran on. This page is left
+runs the benchmark, so their count depends on the Python version: 179 on
+3.13, 205 on 3.14. The output names the version it ran on. This page is left
 out of the prose samples: it holds the results, so regenerating it would
 change the corpus it describes.
 
@@ -64,9 +64,9 @@ gitleaks binary run over the same bodies as files.
 |---|---|---|---|---|---|
 | recall on formatted secrets | 100% | 100% | 100% | 100% | 81% |
 | precision (per sample) | 99% | 99% | 99% | 99% | 100% |
-| negatives with a finding | 2 / 307 | 2 / 307 | 2 / 307 | 2 / 307 | 0 / 307 |
-| total false findings | 4 | 4 | 4 | 4 | 0 |
-| time | 0.3s | 0.6s | 0.6s | 0.6s | 0.0s |
+| negatives with a finding | 2 / 311 | 2 / 311 | 2 / 311 | 2 / 311 | 0 / 311 |
+| total false findings | 5 | 5 | 5 | 5 | 0 |
+| time | 0.3s | 0.5s | 0.5s | 0.6s | 0.0s |
 
 Recall by format:
 
@@ -83,10 +83,10 @@ Recall by format:
 | jwt | 100% | 100% | 100% | 100% | 62% |
 | npm | 100% | 100% | 100% | 100% | 57% |
 | openai | 100% | 100% | 100% | 100% | 57% |
-| passphrase | 43% | 43% | 43% | 100% | 19% |
+| passphrase | 57% | 71% | 71% | 100% | 19% |
 | pem-private-key | 100% | 100% | 100% | 100% | 100% |
 | pypi | 100% | 100% | 100% | 100% | 100% |
-| random-password | 38% | 38% | 38% | 100% | 5% |
+| random-password | 52% | 52% | 52% | 100% | 5% |
 | sendgrid | 100% | 100% | 100% | 100% | 57% |
 | slack-bot-token | 100% | 100% | 100% | 100% | 100% |
 | slack-webhook | 100% | 100% | 100% | 100% | 100% |
@@ -97,8 +97,8 @@ Recall by context, as sent (raw text in parentheses where it differs):
 
 | context | builtin patterns | + gitleaks rules | + entropy (default) | default + vault | gitleaks binary |
 |---|---|---|---|---|---|
-| code | 90% (raw 100%) | 90% (raw 100%) | 90% (raw 100%) | 100% | 52% (raw 93%) |
-| curl | 89% | 89% (raw 95%) | 89% (raw 95%) | 100% | 47% (raw 95%) |
+| code | 100% | 100% | 100% | 100% | 52% (raw 93%) |
+| curl | 89% | 95% | 95% | 100% | 47% (raw 95%) |
 | env-line | 98% | 98% | 98% | 100% | 91% |
 | json-message | 90% | 90% | 90% | 100% | 90% |
 | prose | 90% | 90% | 90% | 100% | 50% |
@@ -111,10 +111,10 @@ finding):
 | category | samples | builtin patterns | + gitleaks rules | + entropy (default) | default + vault | gitleaks binary |
 |---|---|---|---|---|---|---|
 | claude-code-body | 40 | 0% | 0% | 0% | 0% | 0% |
-| code | 176 | 1% | 1% | 1% | 1% | 0% |
+| code | 179 | 1% | 1% | 1% | 1% | 0% |
 | lockfile | 20 | 0% | 0% | 0% | 0% | 0% |
 | logs | 20 | 0% | 0% | 0% | 0% | 0% |
-| prose | 31 | 3% | 3% | 3% | 3% | 0% |
+| prose | 32 | 3% | 3% | 3% | 3% | 0% |
 | telemetry | 20 | 0% | 0% | 0% | 0% | 0% |
 
 
@@ -122,16 +122,15 @@ finding):
 
 - **Formatless secrets are the point of the vault.** Patterns catch a
   random password only when it sits unquoted after `password=` or a
-  similar name: 38% as sent. With the value registered through
+  similar name, quoted or not: 52% as sent. With the value registered through
   `keyfence import`, recall is 100%.
-- **Quoted values lose recall once they are JSON-encoded.** In the `code`
-  context (`api_key="..."`) the built-in assignment rule finds every
-  formatless secret in the raw text and none in the body, because the
-  quote arrives as `\"` and the backslash ends the value. That is the whole
-  drop from 100% to 90% in the `code` row, and the reason
-  `random-password` and `passphrase` are lower than on raw text. Formatted
-  secrets are not affected: their rules do not depend on quotes. Tracked in
-  [#58](https://github.com/aminueza/keyfence/issues/58).
+- **A quoted value reads the same in a body as in raw text.** Detection
+  runs on the decoded body, so `api_key="..."` in the `code` context is
+  found through the `\"` the client sends: that row is 100%, and
+  `random-password` and `passphrase` match their raw-text recall. The one
+  false finding that comes with it is keyfence's own `DEMO_PASSWORD =
+  "correct-horse-battery-staple-2026"`, counted as a negative because the
+  corpus reads this project's source.
 - **gitleaks loses more in a request body.** Most of its rules require the
   secret to be followed by whitespace, a quote or the end of the line. In a
   JSON body the secret is followed by an escape such as `\"` or `\n`,

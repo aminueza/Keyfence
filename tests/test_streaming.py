@@ -1,6 +1,6 @@
 import json
 
-from keyfence.streaming import Event, SSERestorer, partial_suffix, restore
+from keyfence.streaming import Event, SSERestorer, partial_suffix, restore, restore_json
 
 KEY = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
 MAPPING = {"<<SECRET_1>>": KEY, "<<SECRET_12>>": "second-secret-value"}
@@ -175,3 +175,74 @@ def test_stream_never_yields_an_empty_chunk():
 def test_stream_returns_the_same_bytes_as_feed():
     events = (openai_event("a <<SECRET_1>> b") + openai_event("c")).encode()
     assert b"".join(SSERestorer(MAPPING).stream(events)) == SSERestorer(MAPPING).feed(events)
+
+
+NESTED_VALUE = 'line1\nsays "hi"\tend'
+
+
+def test_restore_escapes_when_writing_into_raw_json_text():
+    text = json.dumps({"text": "<<SECRET_1>>"})
+    restored = restore(text, {"<<SECRET_1>>": NESTED_VALUE}, escape=1)
+    assert json.loads(restored)["text"] == NESTED_VALUE
+
+
+def test_nested_json_field_gets_one_more_level_of_escaping():
+    restorer = SSERestorer({"<<SECRET_1>>": NESTED_VALUE})
+    payload = {"type": "content_block_delta", "index": 0,
+               "delta": {"type": "input_json_delta",
+                         "partial_json": json.dumps({"key": "<<SECRET_1>>"})}}
+    raw = f"data: {json.dumps(payload)}\n\n".encode()
+    out = (restorer.feed(raw) + restorer.feed(b"")).decode()
+    event = json.loads(out.split("data: ", 1)[1])
+    assert json.loads(event["delta"]["partial_json"]) == {"key": NESTED_VALUE}
+
+
+def test_responses_api_delta_field_with_json_string_parses():
+    PEM = ("-----BEGIN PRIVATE KEY-----\n"
+           "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n"
+           "-----END PRIVATE KEY-----")
+    mapping = {"<<SECRET_1>>": PEM}
+    restorer = SSERestorer(mapping)
+
+    payload = {
+        "type": "response.function_call_arguments.delta",
+        "delta": json.dumps({"key": "<<SECRET_1>>"})
+    }
+    raw = f"data: {json.dumps(payload)}\n\n".encode()
+    out = (restorer.feed(raw) + restorer.feed(b"")).decode()
+    event = json.loads(out.split("data: ", 1)[1])
+    inner = json.loads(event["delta"])
+    assert inner == {"key": PEM}
+
+
+def test_buffered_arguments_array_with_json_string_no_extra_escaping():
+    PEM = ("-----BEGIN PRIVATE KEY-----\n"
+           "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n"
+           "-----END PRIVATE KEY-----")
+    mapping = {"<<SECRET_1>>": PEM}
+    nested = json.dumps({"key": "<<SECRET_1>>"})
+    body = json.dumps({"arguments": [nested]})
+    restored = restore_json(body, mapping)
+    parsed = json.loads(restored)
+    inner = json.loads(parsed["arguments"][0])
+    assert inner == {"key": PEM}
+
+
+def test_buffered_arguments_array_with_plain_string_gets_one_level():
+    PEM = ("-----BEGIN PRIVATE KEY-----\n"
+           "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n"
+           "-----END PRIVATE KEY-----")
+    mapping = {"<<SECRET_1>>": PEM}
+    body = json.dumps({"arguments": ["<<SECRET_1>>"]})
+    restored = restore_json(body, mapping)
+    parsed = json.loads(restored)
+    assert parsed["arguments"][0] == PEM
+
+
+def test_restore_json_restores_object_keys():
+    mapping = {"<<SECRET_1>>": "actual-secret"}
+    body = '{"<<SECRET_1>>": "value"}'
+    restored = restore_json(body, mapping)
+    parsed = json.loads(restored)
+    assert "actual-secret" in parsed
+    assert parsed["actual-secret"] == "value"

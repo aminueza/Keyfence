@@ -4,7 +4,7 @@ import base64
 import json
 
 from keyfence.detectors import (
-    BUILTIN_RULES, Finding, ScanConfig, ScanReport, _scan_rules, blank_escapes, scan, scan_report,
+    BUILTIN_RULES, Finding, ScanConfig, ScanReport, _scan_rules, scan, scan_report,
     shannon_entropy,
     string_value_spans,
 )
@@ -12,7 +12,7 @@ from keyfence.ignore import IgnoreList
 from keyfence.rules import load_rules
 from keyfence.vault import Vault
 
-from fakes import ADOBE_SECRET, SLACK_TOKEN, SLACK_WEBHOOK, STRIPE_KEY, TWILIO_KEY
+from fakes import ADOBE_SECRET, fake, SLACK_TOKEN, SLACK_WEBHOOK, STRIPE_KEY, TWILIO_KEY
 
 NO_ENTROPY = ScanConfig(entropy_enabled=False)
 
@@ -494,20 +494,13 @@ def test_builtin_rule_after_a_json_escape_keeps_its_own_label(escape):
     assert text[finding.start:finding.end] == GHP
 
 
-def test_a_rule_spanning_an_escape_reports_the_text_as_sent():
+def test_a_rule_spanning_an_escape_reports_the_decoded_value():
     pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7fakefakefake\n-----END RSA PRIVATE KEY-----"
     sent = json.dumps(pem)[1:-1]
     text = json.dumps({"content": pem})
     [finding] = scan(text, config=NO_ENTROPY)
-    assert finding.kind == "pem-private-key" and finding.value == sent
+    assert finding.kind == "pem-private-key" and finding.value == pem
     assert text[finding.start:finding.end] == sent
-
-
-def test_blank_escapes_keeps_offsets_and_literal_escapes():
-    text = '{"a": "x\\ty\\u00e9z\\"q\\\\n\\/"}'
-    masked = blank_escapes(text)
-    assert len(masked) == len(text)
-    assert masked == '{"a": "x  y      z\\"q\\\\n\\/"}'
 
 
 def test_escaped_backslash_before_a_letter_is_not_a_boundary():
@@ -517,10 +510,117 @@ def test_escaped_backslash_before_a_letter_is_not_a_boundary():
     assert [(f.kind, f.value) for f in findings] == [("github-pat", GHP)]
 
 
-def test_plain_text_is_scanned_unmasked():
-    assert blank_escapes("a\\tb") == "a  b"
+def test_plain_text_is_not_decoded():
     text = "x\\t" + GHP
     assert scan(text, config=NO_ENTROPY) == []
     findings = scan(text, config=ScanConfig(entropy_enabled=False, rules=load_rules()))
     assert [(f.kind, f.value) for f in findings] == [("github-pat", GHP)]
 
+
+GITHUB_TOKEN = fake("ghp_", "0123456789abcdefghijABCDEFGHIJ012345")
+
+
+def escaped_body(content: str, ensure_ascii: bool = True) -> str:
+    return json.dumps({"messages": [{"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "toolu_01", "content": content}]}]},
+        ensure_ascii=ensure_ascii)
+
+
+@pytest.mark.parametrize("ensure_ascii", [True, False])
+def test_double_quoted_assignment_inside_a_json_body(ensure_ascii):
+    body = escaped_body('password: "Hunter2Hunter2x"\n', ensure_ascii)
+    findings = scan(body, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("generic-assignment", "Hunter2Hunter2x")]
+    assert body[findings[0].start:findings[0].end] == "Hunter2Hunter2x"
+
+
+@pytest.mark.parametrize("ensure_ascii", [True, False])
+def test_vault_secret_with_punctuation_or_spaces_inside_quotes(vault, ensure_ascii):
+    vault.add("Pa55,word!xyz")
+    vault.add("correct horse battery staple")
+    body = escaped_body(
+        'password: "Pa55,word!xyz"\n'
+        "psql -W 'Pa55,word!xyz'\n"
+        'phrase: "correct horse battery staple"\n', ensure_ascii)
+    findings = scan(body, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [
+        ("vault", "Pa55,word!xyz"),
+        ("vault", "Pa55,word!xyz"),
+        ("vault", "correct horse battery staple"),
+    ]
+
+
+@pytest.mark.parametrize("ensure_ascii", [True, False])
+def test_non_ascii_vault_secret_inside_a_json_body(vault, ensure_ascii):
+    vault.add("senhaçãoSegura1")
+    body = escaped_body("a senha guardada é senhaçãoSegura1 aqui", ensure_ascii)
+    findings = scan(body, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("vault", "senhaçãoSegura1")]
+    assert json.loads('"' + body[findings[0].start:findings[0].end] + '"') == "senhaçãoSegura1"
+
+
+def test_builtin_rule_matches_right_after_a_json_escape():
+    body = json.dumps({"content": "x\t" + GITHUB_TOKEN})
+    findings = scan(body, config=ScanConfig(entropy_enabled=False, rules=load_rules()))
+    assert [(f.kind, f.value) for f in findings] == [("github-token", GITHUB_TOKEN)]
+    assert body[findings[0].start:findings[0].end] == GITHUB_TOKEN
+
+
+def test_vault_secret_written_as_a_surrogate_pair_is_found(vault):
+    secret = "chave🔑secreta2026"
+    vault.add(secret)
+    body = escaped_body(f"a chave é {secret} aqui")
+    findings = scan(body, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("vault", secret)]
+    assert json.loads('"' + body[findings[0].start:findings[0].end] + '"') == secret
+
+
+def test_a_lone_surrogate_escape_does_not_break_the_scan(vault):
+    vault.add("senha-de-teste-para-medir-2026")
+    body = '{"content": "broken \\ud83d here senha-de-teste-para-medir-2026"}'
+    findings = scan(body, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("vault", "senha-de-teste-para-medir-2026")]
+    assert body[findings[0].start:findings[0].end] == "senha-de-teste-para-medir-2026"
+
+
+@pytest.mark.parametrize("text", [
+    json.dumps({"content": "heroku auth:token\n01234567-89ab-cdef-0123-456789abcdef"}),
+    "heroku auth:token\n01234567-89ab-cdef-0123-456789abcdef",
+])
+def test_heroku_key_stays_found_across_a_newline(text):
+    findings = scan(text, config=NO_ENTROPY)
+    assert [f.kind for f in findings] == ["heroku-uuid-key"]
+
+
+def test_bare_backslash_u_in_text_body_does_not_raise():
+    text = r'[INFO] opened "C:\users\me\app.ini"'
+    findings = scan(text, config=NO_ENTROPY)
+    assert findings == []
+
+
+def test_bare_backslash_u_in_json_string_value_is_kept_raw(vault):
+    vault.add("secret-value-2026")
+    body = '{"content": "path C:\\\\users\\\\me secret-value-2026"}'
+    findings = scan(body, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("vault", "secret-value-2026")]
+
+
+def test_ghp_token_after_bare_backslash_in_text_body_is_found():
+    GHP = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    text = r"something\\" + GHP
+    findings = scan(text, config=ScanConfig(entropy_enabled=False, patterns_enabled=True))
+    assert [(f.kind, f.value) for f in findings] == [("github-token", GHP)]
+
+
+def test_unpaired_surrogate_decoded_to_replacement_char(vault):
+    vault.add("vault-secret-value-2026")
+    body = '{"content": "cut \\ud83dvault-secret-value-2026 end"}'
+    findings = scan(body, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("vault", "vault-secret-value-2026")]
+
+
+def test_ghp_token_after_unpaired_surrogate_is_found():
+    GHP = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    body = '{"content": "cut \\ud83d' + GHP + ' end"}'
+    findings = scan(body, config=ScanConfig(entropy_enabled=False, patterns_enabled=True))
+    assert [(f.kind, f.value) for f in findings] == [("github-token", GHP)]
