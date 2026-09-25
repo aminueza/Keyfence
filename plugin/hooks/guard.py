@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import re
+import shutil
 import sys
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -57,6 +58,15 @@ DENY_RULES = (
     "Read(~/.aws/credentials)", "Read(~/.ssh/**)", "Read(~/.netrc)", "Read(~/.npmrc)",
     "Read(~/.pypirc)", "Read(~/.git-credentials)", "Read(~/.docker/config.json)", "Read(~/.kube/config)",
 )
+
+
+def keyfence_path() -> str:
+    bindir = Path(sys.executable).parent
+    for name in ("keyfence", "keyfence.exe"):
+        candidate = bindir / name
+        if candidate.exists():
+            return str(candidate)
+    return shutil.which("keyfence") or "keyfence"
 
 
 def is_sensitive(path: str) -> bool:
@@ -125,17 +135,21 @@ def run_hook(stdin=None, stderr=None) -> int:
     stdin = stdin or sys.stdin
     stderr = stderr or sys.stderr
     try:
-        payload = json.loads(stdin.read())
-    except ValueError:
-        payload = None
-    if not isinstance(payload, dict):
-        print(UNREADABLE, file=stderr)
+        try:
+            payload = json.loads(stdin.read())
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            print(UNREADABLE, file=stderr)
+            return 2
+        reason = decide(payload)
+        if reason:
+            print(reason, file=stderr)
+            return 2
+        return 0
+    except BaseException as exc:
+        print(f"keyfence blocked this call because its guard crashed: {exc!r}", file=stderr)
         return 2
-    reason = decide(payload)
-    if reason:
-        print(reason, file=stderr)
-        return 2
-    return 0
 
 
 def settings_path(project: bool, cwd: Path | None = None) -> Path:
@@ -144,7 +158,13 @@ def settings_path(project: bool, cwd: Path | None = None) -> Path:
 
 
 def _is_ours(entry: dict) -> bool:
-    return any(HOOK_COMMAND in str(h.get("command", "")) for h in entry.get("hooks", []))
+    for h in entry.get("hooks", []):
+        cmd = str(h.get("command", ""))
+        if HOOK_COMMAND in cmd:
+            return True
+        if "hook claude-code" in cmd:
+            return True
+    return False
 
 
 def _added_rules_path(path: Path) -> Path:
@@ -171,7 +191,10 @@ class Removal(NamedTuple):
         return self.hook or self.rules > 0
 
 
-def install(path: Path) -> bool:
+def install(path: Path, command: str | None = None) -> bool:
+    command = command or HOOK_COMMAND
+    if command != HOOK_COMMAND and "hook claude-code" not in command:
+        command = f"{command} hook claude-code"
     data = json.loads(path.read_text()) if path.exists() else {}
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     deny = data.setdefault("permissions", {}).setdefault("deny", [])
@@ -179,7 +202,7 @@ def install(path: Path) -> bool:
     if not any(_is_ours(e) for e in pre):
         pre.append({
             "matcher": HOOK_MATCHER,
-            "hooks": [{"type": "command", "command": HOOK_COMMAND, "timeout": 10}],
+            "hooks": [{"type": "command", "command": command, "timeout": 10}],
         })
         changed = True
     missing = [rule for rule in DENY_RULES if rule not in deny]
