@@ -279,16 +279,9 @@ def _roots(tmp_path, name="roots.pem", text=CA_PEM):
     return path
 
 
-def _only_roots(monkeypatch, cafile=None, paths=()):
-    monkeypatch.setitem(sys.modules, "certifi", None)
-    monkeypatch.setattr(runner.ssl, "get_default_verify_paths",
-                        lambda: SimpleNamespace(cafile=str(cafile) if cafile else None, capath=None))
-    monkeypatch.setattr(runner, "SYSTEM_CA_PATHS", tuple(paths))
-
-
-def test_bundle_holds_the_system_roots_and_then_the_mitm_ca(home, monkeypatch, tmp_path):
+def test_bundle_holds_the_system_roots_and_then_the_mitm_ca(home, tmp_path, only_roots):
     roots = _roots(tmp_path)
-    _only_roots(monkeypatch, roots)
+    only_roots(roots)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     path, label = runner.ensure_bundle(ca)
@@ -297,8 +290,8 @@ def test_bundle_holds_the_system_roots_and_then_the_mitm_ca(home, monkeypatch, t
     assert label == f"{roots} (the OpenSSL default) plus {ca}"
 
 
-def test_bundle_is_rebuilt_when_the_mitm_ca_changes(home, monkeypatch, tmp_path):
-    _only_roots(monkeypatch, _roots(tmp_path))
+def test_bundle_is_rebuilt_when_the_mitm_ca_changes(home, tmp_path, only_roots):
+    only_roots(_roots(tmp_path))
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     path, _ = runner.ensure_bundle(ca)
@@ -310,8 +303,8 @@ def test_bundle_is_rebuilt_when_the_mitm_ca_changes(home, monkeypatch, tmp_path)
     assert "bmV3LW1pdG0=" in path.read_text() and "dGVzdC1vbmx5" in path.read_text()
 
 
-def test_bundle_is_left_alone_when_nothing_changed(home, monkeypatch, tmp_path):
-    _only_roots(monkeypatch, _roots(tmp_path))
+def test_bundle_is_left_alone_when_nothing_changed(home, tmp_path, only_roots):
+    only_roots(_roots(tmp_path))
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     path, _ = runner.ensure_bundle(ca)
@@ -323,9 +316,9 @@ def test_bundle_is_left_alone_when_nothing_changed(home, monkeypatch, tmp_path):
     assert path.read_text() == text
 
 
-def test_bundle_is_rebuilt_when_the_system_roots_change(home, monkeypatch, tmp_path):
+def test_bundle_is_rebuilt_when_the_system_roots_change(home, tmp_path, only_roots):
     roots = _roots(tmp_path)
-    _only_roots(monkeypatch, roots)
+    only_roots(roots)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     path, _ = runner.ensure_bundle(ca)
@@ -334,8 +327,8 @@ def test_bundle_is_rebuilt_when_the_system_roots_change(home, monkeypatch, tmp_p
     assert "cm9vdHMtY2hhbmdlZA==" in path.read_text()
 
 
-def test_bundle_is_not_world_writable_under_a_permissive_umask(home, monkeypatch, tmp_path):
-    _only_roots(monkeypatch, _roots(tmp_path))
+def test_bundle_is_not_world_writable_under_a_permissive_umask(home, tmp_path, only_roots):
+    only_roots(_roots(tmp_path))
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     if os.name != "posix":
@@ -348,9 +341,9 @@ def test_bundle_is_not_world_writable_under_a_permissive_umask(home, monkeypatch
     assert stat.S_IMODE(path.stat().st_mode) == 0o644
 
 
-def test_bundle_left_world_writable_is_tightened_on_the_next_write(home, monkeypatch, tmp_path):
+def test_bundle_left_world_writable_is_tightened_on_the_next_write(home, tmp_path, only_roots):
     roots = _roots(tmp_path)
-    _only_roots(monkeypatch, roots)
+    only_roots(roots)
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     path = home / runner.BUNDLE_NAME
@@ -362,9 +355,9 @@ def test_bundle_left_world_writable_is_tightened_on_the_next_write(home, monkeyp
         assert stat.S_IMODE(path.stat().st_mode) == 0o644
 
 
-def test_bundle_refuses_to_be_written_when_there_is_no_system_roots(home, monkeypatch, tmp_path):
+def test_bundle_refuses_to_be_written_when_there_is_no_system_roots(home, tmp_path, only_roots):
     missing = "/nowhere/ca-bundle.crt"
-    _only_roots(monkeypatch, paths=(missing,))
+    only_roots(paths=(missing,))
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     with pytest.raises(runner.BundleError) as raised:
@@ -376,27 +369,27 @@ def test_bundle_refuses_to_be_written_when_there_is_no_system_roots(home, monkey
     assert "only the mitmproxy CA" in message
 
 
-def test_bundle_ignores_a_roots_path_that_is_the_mitm_ca_or_the_bundle(home, monkeypatch, tmp_path):
+def test_bundle_ignores_a_roots_path_that_is_the_mitm_ca_or_the_bundle(home, tmp_path, only_roots):
     linux = _roots(tmp_path, "linux.pem")
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
-    _only_roots(monkeypatch, cafile=ca, paths=(str(linux),))
+    only_roots(cafile=ca, paths=(str(linux),))
     assert runner.system_roots((ca,))[0] == linux
-    _only_roots(monkeypatch, cafile=home / runner.BUNDLE_NAME, paths=(str(linux),))
+    only_roots(cafile=home / runner.BUNDLE_NAME, paths=(str(linux),))
     assert runner.system_roots((home / runner.BUNDLE_NAME,))[0] == linux
 
 
-def test_bundle_ignores_a_roots_file_without_a_certificate(home, monkeypatch, tmp_path):
+def test_bundle_ignores_a_roots_file_without_a_certificate(home, tmp_path, only_roots):
     empty = _roots(tmp_path, "empty.pem", "not a certificate at all")
     real = _roots(tmp_path, "real.pem")
-    _only_roots(monkeypatch, cafile=empty, paths=(str(real),))
+    only_roots(cafile=empty, paths=(str(real),))
     assert runner.system_roots()[0] == real
 
 
-def test_a_roots_file_keyfence_cannot_read_is_skipped(home, monkeypatch, tmp_path):
+def test_a_roots_file_keyfence_cannot_read_is_skipped(home, tmp_path, only_roots):
     unreadable = _roots(tmp_path, "unreadable.pem")
     real = _roots(tmp_path, "real.pem")
-    _only_roots(monkeypatch, cafile=unreadable, paths=(str(real),))
+    only_roots(cafile=unreadable, paths=(str(real),))
     if os.name != "posix" or os.geteuid() == 0:
         pytest.skip("a root user reads a file that has no permissions")
     unreadable.chmod(0o000)
@@ -420,8 +413,8 @@ def test_system_roots_prefers_certifi_then_the_openssl_default_then_the_linux_pa
     assert runner.system_roots() == (linux, str(linux))
 
 
-def test_bundle_refuses_a_ca_file_that_holds_no_certificate(home, monkeypatch, tmp_path):
-    _only_roots(monkeypatch, _roots(tmp_path))
+def test_bundle_refuses_a_ca_file_that_holds_no_certificate(home, tmp_path, only_roots):
+    only_roots(_roots(tmp_path))
     ca = tmp_path / "ca.pem"
     ca.write_text("truncated")
     with pytest.raises(runner.BundleError) as raised:
@@ -430,11 +423,11 @@ def test_bundle_refuses_a_ca_file_that_holds_no_certificate(home, monkeypatch, t
     assert not (home / runner.BUNDLE_NAME).exists()
 
 
-def test_bundle_reports_a_roots_file_it_cannot_read(home, monkeypatch, tmp_path):
+def test_bundle_reports_a_roots_file_it_cannot_read(home, monkeypatch, tmp_path, only_roots):
     gone = tmp_path / "removed.pem"
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
-    _only_roots(monkeypatch, gone)
+    only_roots(gone)
     monkeypatch.setattr(runner, "_holds_cert", lambda path: True)
     with pytest.raises(runner.BundleError) as raised:
         runner.ensure_bundle(ca)
@@ -453,8 +446,7 @@ def test_run_hands_the_child_the_bundle_and_the_single_certificate(home, write_c
     assert seen["env"]["NODE_EXTRA_CA_CERTS"] == str(ca)
 
 
-def test_run_refuses_to_start_the_command_when_the_bundle_cannot_be_built(home, write_config, monkeypatch,
-                                                                         tmp_path, capsys):
+def test_run_refuses_to_start_the_command_when_the_bundle_cannot_be_built(home, write_config, monkeypatch, tmp_path, capsys, only_roots):
     write_config("mode: redact\n")
     seen = {}
     proxy = FakeProxy()
@@ -465,7 +457,7 @@ def test_run_refuses_to_start_the_command_when_the_bundle_cannot_be_built(home, 
     monkeypatch.setattr(runner.subprocess, "call", lambda *a, **k: pytest.fail("must not start the command"))
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
-    _only_roots(monkeypatch, paths=("/nowhere/ca-bundle.crt",))
+    only_roots(paths=("/nowhere/ca-bundle.crt",))
     assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 1
     out, err = capsys.readouterr()
     assert "no system trust store" in out and err == ""

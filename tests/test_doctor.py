@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 
+from fakes import CA_PEM
 from keyfence import doctor, runner
 from keyfence.vault import Vault
 
@@ -10,7 +11,7 @@ def test_run_checks_produces_every_check(home, monkeypatch):
     monkeypatch.setattr(runner, "port_open", lambda port: False)
     checks = doctor.run_checks(8888, cwd=home)
     labels = [c.label for c in checks]
-    assert labels[:3] == ["keyfence", "mitmdump", "CA certificate"]
+    assert labels[:4] == ["keyfence", "mitmdump", "CA certificate", "CA bundle"]
     assert "Claude Code hook" in labels and "audit log" in labels
     assert "pi extension" in labels
     assert all(c.status in (doctor.OK, doctor.INFO, doctor.WARN, doctor.FAIL) for c in checks)
@@ -43,6 +44,44 @@ def test_ca_checks(tmp_path, monkeypatch):
     assert doctor.check_ca_trusted(missing).status == doctor.INFO
 
 
+def test_doctor_says_which_bundle_the_child_processes_will_get(home, tmp_path, only_roots):
+    roots = tmp_path / "roots.pem"
+    roots.write_text(CA_PEM)
+    only_roots(roots)
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    before = doctor.check_ca_bundle(ca)
+    assert before.status == doctor.INFO
+    assert str(runner.bundle_path()) in before.detail and "does not exist yet" in before.detail
+    assert f"{roots} (the OpenSSL default)" in before.detail and str(ca) in before.detail
+    path, _ = runner.ensure_bundle(ca)
+    after = doctor.check_ca_bundle(ca)
+    assert after.status == doctor.OK
+    assert after.detail == f"{path}, {roots} (the OpenSSL default) plus {ca}"
+
+
+def test_doctor_fails_when_there_is_no_system_roots_for_the_bundle(home, tmp_path, only_roots):
+    missing = "/nowhere/ca-bundle.crt"
+    only_roots(paths=(missing,))
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    check = doctor.check_ca_bundle(ca)
+    assert check.status == doctor.FAIL
+    assert "no system trust store" in check.detail and missing in check.detail
+
+
+def test_the_shell_check_wants_the_bundle_in_the_four_replacing_variables(home, tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
+            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
+    assert doctor.check_environment(8888, good, ca, bundle, system="Linux").status == doctor.OK
+    one_off = {**good, "CURL_CA_BUNDLE": str(ca)}
+    check = doctor.check_environment(8888, one_off, ca, bundle, system="Linux")
+    assert check.status == doctor.WARN
+    assert "CURL_CA_BUNDLE" in check.detail and str(bundle) in check.detail
+
+
 def test_config_and_vault_checks(home, write_config):
     assert doctor.check_config().status == doctor.OK
     assert "defaults" in doctor.check_config().detail
@@ -65,36 +104,40 @@ def test_proxy_and_environment_checks(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "port_open", lambda port: False)
     assert doctor.check_proxy(8888).status == doctor.INFO
     ca = tmp_path / "ca.pem"
-    assert doctor.check_environment(8888, {}, ca).status == doctor.INFO
-    assert doctor.check_environment(8888, {"HTTPS_PROXY": "http://other:1"}, ca).status == doctor.WARN
-    assert doctor.check_environment(8888, {"HTTPS_PROXY": "http://127.0.0.1:8888"}, ca).status == doctor.WARN
+    bundle = tmp_path / "ca-bundle.pem"
+    assert doctor.check_environment(8888, {}, ca, bundle).status == doctor.INFO
+    assert doctor.check_environment(8888, {"HTTPS_PROXY": "http://other:1"}, ca, bundle).status == doctor.WARN
+    assert doctor.check_environment(8888, {"HTTPS_PROXY": "http://127.0.0.1:8888"}, ca, bundle).status == doctor.WARN
     node_only = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca)}
-    partial = doctor.check_environment(8888, node_only, ca)
+    partial = doctor.check_environment(8888, node_only, ca, bundle)
     assert partial.status == doctor.WARN
     assert "GIT_SSL_CAINFO" in partial.detail and "NODE_EXTRA_CA_CERTS" not in partial.detail
-    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", **{name: str(ca) for name in runner.CA_ENV_VARS}}
-    assert doctor.check_environment(8888, good, ca, system="Linux").status == doctor.OK
+    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
+            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
+    assert doctor.check_environment(8888, good, ca, bundle, system="Linux").status == doctor.OK
 
 
 def test_environment_check_warns_when_git_for_windows_ignores_the_ca(tmp_path, monkeypatch):
     ca = tmp_path / "ca.pem"
-    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", **{name: str(ca) for name in runner.CA_ENV_VARS}}
+    bundle = tmp_path / "ca-bundle.pem"
+    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
+            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
     monkeypatch.setattr(doctor.shutil, "which", lambda name: "C:\\Program Files\\Git\\cmd\\git.exe")
     unset = lambda cmd: (1, "")
-    check = doctor.check_environment(8888, good, ca, run=unset, system="Windows")
+    check = doctor.check_environment(8888, good, ca, bundle, run=unset, system="Windows")
     assert check.status == doctor.WARN and "schannel" in check.detail
     assert "git config --global http.schannelUseSSLCAInfo true" in check.detail
     assert check.detail.startswith("HTTPS_PROXY and the 5 CA variables point at keyfence on port 8888, but")
     configured = lambda cmd: (0, "true\n") if cmd[-1] == "http.schannelUseSSLCAInfo" else (1, "")
-    assert doctor.check_environment(8888, good, ca, run=configured, system="Windows").status == doctor.OK
+    assert doctor.check_environment(8888, good, ca, bundle, run=configured, system="Windows").status == doctor.OK
     openssl = lambda cmd: (0, "openssl\n") if cmd[-1] == "http.sslBackend" else (1, "")
-    assert doctor.check_environment(8888, good, ca, run=openssl, system="Windows").status == doctor.OK
+    assert doctor.check_environment(8888, good, ca, bundle, run=openssl, system="Windows").status == doctor.OK
     never = lambda cmd: pytest.fail("git must not be asked")
     in_session = {**good, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.schannelUseSSLCAInfo", "GIT_CONFIG_VALUE_0": "true"}
-    assert doctor.check_environment(8888, in_session, ca, run=never, system="Windows").status == doctor.OK
-    assert doctor.check_environment(8888, good, ca, run=never, system="Linux").status == doctor.OK
+    assert doctor.check_environment(8888, in_session, ca, bundle, run=never, system="Windows").status == doctor.OK
+    assert doctor.check_environment(8888, good, ca, bundle, run=never, system="Linux").status == doctor.OK
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
-    assert doctor.check_environment(8888, good, ca, run=never, system="Windows").status == doctor.OK
+    assert doctor.check_environment(8888, good, ca, bundle, run=never, system="Windows").status == doctor.OK
     assert doctor.git_config_in_env({"GIT_CONFIG_COUNT": "x"}, "a.b") is None
     assert doctor.git_config_in_env({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "A.B", "GIT_CONFIG_VALUE_0": "v"}, "a.b") == "v"
 
