@@ -197,8 +197,7 @@ def test_nested_json_field_gets_one_more_level_of_escaping():
     assert json.loads(event["delta"]["partial_json"]) == {"key": NESTED_VALUE}
 
 
-def test_responses_api_delta_field_with_json_string():
-    """SSE test for Responses API: response.function_call_arguments.delta with JSON string."""
+def test_responses_api_delta_field_with_json_string_parses():
     PEM = ("-----BEGIN PRIVATE KEY-----\n"
            "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n"
            "-----END PRIVATE KEY-----")
@@ -216,8 +215,7 @@ def test_responses_api_delta_field_with_json_string():
     assert inner == {"key": PEM}
 
 
-def test_buffered_arguments_array_with_json_string():
-    """Buffered response: strings in array under 'arguments' should not get one level too many."""
+def test_buffered_arguments_array_with_json_string_no_extra_escaping():
     PEM = ("-----BEGIN PRIVATE KEY-----\n"
            "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n"
            "-----END PRIVATE KEY-----")
@@ -230,8 +228,7 @@ def test_buffered_arguments_array_with_json_string():
     assert inner == {"key": PEM}
 
 
-def test_buffered_arguments_array_with_plain_string():
-    """Buffered response: plain strings in array under 'arguments' get one level of escaping."""
+def test_buffered_arguments_array_with_plain_string_gets_one_level():
     PEM = ("-----BEGIN PRIVATE KEY-----\n"
            "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n"
            "-----END PRIVATE KEY-----")
@@ -243,7 +240,6 @@ def test_buffered_arguments_array_with_plain_string():
 
 
 def test_restore_json_restores_object_keys():
-    """Placeholder used as a key in a buffered response should be restored."""
     mapping = {"<<SECRET_1>>": "actual-secret"}
     body = '{"<<SECRET_1>>": "value"}'
     restored = restore_json(body, mapping)

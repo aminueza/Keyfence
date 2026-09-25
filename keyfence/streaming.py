@@ -47,7 +47,6 @@ def restore_json(text: str, mapping: dict[str, str]) -> str:
         pos = end
     parts.append(text[pos:])
 
-    # Then handle keys on the result
     text_with_restored_values = "".join(parts)
     parts = []
     pos = 0

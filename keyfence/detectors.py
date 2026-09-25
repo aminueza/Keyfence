@@ -169,7 +169,6 @@ def string_value_spans(text: str) -> list[tuple[int, int, str | None]]:
 
 
 def string_key_spans(text: str) -> list[tuple[int, int]]:
-    """Return spans of object keys (without quotes)."""
     spans: list[tuple[int, int]] = []
     stack: list[str] = []
     for m in _JSON_TOKEN.finditer(text):
