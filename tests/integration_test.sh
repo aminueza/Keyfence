@@ -245,8 +245,9 @@ echo "=== 6) keyfence exec: env snapshot becomes a vault entry ==="
 write_config redact
 MY_SERVICE_TOKEN="$ENV_SECRET" PROXY_PORT=$PROXY_PORT UPSTREAM_PORT=$UPSTREAM_PORT \
   python3 -m keyfence exec -p "$PROXY_PORT" -- bash -c \
-  'curl -s --noproxy "" -d "{\"content\":\"token=$MY_SERVICE_TOKEN\"}" "http://127.0.0.1:$UPSTREAM_PORT/v1/x"' > "$KEYFENCE_HOME/exec_resp.txt"
+  'echo "SSL_CERT_FILE=$SSL_CERT_FILE GIT_SSL_CAINFO=$GIT_SSL_CAINFO NODE_EXTRA_CA_CERTS=$NODE_EXTRA_CA_CERTS"; curl -s --noproxy "" -d "{\"content\":\"token=$MY_SERVICE_TOKEN\"}" "http://127.0.0.1:$UPSTREAM_PORT/v1/x"' > "$KEYFENCE_HOME/exec_resp.txt"
 cat "$KEYFENCE_HOME/exec_resp.txt"; echo
+grep -q "^SSL_CERT_FILE=$KEYFENCE_HOME/ca-bundle.pem GIT_SSL_CAINFO=$KEYFENCE_HOME/ca-bundle.pem NODE_EXTRA_CA_CERTS=$HOME/.mitmproxy/mitmproxy-ca-cert.pem$" "$KEYFENCE_HOME/exec_resp.txt" || { echo "FAILED: exec did not hand the child the bundle and the single CA"; exit 1; }
 grep -q "REDACTED:vault" "$KEYFENCE_HOME/exec_resp.txt" || { echo "FAILED: env secret not redacted via exec"; exit 1; }
 ! grep -q "$ENV_SECRET" "$KEYFENCE_HOME/upstream_received.log" || { echo "FAILED: env secret reached upstream"; exit 1; }
 echo "OK: value only known from the environment was caught"
@@ -276,11 +277,14 @@ for mode in block redact placeholder audit; do
   python3 -m keyfence selftest > "$KEYFENCE_HOME/selftest_$mode.txt" || { cat "$KEYFENCE_HOME/selftest_$mode.txt"; echo "FAILED: selftest exited non-zero in $mode mode"; exit 1; }
   cat "$KEYFENCE_HOME/selftest_$mode.txt"
   ! grep -q "^FAIL" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest printed a FAIL line in $mode mode"; exit 1; }
-  for step in mitmdump config proxy addon "CA certificate" mode request response "audit log"; do
+  for step in mitmdump config proxy addon "CA certificate" "CA bundle" mode request response "audit log"; do
     grep -q "^ok    $step:" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest has no ok line for $step in $mode mode"; exit 1; }
   done
   grep -q "^ok    mode: the proxy reports $mode, as configured" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest did not confirm $mode mode"; exit 1; }
   grep -q "^ok    CA certificate: $HOME/.mitmproxy/mitmproxy-ca-cert.pem" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest CA path is not the exec one"; exit 1; }
+  grep -q "^ok    CA bundle: $KEYFENCE_HOME/ca-bundle.pem, " "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest did not name the CA bundle it wrote"; exit 1; }
+  grep -q "plus $HOME/.mitmproxy/mitmproxy-ca-cert.pem$" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest bundle line does not name the mitmproxy CA"; exit 1; }
+  grep -q "BEGIN CERTIFICATE" "$KEYFENCE_HOME/ca-bundle.pem" || { echo "FAILED: the CA bundle has no certificate in it"; exit 1; }
   grep -q "in $mode mode" "$KEYFENCE_HOME/selftest_$mode.txt" || { echo "FAILED: selftest summary missing in $mode mode"; exit 1; }
   echo "OK: selftest passed in $mode mode"
 done

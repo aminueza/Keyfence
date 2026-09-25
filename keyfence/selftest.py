@@ -231,6 +231,12 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
                                                                 "child processes a path that is not there"))
                     return report
                 checks.append(Check(OK, "CA certificate", f"{ca_cert}, the path keyfence exec hands to child processes"))
+                try:
+                    bundle, label = runner.ensure_bundle(ca_cert)
+                except runner.BundleError as exc:
+                    checks.append(Check(FAIL, "CA bundle", str(exc)))
+                    return report
+                checks.append(Check(OK, "CA bundle", f"{bundle}, {label}"))
                 info = probe(port)
                 if not info:
                     checks.append(Check(FAIL, "addon", "stopped answering the probe" + log_tail(log_path)))
@@ -256,8 +262,8 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
                                                            + log_tail(log_path)))
                     return report
                 checks.append(Check(OK, "audit log", f"{entries} entry(ies) with a vault finding written for the request"))
-                checks.append(Check(INFO, "TLS", "not exercised: the request was plain HTTP, so the CA above is only "
-                                                 "checked to exist, not trusted by a client"))
+                checks.append(Check(INFO, "TLS", "not exercised: the request was plain HTTP, so the CA and the bundle "
+                                                 "above are only checked to exist, not trusted by a client"))
                 return report
             finally:
                 stop_proxy(proxy)
