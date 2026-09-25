@@ -27,8 +27,10 @@ On disk it keeps:
   request, and must answer in milliseconds. Protect the file like the CA
   key below, and prefer registering long random values.
 - `~/.keyfence/audit.log`: one line per request with findings, with a masked
-  preview (first and last four characters) and the JSON key, never the
-  value.
+  preview and the JSON key, never the value. A preview is two characters at
+  each end of a value of 24 characters or more; a shorter value is logged as
+  its kind and its length alone, because a preview of a short secret is most
+  of the secret.
 - `~/.keyfence/env/`: the environment snapshot of a running `keyfence exec`,
   hashes only, deleted by the proxy at startup.
 - `~/.keyfence/proxy.log`: the proxy's own output during `keyfence exec`:

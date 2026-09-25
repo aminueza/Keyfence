@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The audit log previews less of a secret. A preview was the first and last
+  four characters of any value over ten characters, so a twelve-character
+  password, which is the shortest a vault takes, was eight characters wide
+  in a file any user on the machine could read. A preview is now two
+  characters at each end of a value of 24 characters or more, and a shorter
+  value is logged as its kind and its length alone.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence
