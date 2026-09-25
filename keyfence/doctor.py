@@ -204,12 +204,11 @@ def check_hook(cwd: Path | None = None) -> Check:
             return Check(FAIL, "Claude Code hook",
                          f"installed ({scope}) but {path} holds no keyfence command; every Claude Code tool call is refused "
                          "until keyfence install-hooks claude-code runs again")
-        # Extract just the executable path from the command (first word)
-        exe = command.split()[0]
-        problem = command_problem(exe)
+        executable = command.split()[0]
+        problem = command_problem(executable)
         if problem:
             return Check(FAIL, "Claude Code hook",
-                         f"installed ({scope}) but the {scope} hook calls {command}, whose executable {exe} {problem}; every Claude Code "
+                         f"installed ({scope}) but the {scope} hook calls {command}, whose executable {executable} {problem}; every Claude Code "
                          "tool call is refused until keyfence install-hooks claude-code runs again")
         scopes.append(scope)
     if scopes:
