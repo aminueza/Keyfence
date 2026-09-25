@@ -190,6 +190,22 @@ def test_audit_log_left_world_readable_by_an_older_version_is_tightened(guard, h
     assert len(log.read_text().splitlines()) == 1
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_audit_log_is_left_alone_when_the_mode_cannot_be_set(guard, home, caplog, monkeypatch):
+    log = home / "audit.log"
+    log.write_text("")
+    log.chmod(0o644)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        raise OSError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    with caplog.at_level("WARNING", logger="keyfence"):
+        guard("redact").request(make_flow())
+    assert "could not write audit log" in caplog.text
+    assert log.read_text() == ""
+
+
 def test_redaction_adds_notice_to_system_prompt(guard):
     kf = guard("redact")
     body = json.dumps({"system": "sys", "messages": [{"role": "user", "content": f"key {KEY}"}]}).encode()

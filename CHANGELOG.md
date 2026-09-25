@@ -14,7 +14,9 @@
   file is created private. They are now created with `os.open` and
   `O_CREAT | O_APPEND` at 0600, so no other account on the machine can read
   them, and a log an older version left at 0644 is tightened on the next
-  write. `keyfence exec` says on stderr when the mode cannot be set.
+  write. `keyfence exec` says on stderr when the mode cannot be set. The
+  audit log drops the line instead, so a preview never lands in a file it
+  cannot prove is private.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence
