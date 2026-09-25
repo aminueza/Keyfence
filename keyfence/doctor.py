@@ -60,6 +60,18 @@ def check_ca(ca_cert: Path = runner.CA_CERT) -> Check:
     return Check(INFO, "CA certificate", f"{ca_cert} not created yet; it appears on the first keyfence exec or run")
 
 
+def check_ca_bundle(ca_cert: Path = runner.CA_CERT) -> Check:
+    path = runner.bundle_path()
+    try:
+        roots, kind = runner.system_roots((ca_cert, path))
+    except runner.BundleError as exc:
+        return Check(FAIL, "CA bundle", str(exc))
+    if not path.exists():
+        return Check(INFO, "CA bundle", f"{path} does not exist yet; keyfence exec writes it on the first run, with "
+                                        f"the system roots from {roots} ({kind}) plus {ca_cert}")
+    return Check(OK, "CA bundle", f"{path}, {roots} ({kind}) plus {ca_cert}")
+
+
 def check_ca_trusted(ca_cert: Path = runner.CA_CERT, run: Callable = _run) -> Check:
     if platform.system() != "Darwin":
         return Check(INFO, "CA trusted system-wide", "not checked on this platform; only needed for GUI apps and --local")
@@ -131,7 +143,9 @@ def git_ignores_ca(environ=os.environ, run: Callable = _run, system: str | None 
 
 
 def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_CERT,
-                      run: Callable = _run, system: str | None = None) -> Check:
+                      bundle: Path | None = None, run: Callable = _run,
+                      system: str | None = None) -> Check:
+    bundle = bundle or runner.bundle_path()
     proxy = environ.get("HTTPS_PROXY") or environ.get("https_proxy")
     if not proxy:
         return Check(INFO, "shell environment",
@@ -139,10 +153,12 @@ def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_C
     expected = f"http://127.0.0.1:{port}"
     if proxy.rstrip("/") != expected:
         return Check(WARN, "shell environment", f"HTTPS_PROXY={proxy}, keyfence would be {expected}")
-    missing = [name for name in runner.CA_ENV_VARS if Path(environ.get(name, "")) != ca_cert]
+    wanted = {"NODE_EXTRA_CA_CERTS": ca_cert, **{name: bundle for name in runner.BUNDLE_ENV_VARS}}
+    missing = [name for name, path in wanted.items() if Path(environ.get(name, "")) != path]
     if missing:
         return Check(WARN, "shell environment",
-                     f"HTTPS_PROXY is set but {', '.join(missing)} not {ca_cert}; "
+                     f"HTTPS_PROXY is set but {', '.join(missing)} do not hold what keyfence exec would put there "
+                     f"({bundle} for the four that replace the trust store, {ca_cert} for the one that adds to it); "
                      "the tools that read them (Node, Python, curl, git) will fail TLS")
     detail = f"HTTPS_PROXY and the {len(runner.CA_ENV_VARS)} CA variables point at keyfence on port {port}"
     problem = git_ignores_ca(environ, run, system)
@@ -226,6 +242,7 @@ def run_checks(port: int, cwd: Path | None = None) -> list[Check]:
         Check(OK, "keyfence", f"{__version__} on Python {sys.version.split()[0]}, {platform.system()}"),
         check_mitmdump(),
         check_ca(),
+        check_ca_bundle(),
         check_ca_trusted(),
         check_config(),
         check_vault(),

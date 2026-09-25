@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -25,7 +26,21 @@ CONFDIR = Path(os.environ["MITMPROXY_CONFDIR"]) if os.environ.get("MITMPROXY_CON
 CA_CERT = (CONFDIR or Path.home() / ".mitmproxy") / "mitmproxy-ca-cert.pem"
 ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
 PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
-CA_ENV_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO")
+BUNDLE_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO")
+CA_ENV_VARS = ("NODE_EXTRA_CA_CERTS", *BUNDLE_ENV_VARS)
+BUNDLE_NAME = "ca-bundle.pem"
+BUNDLE_MODE = 0o644
+CERT_MARK = "-----BEGIN CERTIFICATE-----"
+SYSTEM_CA_PATHS = (
+    "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/pki/tls/certs/ca-bundle.crt",
+    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+    "/etc/ssl/ca-bundle.pem",
+    "/etc/pki/tls/cacert.pem",
+    "/etc/ssl/cert.pem",
+    "/usr/local/share/certs/ca-root-nss.crt",
+    "/etc/ssl/certs/ca-bundle.crt",
+)
 LOG_ARGS = ("--set", "termlog_verbosity=warn", "--set", "flow_detail=0")
 DEFAULT_PORT = 8888
 
@@ -154,13 +169,83 @@ def with_git_config(env: dict[str, str], key: str, value: str) -> dict[str, str]
     return env
 
 
-def child_env(base: Mapping[str, str], port: int, ca_cert: Path, windows: bool = os.name == "nt") -> dict[str, str]:
+class BundleError(RuntimeError):
+    pass
+
+
+def bundle_path(home: Path | None = None) -> Path:
+    return (home or DEFAULT_DIR) / BUNDLE_NAME
+
+
+def _holds_cert(path: Path) -> bool:
+    try:
+        return path.is_file() and CERT_MARK in path.read_text(errors="replace")
+    except OSError:
+        return False
+
+
+def root_sources(exclude: Sequence[Path] = ()) -> list[tuple[Path, str]]:
+    candidates: list[tuple[Path, str]] = []
+    try:
+        import certifi
+        candidates.append((Path(certifi.where()), "certifi"))
+    except Exception:
+        pass
+    cafile = ssl.get_default_verify_paths().cafile
+    if cafile:
+        candidates.append((Path(cafile), "the OpenSSL default"))
+    candidates.extend((Path(name), "a system path") for name in SYSTEM_CA_PATHS)
+    return [(path, kind) for path, kind in candidates if path not in exclude and _holds_cert(path)]
+
+
+def system_roots(exclude: Sequence[Path] = ()) -> tuple[Path, str]:
+    found = root_sources(exclude)
+    if found:
+        return found[0]
+    raise BundleError(
+        f"no system trust store to put in the bundle: certifi is not importable, OpenSSL points at no cafile, "
+        f"and none of {', '.join(SYSTEM_CA_PATHS)} holds a certificate. A bundle with only the mitmproxy CA would "
+        "reject every public certificate, so the bundle was not written and the command was not started"
+    )
+
+
+def _same_file(path: Path, content: str) -> bool:
+    try:
+        return path.read_text(errors="replace") == content
+    except OSError:
+        return False
+
+
+def ensure_bundle(ca_cert: Path, home: Path | None = None) -> tuple[Path, str]:
+    path = bundle_path(home)
+    roots, kind = system_roots((ca_cert, path))
+    try:
+        system = roots.read_text(errors="replace")
+        ca = ca_cert.read_text(errors="replace")
+    except OSError as exc:
+        raise BundleError(f"the bundle could not be read ({exc}); {ca_cert} and {roots} must both exist") from None
+    if CERT_MARK not in ca:
+        raise BundleError(f"{ca_cert} holds no certificate, so the bundle would add nothing to the system roots")
+    content = f"{system.rstrip()}\n{ca.rstrip()}\n"
+    if _same_file(path, content):
+        return path, f"{roots} ({kind}) plus {ca_cert}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, BUNDLE_MODE)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(content)
+    os.chmod(path, BUNDLE_MODE)
+    return path, f"{roots} ({kind}) plus {ca_cert}"
+
+
+def child_env(base: Mapping[str, str], port: int, ca_cert: Path, bundle: Path,
+              windows: bool = os.name == "nt") -> dict[str, str]:
     env = dict(base)
     proxy_url = f"http://127.0.0.1:{port}"
     for name in PROXY_ENV_VARS:
         env[name] = proxy_url
-    for name in CA_ENV_VARS:
-        env[name] = str(ca_cert)
+    for name in BUNDLE_ENV_VARS:
+        env[name] = str(bundle)
+    env["NODE_EXTRA_CA_CERTS"] = str(ca_cert)
     if windows:
         with_git_config(env, GIT_SCHANNEL_KEY, "true")
     return env
@@ -259,7 +344,12 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
             print(f"{exc.message}, so the command was not started; see {DEFAULT_DIR / 'proxy.log'}")
         return 1
     try:
-        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert))
+        try:
+            bundle, _ = ensure_bundle(ca_cert)
+        except BundleError as exc:
+            print(exc)
+            return 1
+        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert, bundle))
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
             time.sleep(linger)

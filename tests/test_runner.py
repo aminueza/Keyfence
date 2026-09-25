@@ -1,11 +1,15 @@
 import json
 import os
 import socket
+import stat
 import subprocess
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from fakes import CA_PEM
 from keyfence import runner
 from keyfence.vault import Vault
 
@@ -36,7 +40,7 @@ def test_listen_args():
 def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
     seen = {}
     ca = tmp_path / "ca.pem"
-    ca.write_text("cert")
+    ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or FakeProxy())
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
@@ -55,7 +59,7 @@ def test_confdir_is_passed_to_mitmdump(tmp_path):
 def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     seen = {}
     ca = tmp_path / "ca.pem"
-    ca.write_text("cert")
+    ca.write_text(CA_PEM)
     proxy = FakeProxy()
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
@@ -76,7 +80,7 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
 def _wire_fake_proxy(monkeypatch, tmp_path):
     seen = {}
     ca = tmp_path / "ca.pem"
-    ca.write_text("cert")
+    ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or FakeProxy())
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
@@ -169,7 +173,7 @@ def test_pick_port_returns_another_port_when_the_preferred_one_is_busy():
 def _run_without_port(monkeypatch, tmp_path, default_busy):
     seen = {"probed": []}
     ca = tmp_path / "ca.pem"
-    ca.write_text("cert")
+    ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(proxy_cmd=cmd) or FakeProxy())
     monkeypatch.setattr(runner, "port_open",
@@ -240,28 +244,225 @@ def test_wait_for():
 
 
 def test_child_env(tmp_path):
-    env = runner.child_env({"KEEP": "1", "HTTPS_PROXY": "old"}, 8888, tmp_path / "ca.pem")
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({"KEEP": "1", "HTTPS_PROXY": "old"}, 8888, ca, bundle)
     assert env["KEEP"] == "1"
     for name in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
         assert env[name] == "http://127.0.0.1:8888"
-    for name in ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"):
-        assert env[name] == str(tmp_path / "ca.pem")
+    for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"):
+        assert env[name] == str(bundle)
+    assert env["NODE_EXTRA_CA_CERTS"] == str(ca)
     assert set(runner.CA_ENV_VARS) == {"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"}
 
 
 def test_child_env_tells_git_for_windows_to_use_the_ca(tmp_path):
-    plain = runner.child_env({}, 8888, tmp_path / "ca.pem", windows=False)
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    plain = runner.child_env({}, 8888, ca, bundle, windows=False)
     assert not any(name.startswith("GIT_CONFIG_") for name in plain)
-    env = runner.child_env({}, 8888, tmp_path / "ca.pem", windows=True)
+    env = runner.child_env({}, 8888, ca, bundle, windows=True)
     assert env["GIT_CONFIG_COUNT"] == "1"
     assert env["GIT_CONFIG_KEY_0"] == "http.schannelUseSSLCAInfo" and env["GIT_CONFIG_VALUE_0"] == "true"
     env = runner.child_env({"GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "a.b", "GIT_CONFIG_VALUE_0": "1",
-                            "GIT_CONFIG_KEY_1": "c.d", "GIT_CONFIG_VALUE_1": "2"}, 8888, tmp_path / "ca.pem", windows=True)
+                            "GIT_CONFIG_KEY_1": "c.d", "GIT_CONFIG_VALUE_1": "2"}, 8888, ca, bundle, windows=True)
     assert env["GIT_CONFIG_COUNT"] == "3" and env["GIT_CONFIG_KEY_0"] == "a.b" and env["GIT_CONFIG_KEY_1"] == "c.d"
     assert env["GIT_CONFIG_KEY_2"] == "http.schannelUseSSLCAInfo" and env["GIT_CONFIG_VALUE_2"] == "true"
     for broken in ("garbage", "-3"):
-        env = runner.child_env({"GIT_CONFIG_COUNT": broken}, 8888, tmp_path / "ca.pem", windows=True)
+        env = runner.child_env({"GIT_CONFIG_COUNT": broken}, 8888, ca, bundle, windows=True)
         assert env["GIT_CONFIG_COUNT"] == "1" and env["GIT_CONFIG_KEY_0"] == "http.schannelUseSSLCAInfo"
+
+
+def _roots(tmp_path, name="roots.pem", text=CA_PEM):
+    path = tmp_path / name
+    path.write_text(text)
+    return path
+
+
+def test_bundle_holds_the_system_roots_and_then_the_mitm_ca(home, tmp_path, only_roots):
+    roots = _roots(tmp_path)
+    only_roots(roots)
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    path, label = runner.ensure_bundle(ca)
+    assert path == home / "ca-bundle.pem"
+    assert path.read_text() == f"{roots.read_text().rstrip()}\n{ca.read_text().rstrip()}\n"
+    assert label == f"{roots} (the OpenSSL default) plus {ca}"
+
+
+def test_bundle_is_rebuilt_when_the_mitm_ca_changes(home, tmp_path, only_roots):
+    only_roots(_roots(tmp_path))
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    path, _ = runner.ensure_bundle(ca)
+    stale = path.read_text()
+    ca.write_text(CA_PEM.replace("dGVzdC1vbmx5", "bmV3LW1pdG0="))
+    again, _ = runner.ensure_bundle(ca)
+    assert again == path
+    assert path.read_text() != stale
+    assert "bmV3LW1pdG0=" in path.read_text() and "dGVzdC1vbmx5" in path.read_text()
+
+
+def test_bundle_is_left_alone_when_nothing_changed(home, tmp_path, only_roots):
+    only_roots(_roots(tmp_path))
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    path, _ = runner.ensure_bundle(ca)
+    before = path.stat()
+    text = path.read_text()
+    runner.ensure_bundle(ca)
+    after = path.stat()
+    assert (after.st_mtime_ns, after.st_ino) == (before.st_mtime_ns, before.st_ino)
+    assert path.read_text() == text
+
+
+def test_bundle_is_rebuilt_when_the_system_roots_change(home, tmp_path, only_roots):
+    roots = _roots(tmp_path)
+    only_roots(roots)
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    path, _ = runner.ensure_bundle(ca)
+    roots.write_text(CA_PEM.replace("dGVzdC1vbmx5", "cm9vdHMtY2hhbmdlZA=="))
+    runner.ensure_bundle(ca)
+    assert "cm9vdHMtY2hhbmdlZA==" in path.read_text()
+
+
+def test_bundle_is_not_world_writable_under_a_permissive_umask(home, tmp_path, only_roots):
+    only_roots(_roots(tmp_path))
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    if os.name != "posix":
+        pytest.skip("umask modes are not meaningful here")
+    previous = os.umask(0)
+    try:
+        path, _ = runner.ensure_bundle(ca)
+    finally:
+        os.umask(previous)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o644
+
+
+def test_bundle_left_world_writable_is_tightened_on_the_next_write(home, tmp_path, only_roots):
+    roots = _roots(tmp_path)
+    only_roots(roots)
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    path = home / runner.BUNDLE_NAME
+    path.write_text("left behind by something else")
+    path.chmod(0o666)
+    runner.ensure_bundle(ca)
+    assert path.read_text() != "left behind by something else"
+    if os.name == "posix":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o644
+
+
+def test_bundle_refuses_to_be_written_when_there_is_no_system_roots(home, tmp_path, only_roots):
+    missing = "/nowhere/ca-bundle.crt"
+    only_roots(paths=(missing,))
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    with pytest.raises(runner.BundleError) as raised:
+        runner.ensure_bundle(ca)
+    message = str(raised.value)
+    assert "no system trust store" in message and "certifi" in message
+    assert missing in message
+    assert not (home / runner.BUNDLE_NAME).exists()
+    assert "only the mitmproxy CA" in message
+
+
+def test_bundle_ignores_a_roots_path_that_is_the_mitm_ca_or_the_bundle(home, tmp_path, only_roots):
+    linux = _roots(tmp_path, "linux.pem")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    only_roots(cafile=ca, paths=(str(linux),))
+    assert runner.system_roots((ca,))[0] == linux
+    only_roots(cafile=home / runner.BUNDLE_NAME, paths=(str(linux),))
+    assert runner.system_roots((home / runner.BUNDLE_NAME,))[0] == linux
+
+
+def test_bundle_ignores_a_roots_file_without_a_certificate(home, tmp_path, only_roots):
+    empty = _roots(tmp_path, "empty.pem", "not a certificate at all")
+    real = _roots(tmp_path, "real.pem")
+    only_roots(cafile=empty, paths=(str(real),))
+    assert runner.system_roots()[0] == real
+
+
+def test_a_roots_file_keyfence_cannot_read_is_skipped(home, tmp_path, only_roots):
+    unreadable = _roots(tmp_path, "unreadable.pem")
+    real = _roots(tmp_path, "real.pem")
+    only_roots(cafile=unreadable, paths=(str(real),))
+    if os.name != "posix" or os.geteuid() == 0:
+        pytest.skip("a root user reads a file that has no permissions")
+    unreadable.chmod(0o000)
+    assert runner.system_roots() == (real, "a system path")
+
+
+def test_system_roots_prefers_certifi_then_the_openssl_default_then_the_linux_paths(monkeypatch, tmp_path):
+    linux = _roots(tmp_path, "linux.pem")
+    openssl = _roots(tmp_path, "openssl.pem")
+    certifi_roots = _roots(tmp_path, "certifi.pem")
+    monkeypatch.setattr(runner.ssl, "get_default_verify_paths",
+                        lambda: SimpleNamespace(cafile=str(openssl), capath=None))
+    monkeypatch.setattr(runner, "SYSTEM_CA_PATHS", (str(linux),))
+    monkeypatch.setitem(sys.modules, "certifi", None)
+    assert runner.system_roots() == (openssl, "the OpenSSL default")
+    monkeypatch.setitem(sys.modules, "certifi", SimpleNamespace(where=lambda: str(certifi_roots)))
+    assert runner.system_roots() == (certifi_roots, "certifi")
+    monkeypatch.setitem(sys.modules, "certifi", None)
+    monkeypatch.setattr(runner.ssl, "get_default_verify_paths",
+                        lambda: SimpleNamespace(cafile=None, capath="/some/capath"))
+    assert runner.system_roots() == (linux, "a system path")
+
+
+def test_bundle_refuses_a_ca_file_that_holds_no_certificate(home, tmp_path, only_roots):
+    only_roots(_roots(tmp_path))
+    ca = tmp_path / "ca.pem"
+    ca.write_text("truncated")
+    with pytest.raises(runner.BundleError) as raised:
+        runner.ensure_bundle(ca)
+    assert "holds no certificate" in str(raised.value)
+    assert not (home / runner.BUNDLE_NAME).exists()
+
+
+def test_bundle_reports_a_roots_file_it_cannot_read(home, monkeypatch, tmp_path, only_roots):
+    gone = tmp_path / "removed.pem"
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    only_roots(gone)
+    monkeypatch.setattr(runner, "_holds_cert", lambda path: True)
+    with pytest.raises(runner.BundleError) as raised:
+        runner.ensure_bundle(ca)
+    assert "could not be read" in str(raised.value) and str(gone) in str(raised.value)
+
+
+def test_run_hands_the_child_the_bundle_and_the_single_certificate(home, write_config, monkeypatch, tmp_path):
+    write_config("mode: redact\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    seen = {}
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: seen.update(env=env) or 0)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    bundle = home / runner.BUNDLE_NAME
+    assert bundle.exists() and bundle.read_text().endswith(ca.read_text())
+    assert seen["env"]["SSL_CERT_FILE"] == str(bundle)
+    assert seen["env"]["NODE_EXTRA_CA_CERTS"] == str(ca)
+
+
+def test_run_refuses_to_start_the_command_when_the_bundle_cannot_be_built(home, write_config, monkeypatch, tmp_path, capsys, only_roots):
+    write_config("mode: redact\n")
+    seen = {}
+    proxy = FakeProxy()
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
+    monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
+    monkeypatch.setattr(runner.subprocess, "call", lambda *a, **k: pytest.fail("must not start the command"))
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    only_roots(paths=("/nowhere/ca-bundle.crt",))
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 1
+    out, err = capsys.readouterr()
+    assert "no system trust store" in out and err == ""
+    assert not (home / runner.BUNDLE_NAME).exists()
+    assert proxy.terminated
 
 
 def test_build_env_vault_shares_salt_with_main(home):
@@ -369,7 +570,7 @@ def test_run_success(home, monkeypatch, tmp_path):
     proxy = FakeProxy()
     seen = {}
     ca = tmp_path / "ca.pem"
-    ca.write_text("cert")
+    ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
                         lambda cmd, env, stdout, stderr: seen.update(proxy_cmd=cmd, proxy_env=env, stdout=stdout) or proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: "proxy_cmd" in seen)
@@ -404,7 +605,7 @@ def test_run_refuses_to_start_the_command_when_the_addon_is_not_answering(home, 
     proxy = FakeProxy()
     seen = {}
     ca = tmp_path / "ca.pem"
-    ca.write_text("cert")
+    ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: False)
@@ -456,7 +657,7 @@ def test_addon_live_probe_distinguishes_keyfence_from_anything_else():
 
 def test_start_proxy_reports_each_stage_and_stops_what_it_started(monkeypatch, tmp_path):
     ca = tmp_path / "ca.pem"
-    ca.write_text("cert")
+    ca.write_text(CA_PEM)
     log = (tmp_path / "log").open("w")
     started = []
     monkeypatch.setattr(runner.subprocess, "Popen",

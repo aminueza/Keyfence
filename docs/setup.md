@@ -30,10 +30,18 @@ would have been caught. Switch to `redact` when you are comfortable.
 mitmproxy creates a certificate authority in `~/.mitmproxy/` the first time
 the proxy starts. Tools need to trust it so the proxy can read HTTPS traffic.
 
-`keyfence exec` passes the certificate to the child process through
-`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
-`CURL_CA_BUNDLE` and `GIT_SSL_CAINFO`, so Claude Code, Codex, Aider, curl,
-git and anything on the Python or Node SDKs work with no further step. Git
+`keyfence exec` hands the child process a CA bundle at
+`~/.keyfence/ca-bundle.pem` through `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+`CURL_CA_BUNDLE` and `GIT_SSL_CAINFO`, and the mitmproxy certificate itself
+through `NODE_EXTRA_CA_CERTS`, so Claude Code, Codex, Aider, curl, git and
+anything on the Python or Node SDKs work with no further step. The first
+four replace the trust store rather than add to it, so the
+bundle is the system roots with the mitmproxy CA appended: a host the
+child reaches directly, through a `NO_PROXY` you set, is then validated
+against the public roots it was issued from. The bundle is written on the
+first `keyfence exec` and rewritten whenever the mitmproxy CA or the
+system roots change; `keyfence doctor` and `keyfence selftest` name the
+file and say where the roots came from. Git
 for Windows uses the schannel backend by default, which ignores
 `GIT_SSL_CAINFO` unless `http.schannelUseSSLCAInfo` is set, so on Windows
 `keyfence exec` also sets that option for its session through
@@ -138,11 +146,12 @@ ok    config: mode=redact, 20 hosts from ~/.keyfence/config.yaml; copied to a te
 ok    proxy: mitmdump up on 127.0.0.1:55460
 ok    addon: answering the probe for http://keyfence.invalid/
 ok    CA certificate: ~/.mitmproxy/mitmproxy-ca-cert.pem, the path keyfence exec hands to child processes
+ok    CA bundle: ~/.keyfence/ca-bundle.pem, /etc/ssl/certs/ca-certificates.crt (a system path) plus ~/.mitmproxy/mitmproxy-ca-cert.pem
 ok    mode: the proxy reports redact, as configured, with 127.0.0.1 monitored
 ok    request: the listener received [REDACTED:vault] instead of the value
 ok    response: HTTP 200 passed back with the redaction in place
 ok    audit log: 1 entry(ies) with a vault finding written for the request
-info  TLS: not exercised: the request was plain HTTP, so the CA above is only checked to exist, not trusted by a client
+info  TLS: not exercised: the request was plain HTTP, so the CA and the bundle above are only checked to exist, not trusted by a client
 
 The proxy is protecting traffic in redact mode.
 ```
@@ -322,13 +331,25 @@ If you do not use `keyfence exec`, run the proxy and point your tools at it:
 ```bash
 keyfence run
 
+SYSTEM_ROOTS=$(python3 -c "import ssl; print(ssl.get_default_verify_paths().cafile)")
+mkdir -p ~/.keyfence
+cat "$SYSTEM_ROOTS" ~/.mitmproxy/mitmproxy-ca-cert.pem > ~/.keyfence/ca-bundle.pem
+
 export HTTPS_PROXY=http://127.0.0.1:8888
 export HTTP_PROXY=http://127.0.0.1:8888
 export NODE_EXTRA_CA_CERTS=~/.mitmproxy/mitmproxy-ca-cert.pem   # Node tools, e.g. Claude Code
-export SSL_CERT_FILE=~/.mitmproxy/mitmproxy-ca-cert.pem         # Python tools
-export REQUESTS_CA_BUNDLE=~/.mitmproxy/mitmproxy-ca-cert.pem
-export GIT_SSL_CAINFO=~/.mitmproxy/mitmproxy-ca-cert.pem        # git over HTTPS
+export SSL_CERT_FILE=~/.keyfence/ca-bundle.pem                  # Python tools
+export REQUESTS_CA_BUNDLE=~/.keyfence/ca-bundle.pem
+export CURL_CA_BUNDLE=~/.keyfence/ca-bundle.pem
+export GIT_SSL_CAINFO=~/.keyfence/ca-bundle.pem                # git over HTTPS
 ```
+
+The first four replace the trust store, so they need the system roots with
+the mitmproxy CA appended, which is what `keyfence exec` writes for you
+under `~/.keyfence/ca-bundle.pem`. Pointing them at
+`~/.mitmproxy/mitmproxy-ca-cert.pem` on its own works only while everything
+goes through the proxy: a host you put in `NO_PROXY` is then validated
+against a trust store that holds one certificate.
 
 For desktop apps, set the system proxy to `127.0.0.1:8888`.
 

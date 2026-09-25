@@ -5,6 +5,7 @@ import re
 import pytest
 import yaml
 
+from fakes import CA_PEM
 from keyfence import cli, doctor, runner, selftest
 from keyfence.config import Config
 from keyfence.doctor import FAIL, INFO, OK
@@ -93,7 +94,7 @@ class FakeAddon:
 def ca(tmp_path):
     path = tmp_path / "mitm" / "mitmproxy-ca-cert.pem"
     path.parent.mkdir()
-    path.write_text("cert")
+    path.write_text(CA_PEM)
     return path
 
 
@@ -124,9 +125,12 @@ def test_every_mode_passes_with_a_faithful_addon(addon, ca, home, mode):
     environ = {"PATH": "/bin", runner.ENV_VAULT_VAR: "/stale/env.json"}
     report = fake.run(ca, environ=environ)
     assert report.ok and report.mode == mode
-    assert labels(report) == ["mitmdump", "config", "proxy", "addon", "CA certificate", "mode", "request",
+    assert labels(report) == ["mitmdump", "config", "proxy", "addon", "CA certificate", "CA bundle", "mode", "request",
                               "response", "audit log", "TLS"]
     assert labels(report, INFO) == ["TLS"]
+    roots, kind = runner.system_roots((ca,))
+    assert detail(report, "CA bundle") == f"{runner.bundle_path()}, {roots} ({kind}) plus {ca}"
+    assert runner.bundle_path().read_text().endswith(ca.read_text())
     assert fake.started and fake.stopped
     assert fake.env["KEYFENCE_HOME"] == str(fake.home) and fake.env["PATH"] == "/bin"
     assert fake.env["KEYFENCE_CONFIG"] == str(fake.home / "config.yaml")
@@ -224,6 +228,16 @@ def test_probe_that_stops_answering(addon, ca):
     report = fake.run(ca)
     assert labels(report, FAIL) == ["addon"] and "stopped answering" in detail(report, "addon")
     assert labels(report).count("addon") == 2
+
+
+def test_a_bundle_keyfence_cannot_build_fails_the_selftest(addon, ca, only_roots):
+    fake = addon("redact")
+    missing = "/nowhere/ca-bundle.crt"
+    only_roots(paths=(missing,))
+    report = fake.run(ca)
+    assert labels(report, FAIL) == ["CA bundle"] and labels(report)[-1] == "CA bundle"
+    assert "no system trust store" in detail(report, "CA bundle")
+    assert not runner.bundle_path().exists() and fake.stopped
 
 
 @pytest.mark.parametrize("body", [{"mode": "audit", "hosts": 21}, {"mode": "redact", "hosts": 20}])
