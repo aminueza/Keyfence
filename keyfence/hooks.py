@@ -20,6 +20,7 @@ SENSITIVE_PATHS = (
     "*/.config/gcloud/*credentials*", "*/.gnupg/*",
 )
 SAFE_NAMES = (".env.example", ".env.sample", ".env.template", ".env.dist", "*.pub", "mitmproxy-ca-cert.pem")
+SAFE_ENV_NAMES = tuple(name for name in SAFE_NAMES if name.startswith(".env"))
 FILE_TOOLS = {"read", "edit", "write", "multiedit", "notebookedit"}
 GREP_TOOLS = {"grep"}
 SHELL_TOOLS = {"bash", "powershell"}
@@ -57,7 +58,7 @@ DENY_RULES = (
     "Read(./**/*.key)", "Read(./**/credentials*)", "Read(./**/secrets.*)", "Read(./**/*.tfvars)",
     "Read(~/.aws/credentials)", "Read(~/.ssh/**)", "Read(~/.netrc)", "Read(~/.npmrc)",
     "Read(~/.pypirc)", "Read(~/.git-credentials)", "Read(~/.docker/config.json)", "Read(~/.kube/config)",
-)
+) + tuple(f"Read(!{name})" for name in SAFE_ENV_NAMES)
 
 
 def keyfence_path() -> str:

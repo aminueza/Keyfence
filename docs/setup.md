@@ -254,11 +254,15 @@ tells the model to ask you instead or to use `keyfence import`.
 for `Read` on `.env` files, `*.pem`, `*.key`, `credentials*`, `secrets.*`,
 `*.tfvars` and the home-directory credential stores. These are Claude
 Code's own declarative rules: they need no Python on the path, and they
-are what managed settings can enforce for a whole organisation. Existing
-hooks and rules in the settings file are kept, and `--remove` takes out
-only what keyfence added: the rules it adds are listed in
-`keyfence-deny-rules.json` next to the settings file, and rules that were
-already there stay, even when they are identical to keyfence's.
+are what managed settings can enforce for a whole organisation. An example
+env file holds no values, so each of the safe `.env` names gets a
+`Read(!.env.example)`-style carve-out at the end of the block, which takes
+it out of the `.env.*` rules listed before it: `.env`, `.env.local` and
+`.env.production` are still refused, at the project root and in a
+subdirectory. Existing hooks and rules in the settings file are kept, and
+`--remove` takes out only what keyfence added: the rules it adds are listed
+in `keyfence-deny-rules.json` next to the settings file, and rules that
+were already there stay, even when they are identical to keyfence's.
 
 Installations made with 0.4.0 have no such list. There `--remove` takes
 out the hook, leaves every deny rule in place, prints the ones that match

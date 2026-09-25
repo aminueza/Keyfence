@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -248,6 +249,79 @@ def test_plugin_guard_is_the_same_file_and_runs_standalone():
     assert done.returncode == 0
     done = subprocess.run([sys.executable, str(guard)], input="", capture_output=True, text=True)
     assert done.returncode == 2 and "could not read the tool call" in done.stderr
+
+
+def _a_gitignore_pattern_matches(pattern, path):
+    anchored = pattern.startswith("./")
+    body = pattern[2:] if anchored else pattern
+    segments = body.split("/")
+    regex = ""
+    for position, segment in enumerate(segments):
+        if segment == "**":
+            regex += ".*" if position == len(segments) - 1 else "(?:[^/]+/)*"
+            continue
+        regex += re.escape(segment).replace(r"\*", "[^/]*")
+        if position < len(segments) - 1:
+            regex += "/"
+    if not anchored and len(segments) == 1:
+        regex = "(?:[^/]+/)*" + regex
+    return re.fullmatch(regex, path) is not None
+
+
+def _the_deny_block_refuses_a_path(deny, path):
+    matched = []
+    for rule in deny:
+        if not rule.startswith("Read(") or rule.startswith("Read(~/"):
+            continue
+        pattern = rule[len("Read("):-1]
+        if pattern.startswith("!"):
+            matched = [m for m in matched if not _a_gitignore_pattern_matches(pattern[1:], path)]
+        elif _a_gitignore_pattern_matches(pattern, path):
+            matched.append(pattern)
+    return bool(matched)
+
+
+def _the_deny_block_install(tmp_path):
+    path = tmp_path / ".claude" / "settings.json"
+    hooks.install(path)
+    return json.loads(path.read_text())["permissions"]["deny"]
+
+
+@pytest.mark.parametrize("name", [".env.example", ".env.sample", ".env.template", ".env.dist"])
+def test_the_hook_and_the_deny_block_installed_agree_that_an_example_env_file_is_not_a_secret(tmp_path, name):
+    deny = _the_deny_block_install(tmp_path)
+    assert not hooks.is_sensitive(f"/work/{name}")
+    assert not _the_deny_block_refuses_a_path(deny, name)
+    assert not _the_deny_block_refuses_a_path(deny, f"sub/{name}")
+
+
+@pytest.mark.parametrize("path", [".env.example", "sub/.env.example", ".env.sample", "sub/.env.sample",
+                                  ".env.template", "sub/.env.template", ".env.dist", "sub/.env.dist"])
+def test_a_read_deny_rule_also_blocks_writing_so_a_carve_out_lets_an_example_env_file_be_read_and_written(tmp_path, path):
+    assert not _the_deny_block_refuses_a_path(_the_deny_block_install(tmp_path), path)
+
+
+@pytest.mark.parametrize("path", [".env", "sub/.env", ".env.local", "sub/.env.local", ".env.production",
+                                  "sub/.env.production", "server.pem", "sub/server.pem", "server.key",
+                                  "terraform.tfvars", "credentials.json", "sub/secrets.yaml"])
+def test_the_deny_block_installed_still_refuses_env_its_local_its_production_and_the_rest(tmp_path, path):
+    assert _the_deny_block_refuses_a_path(_the_deny_block_install(tmp_path), path)
+
+
+def test_the_carve_outs_are_the_env_names_from_the_safe_list_and_not_the_whole_of_it():
+    assert set(hooks.SAFE_ENV_NAMES) == {".env.example", ".env.sample", ".env.template", ".env.dist"}
+    assert set(hooks.SAFE_ENV_NAMES) < set(hooks.SAFE_NAMES)
+    assert {f"Read(!{name})" for name in hooks.SAFE_ENV_NAMES} <= set(hooks.DENY_RULES)
+    assert "Read(!mitmproxy-ca-cert.pem)" not in hooks.DENY_RULES
+    assert "Read(!*.pub)" not in hooks.DENY_RULES
+
+
+def test_a_carve_out_written_before_the_env_rules_it_cancels_leaves_them_in_force(tmp_path):
+    deny = _the_deny_block_install(tmp_path)
+    reordered = sorted(deny, key=lambda rule: not rule.startswith("Read(!"))
+    assert reordered[0].startswith("Read(!") and deny.index(reordered[0]) > deny.index("Read(./.env.*)")
+    assert _the_deny_block_refuses_a_path(reordered, ".env.example")
+    assert not _the_deny_block_refuses_a_path(deny, ".env.example")
 
 
 def test_install_and_uninstall_merge_with_existing_settings(tmp_path):
