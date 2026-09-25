@@ -174,6 +174,20 @@ def hook_installed(path: Path) -> bool:
     return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("PreToolUse", []))
 
 
+def hook_command(path: Path) -> str | None:
+    try:
+        data = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        return None
+    for entry in data.get("hooks", {}).get("PreToolUse", []):
+        if hooks._is_ours(entry):
+            for hook in entry.get("hooks", []):
+                cmd = hook.get("command", "")
+                if cmd:
+                    return cmd
+    return None
+
+
 def installed_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, Path, bool]]:
     locate, installed = (pi.extension_path, pi.is_ours) if agent == "pi" else (hooks.settings_path, hook_installed)
     return [(scope, path, installed(path))
@@ -181,9 +195,25 @@ def installed_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, Pat
 
 
 def check_hook(cwd: Path | None = None) -> Check:
-    found = [scope for scope, _, installed in installed_scopes("claude-code", cwd) if installed]
-    if found:
-        return Check(OK, "Claude Code hook", "installed (" + ", ".join(found) + ")")
+    scopes = []
+    for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
+        if not hook_installed(path):
+            continue
+        command = hook_command(path)
+        if command is None:
+            return Check(FAIL, "Claude Code hook",
+                         f"installed ({scope}) but {path} holds no keyfence command; every Claude Code tool call is refused "
+                         "until keyfence install-hooks claude-code runs again")
+        # Extract just the executable path from the command (first word)
+        exe = command.split()[0]
+        problem = command_problem(exe)
+        if problem:
+            return Check(FAIL, "Claude Code hook",
+                         f"installed ({scope}) but the {scope} hook calls {command}, whose executable {exe} {problem}; every Claude Code "
+                         "tool call is refused until keyfence install-hooks claude-code runs again")
+        scopes.append(scope)
+    if scopes:
+        return Check(OK, "Claude Code hook", "installed (" + ", ".join(scopes) + ")")
     return Check(INFO, "Claude Code hook", "not installed; keyfence install-hooks claude-code stops Claude Code from reading secret files")
 
 
