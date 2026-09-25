@@ -115,6 +115,9 @@ def cmd_scan(args) -> int:
 
 
 def cmd_run(args) -> int:
+    if runner.port_open(args.port):
+        print(f"Port {args.port} is already in use. Pick another one with -p.")
+        return 1
     print(f"Starting keyfence on http://127.0.0.1:{args.port}")
     if args.local is not None:
         target = "all processes" if args.local in ("", "*") else f"processes named {args.local}"
@@ -124,9 +127,6 @@ def cmd_run(args) -> int:
     print(f"  export HTTPS_PROXY=http://127.0.0.1:{args.port}")
     print(f"  export HTTP_PROXY=http://127.0.0.1:{args.port}")
     print("or run them through it directly: keyfence exec -- <command>")
-    if runner.port_open(args.port):
-        print(f"Port {args.port} is already in use. Pick another one with -p.")
-        return 1
     print("(Ctrl+C to stop)\n", flush=True)
     command = runner.proxy_command(args.port, local=args.local)
     try:
@@ -329,7 +329,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("-f", "--file", help="file to scan")
 
     p_run = sub.add_parser("run", help="start the proxy")
-    p_run.add_argument("-p", "--port", type=int, default=8888)
+    p_run.add_argument("-p", "--port", type=int, default=8888,
+                      help="port for the proxy (default: 8888, never a free one: run prints the port to export, "
+                           "so a session that moved on its own would leave the shell pointing at the previous one; "
+                           "keyfence exec picks a free port because it wires the command itself)")
     p_run.add_argument("--local", nargs="?", const="*", metavar="NAMES",
                        help="also capture traffic without proxy variables (macOS/Windows); "
                             "optional comma-separated process names, default all")
@@ -366,7 +369,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "there is no record of which ones it added (installs before 0.5.0)")
 
     p_doctor = sub.add_parser("doctor", help="check the installation and say what is missing")
-    p_doctor.add_argument("-p", "--port", type=int, default=8888)
+    p_doctor.add_argument("-p", "--port", type=int, default=8888,
+                          help="port to check when the shell has no proxy variable; when it has one, the host and "
+                               "port it names are what get checked (default: 8888)")
 
     p_selftest = sub.add_parser("selftest", help="start a proxy on a free port, send a throwaway secret through it "
                                                  "to a local listener and check that the configured mode was applied")

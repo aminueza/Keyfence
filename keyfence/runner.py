@@ -91,8 +91,8 @@ def pick_port(preferred: int = DEFAULT_PORT) -> int:
     return free_port() if port_open(preferred) else preferred
 
 
-def probe(port: int, timeout: float = 1.0) -> dict | None:
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+def probe(port: int, host: str = "127.0.0.1", timeout: float = 1.0) -> dict | None:
+    conn = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
         conn.request("GET", PROBE_URL, headers={"Host": PROBE_HOST})
         resp = conn.getresponse()
@@ -106,8 +106,8 @@ def probe(port: int, timeout: float = 1.0) -> dict | None:
         conn.close()
 
 
-def addon_live(port: int, timeout: float = 1.0) -> bool:
-    return probe(port, timeout) is not None
+def addon_live(port: int, host: str = "127.0.0.1", timeout: float = 1.0) -> bool:
+    return probe(port, host, timeout) is not None
 
 
 MISSING, NOT_UP, NOT_LIVE = "missing", "not-up", "not-live"
