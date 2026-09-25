@@ -38,6 +38,10 @@ def shell_env(proxy, ca, bundle):
             **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
 
 
+def session_env(proxy, ca, bundle):
+    return runner.with_git_config(shell_env(proxy, ca, bundle), runner.GIT_SCHANNEL_KEY, "true")
+
+
 def test_run_checks_produces_every_check(home, monkeypatch):
     monkeypatch.setattr(runner, "port_open", lambda port, host: False)
     checks = doctor.run_checks(8888, cwd=home)
@@ -195,7 +199,7 @@ def test_the_shell_check_warns_when_the_proxy_it_names_answers_nothing(home, tmp
 def test_doctor_inside_a_session_on_a_fallback_port_stops_naming_another_sessions_proxy(home, live_proxy, monkeypatch):
     ca = runner.CA_CERT
     bundle = runner.bundle_path()
-    for name, value in shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle).items():
+    for name, value in session_env(f"http://127.0.0.1:{live_proxy}", ca, bundle).items():
         monkeypatch.setenv(name, value)
     checks = {c.label: c for c in doctor.run_checks(8888, cwd=home)}
     assert checks["shell environment"].status == doctor.OK
@@ -211,9 +215,11 @@ def test_doctor_warns_when_the_proxy_variable_names_a_host_that_is_not_this_keyf
         other_session.bind(("127.0.0.1", 0))
         other_session.listen(1)
         busy = other_session.getsockname()[1]
-        for name, value in shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle).items():
+        for name, value in session_env(f"http://127.0.0.1:{live_proxy}", ca, bundle).items():
             monkeypatch.setenv(name, value)
-        assert doctor.run_checks(busy, cwd=home)[7].status != doctor.WARN
+        inside = {c.label: c for c in doctor.run_checks(busy, cwd=home)}
+        assert inside["proxy"].status == doctor.OK
+        assert inside["proxy"].detail == f"keyfence is answering on 127.0.0.1:{live_proxy}"
         monkeypatch.setenv("HTTPS_PROXY", f"http://proxy.example.com:{live_proxy}")
         foreign = {c.label: c for c in doctor.run_checks(8888, cwd=home)}["shell environment"]
     assert foreign.status == doctor.WARN
