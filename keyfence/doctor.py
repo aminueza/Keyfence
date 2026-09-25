@@ -158,8 +158,8 @@ def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_C
     if missing:
         return Check(WARN, "shell environment",
                      f"HTTPS_PROXY is set but {', '.join(missing)} do not hold what keyfence exec would put there "
-                     f"({bundle} for the four that replace the trust store, {ca_cert} for the one that adds to it); "
-                     "the tools that read them (Node, Python, curl, git) will fail TLS")
+                     f"({bundle} for the {len(runner.BUNDLE_ENV_VARS)} that replace the trust store, {ca_cert} for the one that adds to it); "
+                     "the tools that read them (Node, Python, curl, git, cargo) will fail TLS")
     detail = f"HTTPS_PROXY and the {len(runner.CA_ENV_VARS)} CA variables point at keyfence on port {port}"
     problem = git_ignores_ca(environ, run, system)
     if problem:

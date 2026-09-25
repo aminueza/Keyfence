@@ -250,10 +250,20 @@ def test_child_env(tmp_path):
     assert env["KEEP"] == "1"
     for name in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
         assert env[name] == "http://127.0.0.1:8888"
-    for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"):
+    for name in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO", "CARGO_HTTP_CAINFO"):
         assert env[name] == str(bundle)
     assert env["NODE_EXTRA_CA_CERTS"] == str(ca)
-    assert set(runner.CA_ENV_VARS) == {"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"}
+    assert set(runner.CA_ENV_VARS) == {"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO", "CARGO_HTTP_CAINFO"}
+
+
+def test_cargo_gets_the_bundle_in_its_own_variable_because_it_reads_neither_of_the_others(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({}, 8888, ca, bundle)
+    assert env["CARGO_HTTP_CAINFO"] == str(bundle)
+    assert env["CARGO_HTTP_CAINFO"] != str(ca)
+    assert "CARGO_HTTP_CAINFO" in runner.BUNDLE_ENV_VARS
+    assert "CARGO_HTTP_CAINFO" in runner.CA_ENV_VARS
 
 
 def test_child_env_tells_git_for_windows_to_use_the_ca(tmp_path):
