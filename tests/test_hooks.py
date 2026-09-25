@@ -184,6 +184,32 @@ def test_run_hook_exit_codes():
     assert hooks.run_hook(io.StringIO(json.dumps({"tool_name": "Unknown", "tool_input": {"x": 1}})), io.StringIO()) == 0
 
 
+def test_run_hook_exits_2_when_tool_input_is_not_a_dict():
+    err = io.StringIO()
+    assert hooks.run_hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": "x"})), err) == 2
+    assert "guard crashed" in err.getvalue()
+
+
+def test_run_hook_exits_2_when_file_path_is_not_a_string():
+    err = io.StringIO()
+    assert hooks.run_hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": 1}})), err) == 2
+    assert "guard crashed" in err.getvalue()
+
+
+def test_run_hook_exits_2_on_system_exit(monkeypatch):
+    err = io.StringIO()
+    monkeypatch.setattr(hooks, "decide", lambda _payload: (_ for _ in ()).throw(SystemExit(0)))
+    assert hooks.run_hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "a.py"}})), err) == 2
+    assert "guard crashed" in err.getvalue() and "SystemExit" in err.getvalue()
+
+
+def test_run_hook_exits_2_on_keyboard_interrupt(monkeypatch):
+    err = io.StringIO()
+    monkeypatch.setattr(hooks, "decide", lambda _payload: (_ for _ in ()).throw(KeyboardInterrupt()))
+    assert hooks.run_hook(io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "a.py"}})), err) == 2
+    assert "guard crashed" in err.getvalue() and "KeyboardInterrupt" in err.getvalue()
+
+
 @pytest.mark.parametrize("payload", ["not json", "[1]", "", "null", '"read"', "42", "{\"tool_name\": \"Read\""])
 def test_run_hook_refuses_input_it_cannot_read(payload):
     err = io.StringIO()

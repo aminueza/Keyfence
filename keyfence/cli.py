@@ -220,7 +220,7 @@ def cmd_install_hooks(args) -> int:
     path = hooks.settings_path(args.project)
     if args.remove:
         return _remove_claude_code(path, args.force)
-    changed = hooks.install(path)
+    changed = hooks.install(path, hooks.keyfence_path())
     scope = "this project" if args.project else "all projects"
     if changed:
         print(f"Hook installed in {path} for {scope}.")

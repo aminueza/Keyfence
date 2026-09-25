@@ -117,8 +117,12 @@ def test_hook_check(home, tmp_path, monkeypatch):
     assert doctor.check_hook(tmp_path / "proj").status == doctor.INFO
     project = tmp_path / "proj" / ".claude"
     project.mkdir(parents=True)
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
     (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
-        {"matcher": "Read", "hooks": [{"type": "command", "command": "keyfence hook claude-code"}]}]}}))
+        {"matcher": "Read", "hooks": [{"type": "command", "command": f"{binary} hook claude-code"}]}]}}))
     check = doctor.check_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
     (project / "settings.json").write_text("not json")
