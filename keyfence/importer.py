@@ -19,6 +19,7 @@ SECRET_WORDS = frozenset({
 })
 SECRET_SUFFIXES = ("token", "secret", "password")
 _LONGEST_SECRET_WORD = max(len(word) for word in SECRET_WORDS)
+_GLUE_PASS_EXCEPTIONS = frozenset({"compass", "bypass", "htpasswd"})
 _NAME_SEGMENT = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")
 _NAME_SEGMENT_VARIANT = re.compile(r"[A-Z]+|[a-z]+")
 _KV_LINE = re.compile(r"^\s*(?:export\s+)?(?P<key>[A-Za-z_/][A-Za-z0-9_.\-/:@]*)\s*[=:]\s*(?P<val>.+?)\s*$")
@@ -69,6 +70,8 @@ def _joins_secret_words(segment: str) -> bool:
 
 def _matches_secret_words(segment: str) -> bool:
     if _joins_secret_words(segment) or segment.endswith(SECRET_SUFFIXES):
+        return True
+    if segment not in _GLUE_PASS_EXCEPTIONS and segment.endswith(("pass", "passwd", "senha")):
         return True
     return segment.startswith(SECRET_SUFFIXES) and any(
         segment.endswith(word) for word in SECRET_WORDS)

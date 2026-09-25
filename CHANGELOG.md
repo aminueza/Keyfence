@@ -85,7 +85,11 @@ What this costs: a short, low-entropy value under a name that glues an
    (`sshKey`) or `keyfence import --all`. The matcher now tries two
    splittings of each name (the standard camel-case split and one that keeps
    the trailing capital on an acronym), so the quadratic bound applies to
-   both.
+   both. Names that glue an ordinary word onto `pass`, `passwd` or `senha`
+   (`DBPASS`, `SMTPPASS`, `ADMINPASS`, `DBPASSWD`, `KEYSTOREPASS`,
+   `DBSENHA`) are recovered with a bounded exception list that keeps
+   `COMPASS` and `BYPASS` out; `HTPASSWD` is also excepted because it names
+   a file, not a secret.
 
 ## 0.7.0 (2026-09-24)
 

@@ -4,6 +4,7 @@ from keyfence.ignore import IgnoreList
 from keyfence.importer import (
     default_paths, env_values, import_files, looks_secret,
     values_from_file, values_from_json, values_from_text,
+    _joins_secret_words,
 )
 from keyfence.vault import Vault
 
@@ -259,3 +260,27 @@ def test_env_values_keeps_the_git_author_email():
 def test_acronym_glued_to_camelcase_matches():
     assert looks_secret("APIkey", "short-value", MIN)
     assert looks_secret("googleAPIkey", "short-value", MIN)
+
+
+def test_glued_pass_names_match():
+    for name in ("DBPASS", "SMTPPASS", "ADMINPASS", "DBPASSWD", "KEYSTOREPASS", "DBSENHA"):
+        assert looks_secret(name, "short-value", MIN), name
+
+
+def test_glued_pass_false_positives_stay_out():
+    assert not looks_secret("COMPASS_URL", "localhost:9000", MIN)
+    assert not looks_secret("BYPASS_CACHE", "sometimes", MIN)
+    assert not looks_secret("HTPASSWD_PATH", "site.htpasswd", MIN)
+
+
+def test_length_bound_in_joins_secret_words():
+    # A long segment that is NOT composed of secret words.
+    # Without the length bound (first = 0), this would be O(n^2) and slow.
+    # With the bound, it's O(n * _LONGEST_SECRET_WORD) and fast.
+    long_segment = "x" * 5000
+    import time
+    start = time.monotonic()
+    result = _joins_secret_words(long_segment)
+    elapsed = time.monotonic() - start
+    assert result is False
+    assert elapsed < 0.5, f"took {elapsed:.3f}s, bound not effective"
