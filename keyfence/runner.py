@@ -194,7 +194,7 @@ def root_sources(exclude: Sequence[Path] = ()) -> list[tuple[Path, str]]:
     cafile = ssl.get_default_verify_paths().cafile
     if cafile:
         candidates.append((Path(cafile), "the OpenSSL default"))
-    candidates.extend((Path(name), name) for name in SYSTEM_CA_PATHS)
+    candidates.extend((Path(name), "a system path") for name in SYSTEM_CA_PATHS)
     return [(path, kind) for path, kind in candidates if path not in exclude and _holds_cert(path)]
 
 

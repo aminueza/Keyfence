@@ -393,7 +393,7 @@ def test_a_roots_file_keyfence_cannot_read_is_skipped(home, tmp_path, only_roots
     if os.name != "posix" or os.geteuid() == 0:
         pytest.skip("a root user reads a file that has no permissions")
     unreadable.chmod(0o000)
-    assert runner.system_roots() == (real, str(real))
+    assert runner.system_roots() == (real, "a system path")
 
 
 def test_system_roots_prefers_certifi_then_the_openssl_default_then_the_linux_paths(monkeypatch, tmp_path):
@@ -410,7 +410,7 @@ def test_system_roots_prefers_certifi_then_the_openssl_default_then_the_linux_pa
     monkeypatch.setitem(sys.modules, "certifi", None)
     monkeypatch.setattr(runner.ssl, "get_default_verify_paths",
                         lambda: SimpleNamespace(cafile=None, capath="/some/capath"))
-    assert runner.system_roots() == (linux, str(linux))
+    assert runner.system_roots() == (linux, "a system path")
 
 
 def test_bundle_refuses_a_ca_file_that_holds_no_certificate(home, tmp_path, only_roots):
