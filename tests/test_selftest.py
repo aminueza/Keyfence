@@ -5,6 +5,7 @@ import re
 import pytest
 import yaml
 
+from fakes import CA_PEM
 from keyfence import cli, doctor, runner, selftest
 from keyfence.config import Config
 from keyfence.doctor import FAIL, INFO, OK
@@ -93,7 +94,7 @@ class FakeAddon:
 def ca(tmp_path):
     path = tmp_path / "mitm" / "mitmproxy-ca-cert.pem"
     path.parent.mkdir()
-    path.write_text("cert")
+    path.write_text(CA_PEM)
     return path
 
 
