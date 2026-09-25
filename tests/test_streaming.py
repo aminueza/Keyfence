@@ -1,6 +1,6 @@
 import json
 
-from keyfence.streaming import Event, SSERestorer, partial_suffix, restore
+from keyfence.streaming import Event, SSERestorer, partial_suffix, restore, restore_json
 
 KEY = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
 MAPPING = {"<<SECRET_1>>": KEY, "<<SECRET_12>>": "second-secret-value"}
@@ -195,3 +195,58 @@ def test_nested_json_field_gets_one_more_level_of_escaping():
     out = (restorer.feed(raw) + restorer.feed(b"")).decode()
     event = json.loads(out.split("data: ", 1)[1])
     assert json.loads(event["delta"]["partial_json"]) == {"key": NESTED_VALUE}
+
+
+def test_responses_api_delta_field_with_json_string():
+    """SSE test for Responses API: response.function_call_arguments.delta with JSON string."""
+    PEM = ("-----BEGIN PRIVATE KEY-----\n"
+           "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n"
+           "-----END PRIVATE KEY-----")
+    mapping = {"<<SECRET_1>>": PEM}
+    restorer = SSERestorer(mapping)
+
+    payload = {
+        "type": "response.function_call_arguments.delta",
+        "delta": json.dumps({"key": "<<SECRET_1>>"})
+    }
+    raw = f"data: {json.dumps(payload)}\n\n".encode()
+    out = (restorer.feed(raw) + restorer.feed(b"")).decode()
+    event = json.loads(out.split("data: ", 1)[1])
+    inner = json.loads(event["delta"])
+    assert inner == {"key": PEM}
+
+
+def test_buffered_arguments_array_with_json_string():
+    """Buffered response: strings in array under 'arguments' should not get one level too many."""
+    PEM = ("-----BEGIN PRIVATE KEY-----\n"
+           "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n"
+           "-----END PRIVATE KEY-----")
+    mapping = {"<<SECRET_1>>": PEM}
+    nested = json.dumps({"key": "<<SECRET_1>>"})
+    body = json.dumps({"arguments": [nested]})
+    restored = restore_json(body, mapping)
+    parsed = json.loads(restored)
+    inner = json.loads(parsed["arguments"][0])
+    assert inner == {"key": PEM}
+
+
+def test_buffered_arguments_array_with_plain_string():
+    """Buffered response: plain strings in array under 'arguments' get one level of escaping."""
+    PEM = ("-----BEGIN PRIVATE KEY-----\n"
+           "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n"
+           "-----END PRIVATE KEY-----")
+    mapping = {"<<SECRET_1>>": PEM}
+    body = json.dumps({"arguments": ["<<SECRET_1>>"]})
+    restored = restore_json(body, mapping)
+    parsed = json.loads(restored)
+    assert parsed["arguments"][0] == PEM
+
+
+def test_restore_json_restores_object_keys():
+    """Placeholder used as a key in a buffered response should be restored."""
+    mapping = {"<<SECRET_1>>": "actual-secret"}
+    body = '{"<<SECRET_1>>": "value"}'
+    restored = restore_json(body, mapping)
+    parsed = json.loads(restored)
+    assert "actual-secret" in parsed
+    assert parsed["actual-secret"] == "value"
