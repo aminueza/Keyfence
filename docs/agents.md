@@ -69,8 +69,18 @@ one of three groups. Anything else is allowed without looking at the input.
 
 "Secret file" is `is_sensitive()`: the name patterns in `SENSITIVE_NAMES`
 and the directory patterns in `SENSITIVE_PATHS`, minus `SAFE_NAMES`
-(`.env.example`, `*.pub` and friends). Matching is case-insensitive and
-backslashes count as slashes, so `C:\Users\u\.NETRC` is refused like
+(`.env.example`, `.env.sample`, `.env.template`, `.env.dist`, `*.pub`,
+`mitmproxy-ca-cert.pem`). The reason differs by group. The `.env`
+templates are safe because they hold no values: they are the shape of a
+config file with the secrets left out. `*.pub` and
+`mitmproxy-ca-cert.pem` are safe because they are public certificates
+meant to be distributed, and keyfence's own has to be readable to be
+usable: `keyfence doctor` prints it as "CA certificate" and `keyfence
+exec` points `CA_ENV_VARS` at it for every child process. The exception
+names that certificate and not `mitmproxy-ca.pem`, the private key beside
+it, which stays refused because a key that forges TLS for any host
+exposes every secret that passes through. Matching is case-insensitive
+and backslashes count as slashes, so `C:\Users\u\.NETRC` is refused like
 `~/.netrc`. The command rules are described in
 [setup.md](setup.md#claude-code); `powershell` runs through exactly the
 same rules as `bash`, which are shaped for a POSIX shell, so a
