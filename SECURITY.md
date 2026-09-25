@@ -37,7 +37,7 @@ On disk it keeps:
   the startup summary (version, mode, host count, rule count, vault size)
   and one line per detection with the host, the number of secrets and
   their kinds. The `CANARY tripped` line names the file the canary was
-  planted in. Never a value.
+  planted in. Never a value. Mode 0600, like the vault.
 - the file given to `keyfence exec --record FILE`, only when you ask for
   it: a mitmproxy flows file with every request that reached the proxy,
   headers and body in full, in the state keyfence left it. That includes

@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+import stat
 import subprocess
 from pathlib import Path
 
@@ -83,6 +84,46 @@ def _wire_fake_proxy(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "addon_live", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
     return ca
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_run_creates_the_proxy_log_private_from_the_first_moment_it_exists(home, monkeypatch, tmp_path):
+    modes_at_chmod = []
+    chmod = os.chmod
+
+    def watching_chmod(path, mode, *args, **kwargs):
+        if Path(path) == home / "proxy.log":
+            modes_at_chmod.append(stat.S_IMODE(Path(path).stat().st_mode))
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "chmod", watching_chmod)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert stat.S_IMODE((home / "proxy.log").stat().st_mode) == 0o600
+    assert modes_at_chmod in ([], [0o600])
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_run_tightens_a_proxy_log_left_world_readable_by_an_older_version(home, monkeypatch, tmp_path):
+    log = home / "proxy.log"
+    log.write_text("")
+    log.chmod(0o644)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+
+
+def test_run_says_on_stderr_when_the_proxy_log_stays_readable(home, monkeypatch, tmp_path, capsys):
+    def refusing_chmod(path, mode, *args, **kwargs):
+        raise OSError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    err = capsys.readouterr().err
+    assert "could not make" in err
+    assert "proxy.log" in err
+    assert (home / "proxy.log").exists()
 
 
 @pytest.mark.parametrize("mode", ["audit", "block"])

@@ -235,7 +235,13 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
     env_vault = build_env_vault(os.environ, everything, config)
     proxy_env = dict(os.environ, **{ENV_VAULT_VAR: str(env_vault.path)})
     DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
-    proxy_log = (DEFAULT_DIR / "proxy.log").open("a")
+    proxy_log_path = DEFAULT_DIR / "proxy.log"
+    proxy_fd = os.open(proxy_log_path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+    proxy_log = os.fdopen(proxy_fd, "a")
+    try:
+        os.chmod(proxy_log_path, 0o600)
+    except OSError as exc:
+        print(f"keyfence: could not make {proxy_log_path} private: {exc}", file=sys.stderr, flush=True)
     if local == "":
         local = Path(command[0]).name
     extra = []
