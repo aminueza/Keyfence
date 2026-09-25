@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import socket
 import stat
 import subprocess
@@ -11,6 +12,7 @@ import pytest
 
 from fakes import CA_PEM
 from keyfence import runner
+from keyfence.config import Config
 from keyfence.vault import Vault
 
 
@@ -37,6 +39,71 @@ def test_listen_args():
     assert "local:claude" in cmd and "--listen-port" not in cmd
 
 
+def test_host_regex_matches_the_host_and_its_port():
+    assert re.search(runner.host_regex("api.openai.com"), "api.openai.com:443")
+    assert re.search(runner.host_regex("api.openai.com"), "sub.api.openai.com")
+    assert re.search(runner.host_regex("api.openai.com"), "API.OpenAI.com:443", re.IGNORECASE)
+    assert not re.search(runner.host_regex("api.openai.com"), "evil.com/api.openai.com")
+    assert not re.search(runner.host_regex("api.openai.com"), "notapi.openai.com")
+    assert not re.search(runner.host_regex("api.openai.com"), "evil.comapi.openai.com")
+    assert not re.search(runner.host_regex("api.openai.com"), "api.openai.com.evil.com")
+
+
+def test_host_regex_wildcard_crosses_dots_like_the_config_matcher():
+    pattern = "*.services.ai.azure.com"
+    assert re.search(runner.host_regex(pattern), "eastus.services.ai.azure.com:443")
+    assert re.search(runner.host_regex(pattern), "a.b.services.ai.azure.com:443")
+    assert not re.search(runner.host_regex(pattern), "services.ai.azure.com.evil.com:443")
+
+
+def test_host_regex_treats_dots_as_literal_and_nothing_else():
+    assert re.search(runner.host_regex("*.openai.azure.com"), "x.openai.azure.com")
+    assert not re.search(runner.host_regex("*.openai.azure.com"), "x.openaiXazure.com")
+
+
+def test_allow_hosts_args_listens_only_to_the_monitored_hosts():
+    config = Config()
+    config.hosts = ["api.openai.com", "*.azure.com"]
+    config.intercept_all_hosts = False
+    assert runner.allow_hosts_args(config) == [
+        "--allow-hosts", r"^(?:.*\.)?api\.openai\.com(?::[0-9]+)?\Z",
+        "--allow-hosts", r"^(?:.*\.)?.*\.azure\.com(?::[0-9]+)?\Z",
+        "--allow-hosts", r"^(?:.*\.)?keyfence\.invalid(?::[0-9]+)?\Z",
+    ]
+
+
+def test_allow_hosts_args_are_empty_when_every_host_is_intercepted():
+    config = Config()
+    config.hosts = ["api.openai.com"]
+    config.intercept_all_hosts = True
+    assert runner.allow_hosts_args(config) == []
+
+
+def test_allow_hosts_args_keep_the_probe_reachable_and_deduplicate():
+    config = Config()
+    config.hosts = ["127.0.0.1", "127.0.0.1", "keyfence.invalid"]
+    config.intercept_all_hosts = False
+    args = runner.allow_hosts_args(config)
+    assert args.count(runner.host_regex(runner.PROBE_HOST)) == 1
+    assert args.count("--allow-hosts") == 2
+
+
+def test_every_default_host_stays_intercepted_once_allow_hosts_is_passed():
+    for pattern in Config().hosts:
+        config = Config()
+        config.hosts = [pattern]
+        regex = runner.host_regex(pattern)
+        for host in _hosts_covered_by(pattern):
+            assert config.host_matches(host), (pattern, host)
+            assert re.search(regex, f"{host}:443"), (pattern, host)
+
+
+def _hosts_covered_by(pattern):
+    if "*" in pattern:
+        return (pattern.replace("*", "eastus"), pattern.replace("*", "a.b"))
+    return (pattern, f"sub.{pattern}")
+
+
 def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
     seen = {}
     ca = tmp_path / "ca.pem"
@@ -54,6 +121,35 @@ def test_confdir_is_passed_to_mitmdump(tmp_path):
     assert "confdir=" not in " ".join(runner.proxy_command(1, confdir=None))
     cmd = runner.proxy_command(1, confdir=tmp_path / "conf")
     assert cmd[cmd.index(f"confdir={tmp_path / 'conf'}") - 1] == "--set"
+
+
+def test_run_tells_mitmdump_to_tunnel_the_hosts_it_does_not_monitor(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    write_config("mode: audit\nhosts:\n  - api.openai.com\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    pairs = [seen["cmd"][i:i + 2] for i in range(len(seen["cmd"]) - 1)]
+    assert ["--allow-hosts", runner.host_regex("api.openai.com")] in pairs
+    assert ["--allow-hosts", runner.host_regex(runner.PROBE_HOST)] in pairs
+
+
+def test_run_still_tunnels_the_hosts_it_does_not_monitor_while_recording(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    write_config("mode: audit\nhosts:\n  - api.openai.com\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    record = tmp_path / "flows"
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    pairs = [seen["cmd"][i:i + 2] for i in range(len(seen["cmd"]) - 1)]
+    assert ["-w", str(record)] in pairs
+    assert ["--allow-hosts", runner.host_regex("api.openai.com")] in pairs
+
+
+def test_run_keeps_intercepting_every_host_when_asked_to(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    write_config("mode: audit\nintercept_all_hosts: true\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert "--allow-hosts" not in seen["cmd"]
 
 
 def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
@@ -77,8 +173,8 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     assert proxy.terminated
 
 
-def _wire_fake_proxy(monkeypatch, tmp_path):
-    seen = {}
+def _wire_fake_proxy(monkeypatch, tmp_path, seen=None):
+    seen = {} if seen is None else seen
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
