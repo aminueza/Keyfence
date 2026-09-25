@@ -267,8 +267,135 @@ cat "$KEYFENCE_HOME/exec_canary.txt"; echo
 grep -q "REDACTED:canary" "$KEYFENCE_HOME/exec_canary.txt" || { echo "FAILED: canary not redacted via exec"; exit 1; }
 grep -q "CANARY tripped -> 127.0.0.1: .*/.env was read and sent" "$KEYFENCE_HOME/proxy.log" || { echo "FAILED: CANARY tripped missing from proxy.log"; exit 1; }
 echo "OK: CANARY tripped with the file path is in proxy.log"
-
 echo
+echo "=== 7b) keyfence exec: a host it does not monitor is tunneled, not intercepted ==="
+TLS_PORT=${TLS_PORT:-9997}
+TLS_RECORD="$KEYFENCE_HOME/tls_received.log"
+BODY="{\"content\":\"my token is $FAKE_KEY over tls\"}"
+
+python3 - <<'EOF'
+import datetime, ipaddress, os
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
+home = os.environ["KEYFENCE_HOME"]
+key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
+now = datetime.datetime.now(datetime.timezone.utc)
+cert = (x509.CertificateBuilder()
+        .subject_name(name).issuer_name(name).public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+        .sign(key, hashes.SHA256()))
+with open(f"{home}/tls.key", "wb") as fh:
+    fh.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
+with open(f"{home}/tls.crt", "wb") as fh:
+    fh.write(cert.public_bytes(serialization.Encoding.PEM))
+EOF
+
+TLS_PORT=$TLS_PORT python3 - <<'EOF' &
+import os, ssl
+from http.server import BaseHTTPRequestHandler, HTTPServer
+LOG = os.path.join(os.environ["KEYFENCE_HOME"], "tls_received.log")
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain(f'{os.environ["KEYFENCE_HOME"]}/tls.crt', f'{os.environ["KEYFENCE_HOME"]}/tls.key')
+
+class Echo(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        with open(LOG, "ab") as fh:
+            fh.write(body + b"\n")
+        payload = b'{"tls_upstream_received": ' + body + b'}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *a): pass
+
+srv = HTTPServer(("127.0.0.1", int(os.environ["TLS_PORT"])), Echo)
+srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+srv.serve_forever()
+EOF
+PIDS+=($!)
+for _ in $(seq 1 50); do
+  python3 -c "import socket; socket.create_connection(('127.0.0.1', $TLS_PORT), timeout=0.2)" 2>/dev/null && break
+  sleep 0.2
+done
+
+cat > "$KEYFENCE_HOME/tls_client.py" <<'EOF'
+import http.client, os, ssl, sys
+tls_port, proxy_port, body = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+ctx.load_verify_locations(cafile=os.path.join(os.environ["KEYFENCE_HOME"], "tls.crt"))
+conn = http.client.HTTPSConnection("127.0.0.1", proxy_port, context=ctx, timeout=10)
+conn.set_tunnel("127.0.0.1", tls_port)
+try:
+    conn.request("POST", "/v1/tls", body.encode())
+except ssl.SSLCertVerificationError:
+    print("OFFERED: a certificate the listener never signed, so the TLS session was intercepted")
+else:
+    print("TUNNELED", conn.getresponse().read().decode())
+EOF
+
+cat > "$KEYFENCE_HOME/exec_tls.sh" <<EOF
+python3 "$KEYFENCE_HOME/tls_client.py" "$TLS_PORT" "$PROXY_PORT" '$BODY'
+EOF
+cat > "$KEYFENCE_HOME/exec_both.sh" <<EOF
+python3 "$KEYFENCE_HOME/tls_client.py" "$TLS_PORT" "$PROXY_PORT" '$BODY'
+curl -s --noproxy "" -d '$BODY' "http://127.0.0.1:$UPSTREAM_PORT/v1/x"
+echo
+EOF
+
+: > "$TLS_RECORD"
+: > "$KEYFENCE_HOME/upstream_received.log"
+printf 'mode: redact\nhosts: ["127.0.0.1"]\n' > "$KEYFENCE_CONFIG"
+MONITORED="$KEYFENCE_HOME/exec_monitored.flows"
+echo "--- 127.0.0.1 is monitored"
+python3 -m keyfence exec -p "$PROXY_PORT" --record "$MONITORED" -- bash "$KEYFENCE_HOME/exec_both.sh" | tee "$KEYFENCE_HOME/exec_monitored.txt"
+grep -q "OFFERED:" "$KEYFENCE_HOME/exec_monitored.txt" || { echo "FAILED: the monitored host was not intercepted"; exit 1; }
+grep -q "REDACTED:github" "$KEYFENCE_HOME/upstream_received.log" || { echo "FAILED: the monitored host was not scanned and rewritten"; exit 1; }
+! grep -q "$FAKE_KEY" "$KEYFENCE_HOME/upstream_received.log" || { echo "FAILED: the monitored secret reached the listener"; exit 1; }
+echo "OK: the monitored host is intercepted, scanned and rewritten"
+python3 - "$MONITORED" "$UPSTREAM_PORT" <<'EOF' || { echo "FAILED: the record does not hold the monitored request"; exit 1; }
+import sys
+from mitmproxy import io as mio
+with open(sys.argv[1], "rb") as fh:
+    flows = list(mio.FlowReader(fh).stream())
+seen = [(f.request.method, f.request.port) for f in flows]
+print("recorded:", seen)
+bodies = [f.request.content for f in flows if f.request.method == "POST"]
+assert bodies and b"REDACTED" in bodies[0], seen
+EOF
+echo "OK: the record holds the monitored request with the secret replaced"
+
+: > "$TLS_RECORD"
+printf 'mode: redact\nhosts: ["api.openai.com"]\n' > "$KEYFENCE_CONFIG"
+UNMONITORED="$KEYFENCE_HOME/exec_unmonitored.flows"
+echo "--- 127.0.0.1 is not monitored"
+python3 -m keyfence exec -p "$PROXY_PORT" --record "$UNMONITORED" -- bash "$KEYFENCE_HOME/exec_tls.sh" | tee "$KEYFENCE_HOME/exec_unmonitored.txt"
+grep -q "TUNNELED" "$KEYFENCE_HOME/exec_unmonitored.txt" || { echo "FAILED: the unmonitored host did not get the listener's own certificate"; exit 1; }
+grep -q "$FAKE_KEY over tls" "$TLS_RECORD" || { echo "FAILED: the unmonitored body never reached the listener"; exit 1; }
+echo "OK: the unmonitored host was tunneled with the real certificate and reached the listener untouched"
+python3 - "$UNMONITORED" "$TLS_PORT" <<'EOF' || { echo "FAILED: the record holds traffic from a host that is not monitored"; exit 1; }
+import sys
+from mitmproxy import io as mio
+with open(sys.argv[1], "rb") as fh:
+    flows = list(mio.FlowReader(fh).stream())
+seen = [(f.request.method, f.request.port, f.request.content) for f in flows]
+print("recorded:", seen)
+tls_port = int(sys.argv[2])
+assert not [f for f in flows if f.request.port == tls_port and f.request.content], seen
+EOF
+echo "OK: the record holds no traffic from the host that is not monitored"
+write_config redact
+
 echo "=== 8) keyfence selftest proves each mode end to end without touching this home ==="
 AUDIT_LINES_BEFORE=$(wc -l < "$KEYFENCE_HOME/audit.log")
 VAULT_BEFORE=$(cat "$KEYFENCE_HOME/vault.json")

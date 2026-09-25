@@ -4,6 +4,7 @@ import contextlib
 import http.client
 import json
 import os
+import re
 import shutil
 import socket
 import ssl
@@ -59,6 +60,20 @@ def listen_args(port: int, local: str | None) -> list[str]:
         return ["--listen-host", "127.0.0.1", "--listen-port", str(port)]
     spec = "local" if local in ("", "*") else f"local:{local}"
     return ["--mode", f"regular@127.0.0.1:{port}", "--mode", spec]
+
+
+def host_regex(pattern: str) -> str:
+    body = "".join(".*" if ch in "*?[]" else re.escape(ch) for ch in pattern)
+    return f"^(?:.*\\.)?{body}(?::[0-9]+)?\\Z"
+
+
+def allow_hosts_args(config: Config) -> list[str]:
+    if config.intercept_all_hosts:
+        return []
+    args: list[str] = []
+    for pattern in dict.fromkeys([*config.hosts, PROBE_HOST]):
+        args += ["--allow-hosts", host_regex(pattern)]
+    return args
 
 
 def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = (),
@@ -323,7 +338,7 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
     proxy_log = (DEFAULT_DIR / "proxy.log").open("a")
     if local == "":
         local = Path(command[0]).name
-    extra = []
+    extra = allow_hosts_args(config)
     if record:
         notice = record_notice(record)
         if notice:
@@ -332,7 +347,7 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         record.touch(mode=0o600)
         with contextlib.suppress(OSError):
             os.chmod(record, 0o600)
-        extra = ["-w", str(record)]
+        extra += ["-w", str(record)]
     try:
         proxy = start_proxy(port, proxy_env, proxy_log, timeout, ca_cert, local, extra)
     except ProxyError as exc:
