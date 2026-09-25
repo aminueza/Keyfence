@@ -168,13 +168,13 @@ def _is_ours(entry: dict) -> bool:
     return False
 
 
-def _added_rules_path(path: Path) -> Path:
+def added_rules_path(path: Path) -> Path:
     return path.with_name("keyfence-deny-rules.json")
 
 
 def _added_rules(path: Path) -> list[str] | None:
     try:
-        rules = json.loads(_added_rules_path(path).read_text())
+        rules = json.loads(added_rules_path(path).read_text())
     except (OSError, ValueError):
         return None
     if not isinstance(rules, list) or not all(isinstance(rule, str) for rule in rules):
@@ -212,7 +212,7 @@ def install(path: Path, command: str | None = None) -> bool:
         changed = True
         path.parent.mkdir(parents=True, exist_ok=True)
         previous = _added_rules(path) or []
-        _added_rules_path(path).write_text(json.dumps(sorted(set(previous) | set(missing)), indent=2) + "\n")
+        added_rules_path(path).write_text(json.dumps(sorted(set(previous) | set(missing)), indent=2) + "\n")
     if not changed:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -236,7 +236,7 @@ def uninstall(path: Path, force: bool = False) -> Removal:
         unrecorded = [rule for rule in deny if rule in DENY_RULES]
     kept_deny = [rule for rule in deny if rule not in ours]
     if force or recorded is not None:
-        _added_rules_path(path).unlink(missing_ok=True)
+        added_rules_path(path).unlink(missing_ok=True)
     result = Removal(len(kept) < len(pre), len(deny) - len(kept_deny), unrecorded)
     if not result.changed:
         return result

@@ -15,6 +15,12 @@
   list the hook already keeps, so the two layers read from one list.
   `.env`, `.env.local` and `.env.production` are still refused, at the
   project root and in a subdirectory. 17 rules become 21.
+- `install-hooks claude-code` says what it wrote. The command touches
+  three things: the `PreToolUse` hook entry, the `permissions.deny` block
+  and the `keyfence-deny-rules.json` record that `--remove` reads back.
+  The output named the hook and left the other two to be found by
+  diffing the settings file afterwards. It now names all three, with the
+  rule count and the full path of the record.
 
 - The claude-code hook no longer refuses a command that mentions
   `mitmproxy-ca-cert.pem`. That is the certificate keyfence hands to every

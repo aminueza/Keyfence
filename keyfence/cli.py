@@ -224,7 +224,10 @@ def cmd_install_hooks(args) -> int:
     scope = "this project" if args.project else "all projects"
     if changed:
         print(f"Hook installed in {path} for {scope}.")
-        print("Claude Code will refuse to read .env files, private keys and credential files.")
+        print(f"That file also holds a permissions.deny block: keyfence's {len(hooks.DENY_RULES)} rules make "
+              "Claude Code refuse to read .env files, private keys and credential files.")
+        print(f"The rules keyfence added are listed in {hooks.added_rules_path(path)}, which is the record "
+              "--remove reads back.")
     else:
         print(f"Hook already present in {path}.")
     return 0
