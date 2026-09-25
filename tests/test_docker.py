@@ -53,6 +53,11 @@ def build_args():
     return dict(re.findall(r"^ARG ([A-Z0-9_]+)=(\S+)$", DOCKERFILE.read_text(), re.M))
 
 
+def pip_commands():
+    return [part.strip() for line in instructions() if line.startswith("RUN ")
+            for part in line[4:].split("&&") if "pip install" in part]
+
+
 def serve(status, body):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -166,13 +171,13 @@ def test_image_runs_as_a_non_root_user():
 
 
 def test_image_installs_pinned_dependencies():
-    installs = [line for line in instructions() if "pip install" in line]
-    assert installs
     pins = build_args()
+    commands = pip_commands()
+    assert commands
     for requirement, argument in (("mitmproxy", "MITMPROXY_VERSION"), ("PyYAML", "PYYAML_VERSION")):
-        assert f"{requirement}==${{{argument}}}" in " ".join(installs)
+        assert any(f"{requirement}==${{{argument}}}" in command for command in commands)
         assert re.fullmatch(r"[0-9][0-9.]*", pins.get(argument, "")), f"{argument} has no version"
-    assert not [line for line in installs if re.search(r"[><~]=[0-9]", line)]
+    assert not [command for command in commands if re.search(r"[><~]=[0-9]", command)]
 
 
 def test_the_image_pins_every_dependency_the_project_declares():
@@ -183,9 +188,12 @@ def test_the_image_pins_every_dependency_the_project_declares():
 
 
 def test_the_image_installs_the_project_without_resolving_dependencies_again():
-    installs = [line for line in instructions() if "pip install" in line and line.endswith("/app")]
-    assert installs, "the image never installs the project itself"
-    assert "--no-deps" in installs[0], "pip resolves the pins again and the image drifts"
+    project = [command for command in pip_commands() if command.endswith("/app")]
+    assert len(project) == 1, project
+    assert "--no-deps" in project[0], "pip resolves the pins again and the image drifts"
+    pinned = [command for command in pip_commands() if "==" in command]
+    assert pinned, "the image installs nothing with a version"
+    assert not any("--no-deps" in command for command in pinned)
 
 
 def test_the_image_and_the_entrypoint_agree_on_where_the_ca_lives():
@@ -193,6 +201,16 @@ def test_the_image_and_the_entrypoint_agree_on_where_the_ca_lives():
     confdir = re.search(r"MITMPROXY_CONFDIR=(\S+)", environment())
     assert home and confdir, "the image leaves MITMPROXY_CONFDIR unset, so every keyfence command falls back to a home that does not exist"
     assert confdir.group(1) == f"{home.group(1)}/certs"
+
+
+def test_the_image_user_has_a_home_it_can_write():
+    state = re.search(r"KEYFENCE_HOME=(\S+)", environment()).group(1)
+    created = " ".join(line for line in instructions() if "useradd" in line)
+    declared = re.search(r"--home-dir (\S+)", created)
+    exported = re.search(r"(?:^| )HOME=(\S+)", environment())
+    homes = {value for value in (declared.group(1) if declared else None,
+                                 exported.group(1) if exported else None) if value}
+    assert homes == {state}, f"the image user has no home it can write, only {homes or 'nothing'}"
 
 
 def test_entrypoint_refuses_to_start_when_the_data_directory_is_not_writable(tmp_path):
@@ -226,6 +244,45 @@ def test_entrypoint_refuses_to_start_when_a_state_file_is_not_writable(tmp_path)
     assert done.returncode != 0
     assert str(audit_log) in done.stderr, done.stderr
     assert "sudo chown -R" in done.stderr
+
+
+def test_entrypoint_refuses_to_start_when_a_state_file_is_a_broken_link(tmp_path):
+    if as_root_user():
+        pytest.skip("root can write to any file")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    audit_log = data_dir / "audit.log"
+    audit_log.symlink_to(tmp_path / "moved-away.log")
+    done = run_entrypoint(["status"], data_dir)
+    assert done.returncode != 0
+    assert str(audit_log) in done.stderr, done.stderr
+
+
+def test_entrypoint_starts_when_the_config_cannot_be_written(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    config = data_dir / "config.yaml"
+    config.write_text("mode: redact\n")
+    config.chmod(0o400)
+    try:
+        done = run_entrypoint(["status"], data_dir)
+    finally:
+        config.chmod(0o600)
+    assert done.returncode == 0, done.stderr
+    assert config.read_text() == "mode: redact\n"
+
+
+def test_entrypoint_starts_when_the_certs_hold_a_ca_it_cannot_replace(tmp_path):
+    data_dir = tmp_path / "data"
+    certs = data_dir / "certs"
+    certs.mkdir(parents=True)
+    (certs / "mitmproxy-ca-cert.pem").write_text("ca\n")
+    certs.chmod(0o500)
+    try:
+        done = run_entrypoint(["status"], data_dir)
+    finally:
+        certs.chmod(0o700)
+    assert done.returncode == 0, done.stderr
 
 
 def test_entrypoint_creates_the_config_and_the_certs_directory(tmp_path):

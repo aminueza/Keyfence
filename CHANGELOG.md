@@ -17,11 +17,16 @@
   and only failed later, when it first reached for the vault, or kept
   running while it wrote nothing to the audit log. It now takes the
   directory from `KEYFENCE_HOME` instead of assuming `/data`, checks on
-  every start that it can write the directory and the state files in it,
-  and stops with the `sudo chown` that fixes it, rather than running as
-  root to skip the question. `MITMPROXY_CONFDIR` points at that same
-  directory, so `selftest` and `doctor` inside the container find the CA
-  the proxy already made.
+  every start that it can write the directory, the vault and the audit
+  log, and stops with the `sudo chown` that fixes it, rather than
+  running as root to skip the question.
+- The user of the image has no home directory. Every `keyfence`
+  command that reached for `~/.mitmproxy` or `~/.claude` failed with a
+  `PermissionError`, so `selftest`, `exec`, `doctor` and
+  `install-hooks` all broke in there. The state directory is the home
+  of that user now, and `MITMPROXY_CONFDIR` points at its `certs`
+  subdirectory, so the container keeps one CA and it is the one already
+  on the host.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence

@@ -17,11 +17,15 @@ if ! mkdir -p "$DATA_DIR/certs" || [ ! -w "$DATA_DIR" ]; then
   refuse "$DATA_DIR"
 fi
 
-for path in "$DATA_DIR/certs" "$CONFIG_FILE" "$DATA_DIR/vault.json" "$DATA_DIR/audit.log"; do
-  if [ -e "$path" ] && [ ! -w "$path" ]; then
+for path in "$DATA_DIR/vault.json" "$DATA_DIR/audit.log"; do
+  if { [ -e "$path" ] || [ -L "$path" ]; } && [ ! -w "$path" ]; then
     refuse "$path"
   fi
 done
+
+if [ ! -f "$DATA_DIR/certs/mitmproxy-ca-cert.pem" ] && [ ! -w "$DATA_DIR/certs" ]; then
+  refuse "$DATA_DIR/certs"
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
   cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"

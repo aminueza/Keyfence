@@ -6,7 +6,7 @@ ARG KEYFENCE_UID=1000
 ARG KEYFENCE_GID=1000
 
 RUN groupadd --gid ${KEYFENCE_GID} keyfence \
-  && useradd --uid ${KEYFENCE_UID} --gid ${KEYFENCE_GID} --no-create-home --shell /usr/sbin/nologin keyfence
+  && useradd --uid ${KEYFENCE_UID} --gid ${KEYFENCE_GID} --home-dir /data --no-create-home --shell /usr/sbin/nologin keyfence
 
 WORKDIR /app
 COPY pyproject.toml README.md /app/
