@@ -32,11 +32,11 @@ the proxy starts. Tools need to trust it so the proxy can read HTTPS traffic.
 
 `keyfence exec` hands the child process a CA bundle at
 `~/.keyfence/ca-bundle.pem` through `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
-`CURL_CA_BUNDLE` and `GIT_SSL_CAINFO`, and the mitmproxy certificate itself
-through `NODE_EXTRA_CA_CERTS`, so Claude Code, Codex, Aider, curl, git and
-anything on the Python or Node SDKs work with no further step. The first
-four replace the trust store rather than add to it, so the
-bundle is the system roots with the mitmproxy CA appended: a host the
+`CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` and `CARGO_HTTP_CAINFO`, and the mitmproxy
+certificate itself through `NODE_EXTRA_CA_CERTS`, so Claude Code, Codex,
+Aider, curl, git, cargo and anything on the Python or Node SDKs work with no
+further step. The first five replace the trust store rather than add to it, so
+the bundle is the system roots with the mitmproxy CA appended: a host the
 child reaches directly, through a `NO_PROXY` you set, is then validated
 against the public roots it was issued from. The bundle is written on the
 first `keyfence exec` and rewritten whenever the mitmproxy CA or the
@@ -342,9 +342,10 @@ export SSL_CERT_FILE=~/.keyfence/ca-bundle.pem                  # Python tools
 export REQUESTS_CA_BUNDLE=~/.keyfence/ca-bundle.pem
 export CURL_CA_BUNDLE=~/.keyfence/ca-bundle.pem
 export GIT_SSL_CAINFO=~/.keyfence/ca-bundle.pem                # git over HTTPS
+export CARGO_HTTP_CAINFO=~/.keyfence/ca-bundle.pem             # cargo
 ```
 
-The first four replace the trust store, so they need the system roots with
+The first five replace the trust store, so they need the system roots with
 the mitmproxy CA appended, which is what `keyfence exec` writes for you
 under `~/.keyfence/ca-bundle.pem`. Pointing them at
 `~/.mitmproxy/mitmproxy-ca-cert.pem` on its own works only while everything

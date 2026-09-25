@@ -9,7 +9,7 @@
   those four replace the trust store rather than add to it, unlike
   `NODE_EXTRA_CA_CERTS`. A host reached directly, through a `NO_PROXY` the
   user set, had its perfectly good public certificate rejected by curl,
-  Python, requests and git. The four now point at
+  Python, requests and git. Those four now point at
   `~/.keyfence/ca-bundle.pem`, the system roots with the mitmproxy CA
   appended, and `NODE_EXTRA_CA_CERTS` keeps the single certificate. The
   roots come from `certifi` when it is importable, then from
@@ -22,7 +22,21 @@
   0644: it holds no secret, but a permissive umask must not make it
   world-writable. `keyfence doctor` and `keyfence selftest` name the
   bundle and the file the roots came from, and the shell environment check
-  now wants the four at the bundle rather than at the certificate.
+  now wants them at the bundle rather than at the certificate.
+- cargo can reach crates.io inside `keyfence exec`. It could not before,
+  failing with "SSL certificate problem: unable to get local issuer
+  certificate" even though `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+  `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` were all exported, because cargo
+  reads none of them: it sets `CURLOPT_CAINFO` from `http.cainfo`, and
+  libcurl only falls back to its own `CURL_CA_BUNDLE` default when no CA
+  file was set, while `SSL_CERT_FILE` is read by the curl command line
+  tool and never by libcurl. `CARGO_HTTP_CAINFO` now points at the CA
+  bundle. It replaces the trust store rather than adding to it, so it
+  joins the variables that take the bundle rather than the single
+  certificate `NODE_EXTRA_CA_CERTS` gets. `AWS_CA_BUNDLE` was considered
+  and left out: botocore reads it, but only as an override, and with it
+  unset it already falls back to `REQUESTS_CA_BUNDLE`, which keyfence
+  sets, so the AWS CLI did not have this bug.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence
