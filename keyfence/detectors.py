@@ -176,9 +176,12 @@ def _json_spans(text: str) -> list[tuple[int, int, str | None]]:
 
 
 _ESCAPE = re.compile(
-    r"\\u[dD][89abAB][0-9a-fA-F]{2}\\u[dD][c-fC-F][0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}|\\.",
+    r"\\u[dD][89abAB][0-9a-fA-F]{2}\\u[dD][c-fC-F][0-9a-fA-F]{2}|"
+    r"\\u[0-9a-fA-F]{4}|"
+    r'\\["\\\\/bfnrt]',
     re.DOTALL)
-_SIMPLE_ESCAPES = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+_SIMPLE_ESCAPES = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t",
+                   '"': '"', "\\": "\\", "/": "/"}
 _REPLACEMENT_CHAR = "\ufffd"
 
 
@@ -191,9 +194,7 @@ def _unescape(escape: str) -> str:
         if 0xD800 <= code <= 0xDFFF:
             return _REPLACEMENT_CHAR
         return chr(code)
-    if escape == r"\u":
-        return escape
-    return _SIMPLE_ESCAPES.get(escape[1], escape[1])
+    return _SIMPLE_ESCAPES.get(escape[1], escape)
 
 
 @dataclass

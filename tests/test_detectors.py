@@ -610,3 +610,17 @@ def test_ghp_token_after_bare_backslash_in_text_body_is_found():
     text = r"something\\" + GHP
     findings = scan(text, config=ScanConfig(entropy_enabled=False, patterns_enabled=True))
     assert [(f.kind, f.value) for f in findings] == [("github-token", GHP)]
+
+
+def test_unpaired_surrogate_decoded_to_replacement_char(vault):
+    vault.add("vault-secret-value-2026")
+    body = '{"content": "cut \\ud83dvault-secret-value-2026 end"}'
+    findings = scan(body, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("vault", "vault-secret-value-2026")]
+
+
+def test_ghp_token_after_unpaired_surrogate_is_found():
+    GHP = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    body = '{"content": "cut \\ud83d' + GHP + ' end"}'
+    findings = scan(body, config=ScanConfig(entropy_enabled=False, patterns_enabled=True))
+    assert [(f.kind, f.value) for f in findings] == [("github-token", GHP)]
