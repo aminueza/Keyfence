@@ -267,8 +267,177 @@ cat "$KEYFENCE_HOME/exec_canary.txt"; echo
 grep -q "REDACTED:canary" "$KEYFENCE_HOME/exec_canary.txt" || { echo "FAILED: canary not redacted via exec"; exit 1; }
 grep -q "CANARY tripped -> 127.0.0.1: .*/.env was read and sent" "$KEYFENCE_HOME/proxy.log" || { echo "FAILED: CANARY tripped missing from proxy.log"; exit 1; }
 echo "OK: CANARY tripped with the file path is in proxy.log"
-
 echo
+echo "=== 7b) keyfence exec: a host it does not monitor is tunneled, not intercepted ==="
+TLS_PORT=${TLS_PORT:-9997}
+TLS_RECORD="$KEYFENCE_HOME/tls_received.log"
+BODY="{\"content\":\"my token is $FAKE_KEY over tls\"}"
+
+python3 - <<'EOF'
+import datetime, ipaddress, os
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
+home = os.environ["KEYFENCE_HOME"]
+key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
+now = datetime.datetime.now(datetime.timezone.utc)
+cert = (x509.CertificateBuilder()
+        .subject_name(name).issuer_name(name).public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(days=1))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]), critical=False)
+        .sign(key, hashes.SHA256()))
+with open(f"{home}/tls.key", "wb") as fh:
+    fh.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
+with open(f"{home}/tls.crt", "wb") as fh:
+    fh.write(cert.public_bytes(serialization.Encoding.PEM))
+with open(f"{home}/tls.der", "wb") as fh:
+    fh.write(cert.public_bytes(serialization.Encoding.DER))
+EOF
+
+TLS_PORT=$TLS_PORT python3 - <<'EOF' &
+import os, socketserver, ssl
+from http.server import BaseHTTPRequestHandler, HTTPServer
+LOG = os.path.join(os.environ["KEYFENCE_HOME"], "tls_received.log")
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.load_cert_chain(f'{os.environ["KEYFENCE_HOME"]}/tls.crt', f'{os.environ["KEYFENCE_HOME"]}/tls.key')
+
+class Echo(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        with open(LOG, "ab") as fh:
+            fh.write(body + b"\n")
+        payload = b'{"tls_upstream_received": ' + body + b'}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *a): pass
+
+class Server(socketserver.ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+    request_queue_size = 64
+
+    def get_request(self):
+        sock, addr = self.socket.accept()
+        return ctx.wrap_socket(sock, server_side=True), addr
+
+    def handle_error(self, request, client_address):
+        pass
+
+Server(("127.0.0.1", int(os.environ["TLS_PORT"])), Echo).serve_forever()
+EOF
+PIDS+=($!)
+TLS_PORT=$TLS_PORT python3 - <<'EOF' || { echo "FAILED: the TLS listener never completed a handshake"; exit 1; }
+import os, socket, ssl, time
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+for _ in range(60):
+    try:
+        ctx.wrap_socket(socket.create_connection(("127.0.0.1", int(os.environ["TLS_PORT"])), timeout=1),
+                        server_hostname="127.0.0.1").close()
+        break
+    except OSError:
+        time.sleep(0.25)
+else:
+    raise SystemExit(1)
+EOF
+
+cat > "$KEYFENCE_HOME/tls_client.py" <<'EOF'
+import hashlib, http.client, os, socket, ssl, sys
+
+home, proxy_port, tls_port, body = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+listener = open(os.path.join(home, "tls.der"), "rb").read()
+sock = socket.create_connection(("127.0.0.1", proxy_port), timeout=10)
+sock.settimeout(10)
+sock.sendall(f"CONNECT 127.0.0.1:{tls_port} HTTP/1.1\r\nHost: 127.0.0.1:{tls_port}\r\n\r\n".encode())
+buf = b""
+while b"\r\n\r\n" not in buf:
+    chunk = sock.recv(4096)
+    if not chunk:
+        print("NO CONNECT REPLY from the proxy")
+        raise SystemExit(1)
+    buf += chunk
+status = buf.split(b"\r\n", 1)[0].decode()
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+tls = ctx.wrap_socket(sock, server_hostname="127.0.0.1")
+peer = tls.getpeercert(binary_form=True)
+if peer == listener:
+    print("TUNNELED the listener's own certificate reached the client")
+else:
+    print("INTERCEPTED a certificate the listener never signed reached the client")
+print("CONNECT:", status, "| peer sha256:", hashlib.sha256(peer).hexdigest()[:16])
+payload = body.encode()
+tls.sendall(f"POST /v1/tls HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Length: {len(payload)}\r\n\r\n".encode() + payload)
+reply = b""
+try:
+    while True:
+        chunk = tls.recv(65536)
+        if not chunk:
+            break
+        reply += chunk
+except OSError as exc:
+    print("REPLY ERROR:", type(exc).__name__, exc)
+print("REPLY:", reply.decode(errors="replace").splitlines()[0] if reply else "(empty)")
+EOF
+
+cat > "$KEYFENCE_HOME/exec_tls.sh" <<EOF
+python3 "$KEYFENCE_HOME/tls_client.py" "$KEYFENCE_HOME" "$PROXY_PORT" "$TLS_PORT" '$BODY'
+EOF
+
+: > "$TLS_RECORD"
+printf 'mode: redact\nhosts: ["127.0.0.1"]\n' > "$KEYFENCE_CONFIG"
+MONITORED="$KEYFENCE_HOME/exec_monitored.flows"
+echo "--- 127.0.0.1 is monitored"
+python3 -m keyfence exec -p "$PROXY_PORT" --record "$MONITORED" -- bash "$KEYFENCE_HOME/exec_tls.sh" | tee "$KEYFENCE_HOME/exec_monitored.txt"
+grep -q "^INTERCEPTED " "$KEYFENCE_HOME/exec_monitored.txt" || { echo "FAILED: the monitored host offered a certificate the listener never signed, so the session was intercepted"; exit 1; }
+echo "OK: the monitored host is intercepted, so the client never sees the listener's certificate"
+python3 - "$MONITORED" "$TLS_PORT" "$FAKE_KEY" <<'EOF' || { echo "FAILED: the record does not hold the monitored request with the secret replaced"; exit 1; }
+import sys
+from mitmproxy import io as mio
+with open(sys.argv[1], "rb") as fh:
+    flows = list(mio.FlowReader(fh).stream())
+seen = [(f.request.method, f.request.host, f.request.port, f.request.scheme) for f in flows]
+print("recorded:", seen)
+tls_port, key = int(sys.argv[2]), sys.argv[3].encode()
+posts = [f.request.content for f in flows if f.request.port == tls_port and f.request.method == "POST"]
+assert posts, ("no POST for the TLS port", seen)
+assert b"REDACTED" in posts[0], posts[0]
+assert key not in posts[0], "the record still holds the raw secret"
+EOF
+echo "OK: the record holds the monitored TLS request with the secret replaced"
+
+: > "$TLS_RECORD"
+printf 'mode: redact\nhosts: ["api.openai.com"]\n' > "$KEYFENCE_CONFIG"
+UNMONITORED="$KEYFENCE_HOME/exec_unmonitored.flows"
+echo "--- 127.0.0.1 is not monitored"
+python3 -m keyfence exec -p "$PROXY_PORT" --record "$UNMONITORED" -- bash "$KEYFENCE_HOME/exec_tls.sh" | tee "$KEYFENCE_HOME/exec_unmonitored.txt"
+grep -q "^TUNNELED " "$KEYFENCE_HOME/exec_unmonitored.txt" || { echo "FAILED: the unmonitored host did not get the listener's own certificate"; exit 1; }
+grep -q "$FAKE_KEY over tls" "$TLS_RECORD" || { echo "FAILED: the unmonitored body never reached the listener"; exit 1; }
+echo "OK: the unmonitored host was tunneled with the real certificate and reached the listener untouched"
+python3 - "$UNMONITORED" "$TLS_PORT" <<'EOF' || { echo "FAILED: the record holds traffic from a host that is not monitored"; exit 1; }
+import sys
+from mitmproxy import io as mio
+with open(sys.argv[1], "rb") as fh:
+    flows = list(mio.FlowReader(fh).stream())
+seen = [(f.request.method, f.request.host, f.request.port, f.request.content) for f in flows]
+print("recorded:", seen)
+tls_port = int(sys.argv[2])
+assert not [f for f in flows if f.request.port == tls_port], seen
+EOF
+echo "OK: the record holds no traffic from the host that is not monitored"
+write_config redact
+
 echo "=== 8) keyfence selftest proves each mode end to end without touching this home ==="
 AUDIT_LINES_BEFORE=$(wc -l < "$KEYFENCE_HOME/audit.log")
 VAULT_BEFORE=$(cat "$KEYFENCE_HOME/vault.json")

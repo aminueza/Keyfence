@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- `keyfence exec` tunnels the hosts it does not monitor instead of
+  intercepting every HTTPS connection the child made. It never passed
+  `--allow-hosts` to mitmdump, so the proxy installed its own
+  certificate for every host and decrypted all of them, and the
+  `hosts` list only decided whether a finding was reported, never what
+  was intercepted: a request to a host outside the list was decrypted
+  for nothing, and the certificate the tool saw was not the one the
+  host presented. With `intercept_all_hosts` false, which is the
+  default, each monitored host is now passed as an allow entry and
+  every other host is tunneled with the real certificate, so a session
+  outside the list is not decrypted, and `--record` holds only the
+  configured hosts. The cost is that `allow_hosts` is read when the
+  proxy starts, so editing `hosts` takes effect on the next
+  `keyfence exec` and not during the session. The addon still reloads
+  its own list, so a host added mid-session is monitored but still
+  tunneled, which is the one case where a secret can leave unseen;
+  warning on it is left to a follow-up. Intercepting every host when a
+  pattern is hard to convert was left out on purpose, because it would
+  hide the same bug from a session that set `hosts` on purpose. A
+  client that opens the tunnel by address with no SNI has no hostname
+  for the list to match and is tunneled now, where it used to be
+  decrypted. `keyfence run` and `keyfence selftest` are unchanged and
+  keep intercepting every host.
 - `keyfence doctor` checks that a keyfence proxy answers where
   `HTTPS_PROXY` points, instead of comparing that variable against
   8888. `keyfence exec` falls back to a free port when 8888 is busy but
