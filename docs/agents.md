@@ -227,3 +227,25 @@ asynchronous version with `spawn` is the extension template in
 5. Docs. A section in [setup.md](setup.md#blocking-secret-files-in-your-agent),
    a table on this page, the README's Documentation list and a
    CHANGELOG entry.
+
+## Verifying keyfence behavior from inside `keyfence exec`
+
+A shell or agent that checks keyfence while it runs under `keyfence exec`
+reads its own output through the proxy it is testing. Anything that looks
+like a secret is redacted on the way back, and that includes the
+`[REDACTED:...]` markers of a probe payload. A run that leaks a value and a
+run that does not print the same text, so an eyeballed diff of echoed
+output cannot tell them apart. That produced a false positive while the
+WebSocket frame scanning was under development ([PR #69](https://github.com/aminueza/keyfence/pull/69)):
+the probe carried a literal marker, and the leaking and the clean runs
+read as identical on screen.
+
+Compute the verdict in the process instead:
+
+- The test client assembles a real-shaped secret itself; `tests/fakes.py`
+  is what the suite uses for that.
+- The check asserts on the captured or provider-side body in code
+  (Python), never on what the screen shows.
+- It covers the `bash tests/integration_test.sh` run from such a shell
+  too: the script's checks are programmatic, but a human or an agent
+  reading its output by eye has the same blind spot.
