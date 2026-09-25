@@ -274,13 +274,26 @@ def test_glued_pass_false_positives_stay_out():
 
 
 def test_length_bound_in_joins_secret_words():
-    # A long segment that is NOT composed of secret words.
-    # Without the length bound (first = 0), this would be O(n^2) and slow.
-    # With the bound, it's O(n * _LONGEST_SECRET_WORD) and fast.
-    long_segment = "x" * 5000
-    import time
-    start = time.monotonic()
-    result = _joins_secret_words(long_segment)
-    elapsed = time.monotonic() - start
-    assert result is False
-    assert elapsed < 0.5, f"took {elapsed:.3f}s, bound not effective"
+    from keyfence.importer import _LONGEST_SECRET_WORD, SECRET_WORDS
+
+    class CountingSet:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+            self.count = 0
+
+        def __contains__(self, item):
+            self.count += 1
+            return item in self._wrapped
+
+    segment = "key" * 2000
+    counting = CountingSet(SECRET_WORDS)
+    original = SECRET_WORDS
+    import keyfence.importer as imp
+    imp.SECRET_WORDS = counting
+    try:
+        result = _joins_secret_words(segment)
+        assert result is True
+        max_ops = len(segment) * _LONGEST_SECRET_WORD
+        assert counting.count <= max_ops, f"{counting.count} > {max_ops} (bound not effective)"
+    finally:
+        imp.SECRET_WORDS = original
