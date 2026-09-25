@@ -62,6 +62,30 @@
   a 101 goes to the raw TCP layer and every frame passes unscanned, and a
   `websocket: false` in `~/.mitmproxy/config.yaml` beats the command line,
   so an argument could not close that hole.
+- The Claude Code hook fails closed. An exception inside `decide()` used
+  to exit 1, which Claude Code reads as no opinion, so the call went
+  through with the guard half-alive. A hook that never started had the
+  same effect: `keyfence hook claude-code` was written into settings.json
+  as a bare command, so a keyfence that is not on PATH, as with `uv tool`
+  or a project venv, was never found and every call passed unchecked.
+  `run_hook` now wraps the decision in `try/except BaseException`, prints
+  a reason naming the exception type, and exits 2 on anything,
+  `SystemExit` and `KeyboardInterrupt` included. A new install writes the
+  absolute path of the running keyfence into settings.json, and
+  `keyfence doctor` reads the command out of each settings file and fails,
+  naming the command, when its executable does not exist, is not
+  executable, or is not on PATH.
+  A hook that does not resolve now refuses the call instead of letting it
+  through unguarded, so a rebuilt venv or a moved install needs
+  `keyfence install-hooks claude-code` again to bake the new path, and a
+  bug in the hook blocks calls instead of passing them. The entry is
+  written only when no keyfence hook is present, so an install that
+  already has one keeps the bare command and relies on the doctor check.
+  The 10-second timeout Claude Code applies is still a way to fail open,
+  and the hook cannot close it, since a call the hook never answers is
+  allowed. Closing it needs a wrapper process or a timeout in the hook
+  protocol. The plugin runs `guard.py` with `python3`, which a default
+  Windows install does not have, and `plugin/README.md` now says so.
 
 ## 0.7.0 (2026-09-24)
 
