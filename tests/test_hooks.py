@@ -29,6 +29,23 @@ def test_safe_paths(path):
     assert not hooks.is_sensitive(path)
 
 
+def test_the_private_key_beside_the_mitmproxy_ca_certificate_is_still_refused():
+    path = "~/.mitmproxy/mitmproxy-ca.pem"
+    assert hooks.is_sensitive(path)
+    reason = hooks.decide({"tool_name": "Read", "tool_input": {"file_path": path}})
+    assert reason and "mitmproxy-ca.pem" in reason
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {path}"}})
+
+
+@pytest.mark.parametrize("path", [
+    "~/.mitmproxy/mitmproxy-ca-cert.pem", "/tmp/keyfence-conffdir/mitmproxy-ca-cert.pem",
+])
+def test_the_mitmproxy_ca_certificate_keyfence_hands_to_every_child_is_allowed(path):
+    assert not hooks.is_sensitive(path)
+    command = f"CARGO_HTTP_CAINFO={path} keyfence exec -- cargo search serde --limit 1"
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
 def test_paths_in_command():
     cmd = "cat .env && cp ~/.aws/credentials /tmp/x && grep TOKEN ../secrets/prod.env | head; ls ~/.ssh/id_rsa"
     found = hooks.paths_in_command(cmd)

@@ -76,13 +76,17 @@ Linux and Windows: see the
 | `keyfence status` | show config, vault size, rule count and recent detections |
 
 `keyfence import` with no arguments reads `.env*` files in the current
-directory (except `.env.example` and similar) and these files in your home
+directory, skipping any whose name holds `example`, `sample` or
+`template`, or ends in `dist`, and these files in your home
 directory: `.aws/credentials`, `.netrc`, `.npmrc`, `.pypirc`,
 `.git-credentials`, `.docker/config.json`. Only values that look like secrets
 are registered: names containing key, token, secret, password and similar, or
 values with high entropy. Passwords inside connection URLs are extracted too.
 `--all` registers every value longer than 8 characters. `--env` adds values
-from environment variables.
+from environment variables. That template skip belongs to the importer and
+has nothing to do with `SAFE_NAMES` in
+[agents.md](agents.md#what-the-rules-look-at), the hook's own list; a `.pem`
+in this directory is not read by `import` at all.
 
 `keyfence import --from` reads a secret manager through its own CLI, which
 must be installed and logged in: `op` (1Password, `--path` is the vault
@@ -227,9 +231,14 @@ It adds a `PreToolUse` hook for Read, Edit, Write, MultiEdit, NotebookEdit,
 Grep and Bash that refuses `.env` files, private keys, `.netrc`, `.npmrc`,
 `.pypirc`, `.git-credentials`, `credentials*`, `secrets.*`, `*.tfvars`,
 service account files, anything under `.ssh`, `.aws/credentials`,
-`.docker/config.json` and `.kube/config`. `.env.example` and `*.pub` are
-allowed. Bash commands that mention such a path are refused too, and so
-are commands that print secrets: `env`, `printenv`, `export`, `set`,
+`.docker/config.json` and `.kube/config`. `.env.example`, the other
+`.env` templates and `*.pub` are allowed: they hold no values and a
+public key is meant to be distributed. So is
+`mitmproxy-ca-cert.pem`, the certificate you point your tools at above,
+and the exception is the name, not the `*.pem` rule: `mitmproxy-ca.pem`,
+the private key next to it, is still refused. Bash commands that mention
+such a path are refused too, and so are commands that print secrets:
+`env`, `printenv`, `export`, `set`,
 `declare -x`, `printenv NAME` when the name looks like a secret, `echo` or
 `printf` of a `$VARIABLE` whose name looks like a secret,
 `/proc/*/environ`, and the read commands of `aws secretsmanager`, `aws ssm`

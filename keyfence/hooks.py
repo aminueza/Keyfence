@@ -19,7 +19,7 @@ SENSITIVE_PATHS = (
     "*/.aws/credentials", "*/.docker/config.json", "*/.ssh/*", "*/.kube/config",
     "*/.config/gcloud/*credentials*", "*/.gnupg/*",
 )
-SAFE_NAMES = (".env.example", ".env.sample", ".env.template", ".env.dist", "*.pub")
+SAFE_NAMES = (".env.example", ".env.sample", ".env.template", ".env.dist", "*.pub", "mitmproxy-ca-cert.pem")
 FILE_TOOLS = {"read", "edit", "write", "multiedit", "notebookedit"}
 GREP_TOOLS = {"grep"}
 SHELL_TOOLS = {"bash", "powershell"}
