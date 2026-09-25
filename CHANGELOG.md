@@ -4,10 +4,10 @@
 
 - The audit log previews less of a secret. A preview was the first and last
   four characters of any value over ten characters, so a twelve-character
-  password, which is the shortest a vault takes, was eight characters wide
-  in a file any user on the machine could read. A preview is now two
-  characters at each end of a value of 24 characters or more, and a shorter
-  value is logged as its kind and its length alone.
+  password left eight of its twelve characters in a file any user on the
+  machine could read. A preview is now two characters at each end of a value
+  of 24 characters or more, and a shorter value is logged as its kind and its
+  length alone.
 - `audit.log` and `proxy.log` are created with mode 0600. Both were opened
   with the plain append mode, so they landed with the umask, 0644 on a
   default machine, while the vault next to them is 0600 and the `--record`
