@@ -270,7 +270,27 @@ def test_run_refuses_busy_port(home, monkeypatch, capsys):
     monkeypatch.setattr(cli.runner, "port_open", lambda port: True)
     monkeypatch.setattr(cli.os, "execvp", lambda *a: pytest.fail("must not exec"))
     assert cli.main(["run", "-p", "9001"]) == 1
-    assert "already in use" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert out == "Port 9001 is already in use. Pick another one with -p.\n"
+    assert "Starting keyfence" not in out and "export HTTPS_PROXY" not in out
+
+
+def test_run_keeps_8888_and_says_why(home, capsys):
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["run", "--help"])
+    assert exc.value.code == 0
+    text = " ".join(capsys.readouterr().out.split())
+    assert "port for the proxy (default: 8888, never a free one" in text
+    assert "run prints the port to export" in text
+    assert "keyfence exec picks a free port" in text
+
+
+def test_exec_refuses_a_busy_port_it_was_asked_for(home, monkeypatch, capsys):
+    monkeypatch.setattr(cli.runner, "port_open", lambda port: True)
+    monkeypatch.setattr(cli.runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start"))
+    assert cli.main(["exec", "-p", "9001", "--", "echo"]) == 1
+    out, err = capsys.readouterr()
+    assert out == "Port 9001 is already in use. Pick another one with -p.\n" and err == ""
 
 
 def test_run_replaces_the_process_with_mitmdump(home, monkeypatch, capsys):
