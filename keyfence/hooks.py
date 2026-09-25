@@ -85,7 +85,7 @@ def paths_in_command(command: str) -> list[str]:
             if word and not word.startswith("-") and any(c in word for c in "/._")]
 
 
-def dumps_secrets(command: str) -> str | None:
+def refusal_for_command(command: str) -> str | None:
     if _DUMP_COMMANDS.search(command) or _NAMED_DUMP.search(command):
         return "it prints environment variables that hold the secrets keyfence protects"
     m = _SECRET_COMMANDS.search(command)
@@ -112,7 +112,7 @@ def decide(payload: dict) -> str | None:
         for path in paths_in_command(command):
             if is_sensitive(path):
                 return _reason(path)
-        why = dumps_secrets(command)
+        why = refusal_for_command(command)
         if why:
             return (f"keyfence blocked this command: {why}. Secrets must not enter the model "
                     "context. Ask the user to run it themselves if the output is needed.")
