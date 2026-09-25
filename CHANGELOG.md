@@ -79,10 +79,13 @@
   developer cannot rename are words of their own: `PGPASSWORD`, `SSHPASS`,
   `PASSPHRASE` and `PASSCODE`.
 
-  What this costs: a short, low-entropy value under a name that glues an
-  ordinary word onto `key` alone, such as `SSHKEY` or `SECKEY`, is no
-  longer registered by name. Use a separator (`SSH_KEY`), camel case
-  (`sshKey`) or `keyfence import --all`.
+What this costs: a short, low-entropy value under a name that glues an
+   ordinary word onto `key` alone, such as `SSHKEY` or `SECKEY`, is no
+   longer registered by name. Use a separator (`SSH_KEY`), camel case
+   (`sshKey`) or `keyfence import --all`. The matcher now tries two
+   splittings of each name (the standard camel-case split and one that keeps
+   the trailing capital on an acronym), so the quadratic bound applies to
+   both.
 
 ## 0.7.0 (2026-09-24)
 

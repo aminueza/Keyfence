@@ -20,6 +20,7 @@ SECRET_WORDS = frozenset({
 SECRET_SUFFIXES = ("token", "secret", "password")
 _LONGEST_SECRET_WORD = max(len(word) for word in SECRET_WORDS)
 _NAME_SEGMENT = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")
+_NAME_SEGMENT_VARIANT = re.compile(r"[A-Z]+|[a-z]+")
 _KV_LINE = re.compile(r"^\s*(?:export\s+)?(?P<key>[A-Za-z_/][A-Za-z0-9_.\-/:@]*)\s*[=:]\s*(?P<val>.+?)\s*$")
 _NETRC_PASSWORD = re.compile(r"\bpassword\s+(\S+)")
 _SKIP_VALUE = re.compile(r"^(?:\$\{|\$[A-Za-z_]|<|`|/|~|https?://[^@]*$)")
@@ -79,7 +80,10 @@ def _segment_is_secret(segment: str) -> bool:
 
 
 def _has_secret_name(key: str) -> bool:
-    return any(_segment_is_secret(segment.lower()) for segment in _NAME_SEGMENT.findall(key))
+    for pattern in (_NAME_SEGMENT, _NAME_SEGMENT_VARIANT):
+        if any(_segment_is_secret(segment.lower()) for segment in pattern.findall(key)):
+            return True
+    return False
 
 
 def looks_secret(key: str, value: str, min_length: int) -> bool:

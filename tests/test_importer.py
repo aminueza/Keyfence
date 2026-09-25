@@ -254,3 +254,8 @@ def test_a_word_glued_in_front_of_a_long_secret_word_still_matches():
 def test_env_values_keeps_the_git_author_email():
     environ = {"GIT_AUTHOR_EMAIL": "dev@example.com", "GITHUB_TOKEN": "tokenValue123"}
     assert env_values(environ, MIN) == {"tokenValue123"}
+
+
+def test_acronym_glued_to_camelcase_matches():
+    assert looks_secret("APIkey", "short-value", MIN)
+    assert looks_secret("googleAPIkey", "short-value", MIN)
