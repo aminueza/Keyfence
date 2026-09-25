@@ -603,3 +603,10 @@ def test_bare_backslash_u_in_json_string_value_is_kept_raw(vault):
     body = '{"content": "path C:\\\\users\\\\me secret-value-2026"}'
     findings = scan(body, vault=vault, config=NO_ENTROPY)
     assert [(f.kind, f.value) for f in findings] == [("vault", "secret-value-2026")]
+
+
+def test_ghp_token_after_bare_backslash_in_text_body_is_found():
+    GHP = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+    text = r"something\\" + GHP
+    findings = scan(text, config=ScanConfig(entropy_enabled=False, patterns_enabled=True))
+    assert [(f.kind, f.value) for f in findings] == [("github-token", GHP)]

@@ -104,7 +104,7 @@ def _scan_rules(text: str, rules: list[Rule]) -> list[Finding]:
     return findings
 
 
-_TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\\x00-\x1f]+""")
+_TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\\x00-\x1f\ufffd]+""")
 
 
 def _split_tokens(text: str) -> list[str]:
@@ -179,6 +179,7 @@ _ESCAPE = re.compile(
     r"\\u[dD][89abAB][0-9a-fA-F]{2}\\u[dD][c-fC-F][0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}|\\.",
     re.DOTALL)
 _SIMPLE_ESCAPES = {"b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+_REPLACEMENT_CHAR = "\ufffd"
 
 
 def _unescape(escape: str) -> str:
@@ -187,7 +188,11 @@ def _unescape(escape: str) -> str:
         return chr(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
     if escape[1] == "u" and len(escape) == 6:
         code = int(escape[2:6], 16)
-        return escape if 0xD800 <= code <= 0xDFFF else chr(code)
+        if 0xD800 <= code <= 0xDFFF:
+            return _REPLACEMENT_CHAR
+        return chr(code)
+    if escape == r"\u":
+        return escape
     return _SIMPLE_ESCAPES.get(escape[1], escape[1])
 
 
