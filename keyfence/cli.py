@@ -366,7 +366,9 @@ def build_parser() -> argparse.ArgumentParser:
                               "there is no record of which ones it added (installs before 0.5.0)")
 
     p_doctor = sub.add_parser("doctor", help="check the installation and say what is missing")
-    p_doctor.add_argument("-p", "--port", type=int, default=8888)
+    p_doctor.add_argument("-p", "--port", type=int, default=8888,
+                          help="port to check when the shell has no proxy variable; when it has one, the host and "
+                               "port it names are what get checked (default: 8888)")
 
     p_selftest = sub.add_parser("selftest", help="start a proxy on a free port, send a throwaway secret through it "
                                                  "to a local listener and check that the configured mode was applied")

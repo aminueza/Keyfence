@@ -1,14 +1,45 @@
 import json
 import os
+import socket
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+import pytest
 from fakes import CA_PEM
 from keyfence import doctor, runner
 from keyfence.vault import Vault
 
 
+@pytest.fixture
+def live_proxy():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            payload = b'{"keyfence": "0.6.0.dev0", "mode": "redact", "hosts": 9}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *_args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield server.server_port
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def shell_env(proxy, ca, bundle):
+    return {"HTTPS_PROXY": proxy, "NODE_EXTRA_CA_CERTS": str(ca),
+            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
+
+
 def test_run_checks_produces_every_check(home, monkeypatch):
-    monkeypatch.setattr(runner, "port_open", lambda port: False)
+    monkeypatch.setattr(runner, "port_open", lambda port, host: False)
     checks = doctor.run_checks(8888, cwd=home)
     labels = [c.label for c in checks]
     assert labels[:4] == ["keyfence", "mitmdump", "CA certificate", "CA bundle"]
@@ -70,39 +101,36 @@ def test_doctor_fails_when_there_is_no_system_roots_for_the_bundle(home, tmp_pat
     assert "no system trust store" in check.detail and missing in check.detail
 
 
-def test_the_shell_check_wants_the_bundle_in_every_replacing_variable(home, tmp_path):
+def test_the_shell_check_wants_the_bundle_in_every_replacing_variable(home, tmp_path, live_proxy):
     ca = tmp_path / "ca.pem"
     bundle = tmp_path / "ca-bundle.pem"
-    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
-            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
-    assert doctor.check_environment(8888, good, ca, bundle, system="Linux").status == doctor.OK
+    good = shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle)
+    assert doctor.check_environment("127.0.0.1", live_proxy, good, ca, bundle, system="Linux").status == doctor.OK
     one_off = {**good, "CURL_CA_BUNDLE": str(ca)}
-    check = doctor.check_environment(8888, one_off, ca, bundle, system="Linux")
+    check = doctor.check_environment("127.0.0.1", live_proxy, one_off, ca, bundle, system="Linux")
     assert check.status == doctor.WARN
     assert "CURL_CA_BUNDLE" in check.detail and str(bundle) in check.detail
 
 
-def test_the_shell_check_names_cargo_when_only_its_cainfo_is_missing(home, tmp_path):
+def test_the_shell_check_names_cargo_when_only_its_cainfo_is_missing(home, tmp_path, live_proxy):
     ca = tmp_path / "ca.pem"
     bundle = tmp_path / "ca-bundle.pem"
-    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
-            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
-    assert doctor.check_environment(8888, good, ca, bundle, system="Linux").status == doctor.OK
+    good = shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle)
+    assert doctor.check_environment("127.0.0.1", live_proxy, good, ca, bundle, system="Linux").status == doctor.OK
     short = {name: value for name, value in good.items() if name != "CARGO_HTTP_CAINFO"}
-    check = doctor.check_environment(8888, short, ca, bundle, system="Linux")
+    check = doctor.check_environment("127.0.0.1", live_proxy, short, ca, bundle, system="Linux")
     assert check.status == doctor.WARN
     assert check.detail.count("CARGO_HTTP_CAINFO") == 1
     assert "the 5 that replace the trust store" in check.detail
     assert "git, cargo)" in check.detail
 
 
-def test_the_shell_check_counts_cargo_among_the_ca_variables_it_reports(home, tmp_path):
+def test_the_shell_check_counts_cargo_among_the_ca_variables_it_reports(home, tmp_path, live_proxy):
     ca = tmp_path / "ca.pem"
     bundle = tmp_path / "ca-bundle.pem"
-    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
-            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
-    check = doctor.check_environment(8888, good, ca, bundle, system="Linux")
-    assert check.detail == "HTTPS_PROXY and the 6 CA variables point at keyfence on port 8888"
+    good = shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle)
+    check = doctor.check_environment("127.0.0.1", live_proxy, good, ca, bundle, system="Linux")
+    assert check.detail == f"HTTPS_PROXY and the 6 CA variables point at keyfence on 127.0.0.1:{live_proxy}"
     assert "CARGO_HTTP_CAINFO" in runner.CA_ENV_VARS
 
 
@@ -118,50 +146,115 @@ def test_config_and_vault_checks(home, write_config):
     assert doctor.check_vault().status == doctor.FAIL
 
 
-def test_proxy_and_environment_checks(monkeypatch, tmp_path):
-    monkeypatch.setattr(runner, "port_open", lambda port: True)
-    monkeypatch.setattr(runner, "addon_live", lambda port: True)
-    assert doctor.check_proxy(8888).status == doctor.OK
-    monkeypatch.setattr(runner, "addon_live", lambda port: False)
-    assert doctor.check_proxy(8888).status == doctor.WARN
-    assert "not scanned" in doctor.check_proxy(8888).detail
-    monkeypatch.setattr(runner, "port_open", lambda port: False)
-    assert doctor.check_proxy(8888).status == doctor.INFO
+def test_the_proxy_check_separates_a_closed_port_from_a_proxy_that_is_not_keyfence(monkeypatch):
+    looked = []
+    monkeypatch.setattr(runner, "port_open", lambda port, host: looked.append((host, port)) or True)
+    monkeypatch.setattr(runner, "addon_live", lambda port, host: True)
+    local = doctor.check_proxy("127.0.0.1", 8888)
+    assert local.status == doctor.OK
+    assert local.detail == "keyfence is answering on 127.0.0.1:8888"
+    foreign = doctor.check_proxy("proxy.example.com", 3128)
+    assert foreign.status == doctor.OK
+    assert foreign.detail == "keyfence is answering on proxy.example.com:3128"
+    assert looked == [("127.0.0.1", 8888), ("proxy.example.com", 3128)]
+    monkeypatch.setattr(runner, "addon_live", lambda port, host: False)
+    assert doctor.check_proxy("127.0.0.1", 8888).status == doctor.WARN
+    assert "not scanned" in doctor.check_proxy("127.0.0.1", 8888).detail
+    monkeypatch.setattr(runner, "port_open", lambda port, host: False)
+    assert doctor.check_proxy("127.0.0.1", 8888).status == doctor.INFO
+    assert "nothing on 127.0.0.1:8888" in doctor.check_proxy("127.0.0.1", 8888).detail
+
+
+def test_the_shell_check_asks_whether_a_keyfence_answers_where_the_shell_points(home, tmp_path, live_proxy):
     ca = tmp_path / "ca.pem"
     bundle = tmp_path / "ca-bundle.pem"
-    assert doctor.check_environment(8888, {}, ca, bundle).status == doctor.INFO
-    assert doctor.check_environment(8888, {"HTTPS_PROXY": "http://other:1"}, ca, bundle).status == doctor.WARN
-    assert doctor.check_environment(8888, {"HTTPS_PROXY": "http://127.0.0.1:8888"}, ca, bundle).status == doctor.WARN
-    node_only = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca)}
-    partial = doctor.check_environment(8888, node_only, ca, bundle)
+    assert doctor.check_environment("127.0.0.1", live_proxy, {}, ca, bundle).status == doctor.INFO
+    assert doctor.check_environment("127.0.0.1", live_proxy, {"HTTPS_PROXY": f"http://127.0.0.1:{live_proxy}"},
+                                    ca, bundle).status == doctor.WARN
+    node_only = {"HTTPS_PROXY": f"http://127.0.0.1:{live_proxy}", "NODE_EXTRA_CA_CERTS": str(ca)}
+    partial = doctor.check_environment("127.0.0.1", live_proxy, node_only, ca, bundle)
     assert partial.status == doctor.WARN
     assert "GIT_SSL_CAINFO" in partial.detail and "NODE_EXTRA_CA_CERTS" not in partial.detail
-    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
-            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
-    assert doctor.check_environment(8888, good, ca, bundle, system="Linux").status == doctor.OK
+    good = shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle)
+    assert doctor.check_environment("127.0.0.1", live_proxy, good, ca, bundle, system="Linux").status == doctor.OK
 
 
-def test_environment_check_warns_when_git_for_windows_ignores_the_ca(tmp_path, monkeypatch):
+def test_the_shell_check_warns_when_the_proxy_it_names_answers_nothing(home, tmp_path, live_proxy):
     ca = tmp_path / "ca.pem"
     bundle = tmp_path / "ca-bundle.pem"
-    good = {"HTTPS_PROXY": "http://127.0.0.1:8888", "NODE_EXTRA_CA_CERTS": str(ca),
-            **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
+    with socket.socket() as closed:
+        closed.bind(("127.0.0.1", 0))
+        dead = closed.getsockname()[1]
+    dead_proxy = shell_env(f"http://127.0.0.1:{dead}", ca, bundle)
+    check = doctor.check_environment("127.0.0.1", dead, dead_proxy, ca, bundle, system="Linux")
+    assert check.status == doctor.WARN
+    assert "does not reach a keyfence proxy on 127.0.0.1" in check.detail
+    assert f"HTTPS_PROXY=http://127.0.0.1:{dead}" in check.detail
+
+
+def test_doctor_inside_a_session_on_a_fallback_port_stops_naming_another_sessions_proxy(home, live_proxy, monkeypatch):
+    ca = runner.CA_CERT
+    bundle = runner.bundle_path()
+    for name, value in shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle).items():
+        monkeypatch.setenv(name, value)
+    checks = {c.label: c for c in doctor.run_checks(8888, cwd=home)}
+    assert checks["shell environment"].status == doctor.OK
+    assert str(live_proxy) in checks["shell environment"].detail
+    assert checks["proxy"].status == doctor.OK
+    assert checks["proxy"].detail == f"keyfence is answering on 127.0.0.1:{live_proxy}"
+
+
+def test_doctor_warns_when_the_proxy_variable_names_a_host_that_is_not_this_keyfence(home, live_proxy, monkeypatch):
+    ca = runner.CA_CERT
+    bundle = runner.bundle_path()
+    with socket.socket() as other_session:
+        other_session.bind(("127.0.0.1", 0))
+        other_session.listen(1)
+        busy = other_session.getsockname()[1]
+        for name, value in shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle).items():
+            monkeypatch.setenv(name, value)
+        assert doctor.run_checks(busy, cwd=home)[7].status != doctor.WARN
+        monkeypatch.setenv("HTTPS_PROXY", f"http://proxy.example.com:{live_proxy}")
+        foreign = {c.label: c for c in doctor.run_checks(8888, cwd=home)}["shell environment"]
+    assert foreign.status == doctor.WARN
+    assert f"HTTPS_PROXY=http://proxy.example.com:{live_proxy}" in foreign.detail
+    assert f"does not reach a keyfence proxy on proxy.example.com:{live_proxy}" in foreign.detail
+
+
+def test_doctor_reads_the_host_and_port_the_shell_proxy_variable_names():
+    assert doctor.proxy_endpoint({}, 8888) == ("127.0.0.1", 8888)
+    assert doctor.proxy_endpoint({"HTTPS_PROXY": "http://127.0.0.1:51739"}, 8888) == ("127.0.0.1", 51739)
+    assert doctor.proxy_endpoint({"https_proxy": "http://127.0.0.1:51739/"}, 8888) == ("127.0.0.1", 51739)
+    assert doctor.proxy_endpoint({"HTTPS_PROXY": "127.0.0.1:51739"}, 8888) == ("127.0.0.1", 51739)
+    assert doctor.proxy_endpoint({"HTTPS_PROXY": "proxy.example.com:3128"}, 8888) == ("proxy.example.com", 3128)
+    assert doctor.proxy_endpoint({"HTTPS_PROXY": "http://[::1]:51739"}, 8888) == ("::1", 51739)
+    assert doctor.proxy_endpoint({"HTTPS_PROXY": "http://127.0.0.1"}, 8888) == ("127.0.0.1", 8888)
+    assert doctor.proxy_endpoint({"HTTPS_PROXY": "http://127.0.0.1:not-a-port"}, 8888) == ("127.0.0.1", 8888)
+    assert doctor.proxy_endpoint({"HTTPS_PROXY": "http://[::1"}, 8888) == ("127.0.0.1", 8888)
+
+
+def test_environment_check_warns_when_git_for_windows_ignores_the_ca(tmp_path, monkeypatch, live_proxy):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    good = shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle)
+    at = lambda **kw: doctor.check_environment("127.0.0.1", live_proxy, good, ca, bundle, **kw)
     monkeypatch.setattr(doctor.shutil, "which", lambda name: "C:\\Program Files\\Git\\cmd\\git.exe")
     unset = lambda cmd: (1, "")
-    check = doctor.check_environment(8888, good, ca, bundle, run=unset, system="Windows")
+    check = at(run=unset, system="Windows")
     assert check.status == doctor.WARN and "schannel" in check.detail
     assert "git config --global http.schannelUseSSLCAInfo true" in check.detail
-    assert check.detail.startswith("HTTPS_PROXY and the 6 CA variables point at keyfence on port 8888, but")
+    assert check.detail.startswith(f"HTTPS_PROXY and the 6 CA variables point at keyfence on 127.0.0.1:{live_proxy}, but")
     configured = lambda cmd: (0, "true\n") if cmd[-1] == "http.schannelUseSSLCAInfo" else (1, "")
-    assert doctor.check_environment(8888, good, ca, bundle, run=configured, system="Windows").status == doctor.OK
+    assert at(run=configured, system="Windows").status == doctor.OK
     openssl = lambda cmd: (0, "openssl\n") if cmd[-1] == "http.sslBackend" else (1, "")
-    assert doctor.check_environment(8888, good, ca, bundle, run=openssl, system="Windows").status == doctor.OK
+    assert at(run=openssl, system="Windows").status == doctor.OK
     never = lambda cmd: pytest.fail("git must not be asked")
-    in_session = {**good, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.schannelUseSSLCAInfo", "GIT_CONFIG_VALUE_0": "true"}
-    assert doctor.check_environment(8888, in_session, ca, bundle, run=never, system="Windows").status == doctor.OK
-    assert doctor.check_environment(8888, good, ca, bundle, run=never, system="Linux").status == doctor.OK
+    session = {**good, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.schannelUseSSLCAInfo", "GIT_CONFIG_VALUE_0": "true"}
+    assert doctor.check_environment("127.0.0.1", live_proxy, session, ca, bundle,
+                                    run=never, system="Windows").status == doctor.OK
+    assert at(run=never, system="Linux").status == doctor.OK
     monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
-    assert doctor.check_environment(8888, good, ca, bundle, run=never, system="Windows").status == doctor.OK
+    assert at(run=never, system="Windows").status == doctor.OK
     assert doctor.git_config_in_env({"GIT_CONFIG_COUNT": "x"}, "a.b") is None
     assert doctor.git_config_in_env({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "A.B", "GIT_CONFIG_VALUE_0": "v"}, "a.b") == "v"
 

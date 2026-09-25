@@ -94,7 +94,7 @@ def test_import_from_secret_manager(home, monkeypatch, capsys):
 
 
 def test_doctor_and_demo_commands(home, monkeypatch, capsys):
-    monkeypatch.setattr(cli.runner, "port_open", lambda port: False)
+    monkeypatch.setattr(cli.runner, "port_open", lambda port, host: False)
     assert cli.main(["doctor"]) == 0
     out = capsys.readouterr().out
     assert "keyfence:" in out and "audit log:" in out

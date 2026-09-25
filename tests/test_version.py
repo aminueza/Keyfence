@@ -45,7 +45,7 @@ def test_plugin_manifest_carries_the_released_version():
 
 
 def test_doctor_reports_the_installed_version(home, monkeypatch):
-    monkeypatch.setattr(runner, "port_open", lambda port: False)
+    monkeypatch.setattr(runner, "port_open", lambda port, host: False)
     checks = doctor.run_checks(8888, cwd=home)
     assert checks[0].label == "keyfence"
     assert checks[0].detail.startswith(f"{__version__} on Python ")
