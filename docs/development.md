@@ -97,8 +97,10 @@ To release:
 3. Right after, set `__version__` to the next dev version (`X.Y+1.0.dev0`),
    open a new `Unreleased` section in `CHANGELOG.md` and commit.
 
-The workflow builds the sdist and wheel, checks that the tag matches the
-package version, and publishes.
+The workflow checks that the `CI` workflow passed for the tagged commit,
+builds the sdist and wheel, checks that the tag matches the package
+version, and publishes. A tag pushed on a commit whose suite fails will
+not publish.
 
 Between releases `main` carries a `.dev0` version, so `keyfence doctor`
 tells a checkout of `main` apart from the build published on PyPI.
