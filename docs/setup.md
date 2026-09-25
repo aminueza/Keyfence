@@ -151,7 +151,7 @@ ok    mode: the proxy reports redact, as configured, with 127.0.0.1 monitored
 ok    request: the listener received [REDACTED:vault] instead of the value
 ok    response: HTTP 200 passed back with the redaction in place
 ok    audit log: 1 entry(ies) with a vault finding written for the request
-info  TLS: not exercised: the request was plain HTTP, so the CA and the bundle above are only checked to exist, not trusted by a client
+ok    TLS: handshake to proxy succeeded with mitmproxy's certificate, body redacted
 
 The proxy is protecting traffic in redact mode.
 ```
@@ -175,12 +175,7 @@ the listener unchanged, the placeholder not restored, no audit entry. The
 last lines of the proxy's own log are printed under the failed step; the
 full log is in `~/.keyfence/selftest.log`.
 
-What is not covered: the request is plain HTTP, so TLS interception and
-whether a client trusts the CA are not exercised; the CA is only checked to
-exist at the path `keyfence exec` hands to child processes. `--local`
-capture and the agent hooks are not part of it either; `keyfence doctor`
-reports on those. `-p` picks the proxy port instead of a free one, and
-`--timeout` how long to wait for the proxy and the addon.
+What is not covered: the upstream leg (proxy to listener) uses `ssl_insecure` because the listener's self-signed certificate is not in any trust store; the client-to-proxy leg verifies for real against the CA bundle. `--local` capture and the agent hooks are not part of it either; `keyfence doctor` reports on those. `-p` picks the proxy port instead of a free one, and `--timeout` how long to wait for the proxy and the addon.
 
 ## Capturing tools that ignore proxy variables
 
