@@ -175,3 +175,66 @@ def test_stream_never_yields_an_empty_chunk():
 def test_stream_returns_the_same_bytes_as_feed():
     events = (openai_event("a <<SECRET_1>> b") + openai_event("c")).encode()
     assert b"".join(SSERestorer(MAPPING).stream(events)) == SSERestorer(MAPPING).feed(events)
+
+
+def test_two_text_blocks_first_ends_with_lt_does_not_move_to_second():
+    r = SSERestorer(MAPPING)
+    
+    block0_start = 'event: content_block_start\ndata: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}\n\n'
+    block0_delta = 'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hello <"}}\n\n'
+    block0_stop = 'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 0}\n\n'
+    
+    block1_start = 'event: content_block_start\ndata: {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}}\n\n'
+    block1_delta = 'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "world"}}\n\n'
+    block1_stop = 'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 1}\n\n'
+    
+    stream = block0_start + block0_delta + block0_stop + block1_start + block1_delta + block1_stop
+    
+    out = r.feed(stream.encode()) + r.feed(b"")
+    result_texts = texts(out)
+    
+    assert result_texts == ["hello <", "world"]
+
+
+def test_events_after_block_stop_emitted_without_waiting_for_next_block():
+    r = SSERestorer(MAPPING)
+    
+    block0_start = 'event: content_block_start\ndata: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}\n\n'
+    block0_delta = 'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hello <"}}\n\n'
+    block0_stop = 'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 0}\n\n'
+    
+    stream_part1 = block0_start + block0_delta + block0_stop
+    out1 = r.feed(stream_part1.encode())
+    
+    assert texts(out1) == ["hello <"]
+    
+    block1_start = 'event: content_block_start\ndata: {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}}\n\n'
+    block1_delta = 'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "world"}}\n\n'
+    block1_stop = 'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 1}\n\n'
+    
+    stream_part2 = block1_start + block1_delta + block1_stop
+    out2 = r.feed(stream_part2.encode()) + r.feed(b"")
+    
+    assert texts(out2) == ["world"]
+
+
+def test_openai_two_choices_restores_each_independently():
+    r = SSERestorer(MAPPING)
+    
+    def openai_event(text: str, index: int = 0) -> str:
+        payload = {"choices": [{"index": index, "delta": {"content": text}}]}
+        return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    
+    stream = (
+        openai_event("key: <<SEC", 0) +
+        openai_event("RET_1>>", 0) +
+        openai_event("key2: <<SEC", 1) +
+        openai_event("RET_12>>", 1) +
+        "data: [DONE]\n\n"
+    )
+    
+    out = r.feed(stream.encode()) + r.feed(b"")
+    result_texts = texts(out)
+    
+    assert result_texts == ["key: ", KEY, "key2: ", "second-secret-value"]
+    assert out.endswith(b"data: [DONE]\n\n")
