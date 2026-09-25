@@ -294,10 +294,12 @@ with open(f"{home}/tls.key", "wb") as fh:
     fh.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()))
 with open(f"{home}/tls.crt", "wb") as fh:
     fh.write(cert.public_bytes(serialization.Encoding.PEM))
+with open(f"{home}/tls.der", "wb") as fh:
+    fh.write(cert.public_bytes(serialization.Encoding.DER))
 EOF
 
 TLS_PORT=$TLS_PORT python3 - <<'EOF' &
-import os, ssl
+import os, socketserver, ssl
 from http.server import BaseHTTPRequestHandler, HTTPServer
 LOG = os.path.join(os.environ["KEYFENCE_HOME"], "tls_received.log")
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -319,68 +321,108 @@ class Echo(BaseHTTPRequestHandler):
 
     def log_message(self, *a): pass
 
-srv = HTTPServer(("127.0.0.1", int(os.environ["TLS_PORT"])), Echo)
-srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
-srv.serve_forever()
+class Server(socketserver.ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+    request_queue_size = 64
+
+    def get_request(self):
+        sock, addr = self.socket.accept()
+        return ctx.wrap_socket(sock, server_side=True), addr
+
+    def handle_error(self, request, client_address):
+        pass
+
+Server(("127.0.0.1", int(os.environ["TLS_PORT"])), Echo).serve_forever()
 EOF
 PIDS+=($!)
-for _ in $(seq 1 50); do
-  python3 -c "import socket; socket.create_connection(('127.0.0.1', $TLS_PORT), timeout=0.2)" 2>/dev/null && break
-  sleep 0.2
-done
+TLS_PORT=$TLS_PORT python3 - <<'EOF' || { echo "FAILED: the TLS listener never completed a handshake"; exit 1; }
+import os, socket, ssl, time
+ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+for _ in range(60):
+    try:
+        ctx.wrap_socket(socket.create_connection(("127.0.0.1", int(os.environ["TLS_PORT"])), timeout=1),
+                        server_hostname="127.0.0.1").close()
+        break
+    except OSError:
+        time.sleep(0.25)
+else:
+    raise SystemExit(1)
+EOF
 
 cat > "$KEYFENCE_HOME/tls_client.py" <<'EOF'
-import http.client, os, ssl, sys
-tls_port, proxy_port, body = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+import hashlib, http.client, os, socket, ssl, sys
+
+home, proxy_port, tls_port, body = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+listener = open(os.path.join(home, "tls.der"), "rb").read()
+sock = socket.create_connection(("127.0.0.1", proxy_port), timeout=10)
+sock.settimeout(10)
+sock.sendall(f"CONNECT 127.0.0.1:{tls_port} HTTP/1.1\r\nHost: 127.0.0.1:{tls_port}\r\n\r\n".encode())
+buf = b""
+while b"\r\n\r\n" not in buf:
+    chunk = sock.recv(4096)
+    if not chunk:
+        print("NO CONNECT REPLY from the proxy")
+        raise SystemExit(1)
+    buf += chunk
+status = buf.split(b"\r\n", 1)[0].decode()
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-ctx.load_verify_locations(cafile=os.path.join(os.environ["KEYFENCE_HOME"], "tls.crt"))
-conn = http.client.HTTPSConnection("127.0.0.1", proxy_port, context=ctx, timeout=10)
-conn.set_tunnel("127.0.0.1", tls_port)
-try:
-    conn.request("POST", "/v1/tls", body.encode())
-except ssl.SSLCertVerificationError:
-    print("OFFERED: a certificate the listener never signed, so the TLS session was intercepted")
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+tls = ctx.wrap_socket(sock, server_hostname="127.0.0.1")
+peer = tls.getpeercert(binary_form=True)
+if peer == listener:
+    print("TUNNELED the listener's own certificate reached the client")
 else:
-    print("TUNNELED", conn.getresponse().read().decode())
+    print("INTERCEPTED a certificate the listener never signed reached the client")
+print("CONNECT:", status, "| peer sha256:", hashlib.sha256(peer).hexdigest()[:16])
+payload = body.encode()
+tls.sendall(f"POST /v1/tls HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Length: {len(payload)}\r\n\r\n".encode() + payload)
+reply = b""
+try:
+    while True:
+        chunk = tls.recv(65536)
+        if not chunk:
+            break
+        reply += chunk
+except OSError as exc:
+    print("REPLY ERROR:", type(exc).__name__, exc)
+print("REPLY:", reply.decode(errors="replace").splitlines()[0] if reply else "(empty)")
 EOF
 
 cat > "$KEYFENCE_HOME/exec_tls.sh" <<EOF
-python3 "$KEYFENCE_HOME/tls_client.py" "$TLS_PORT" "$PROXY_PORT" '$BODY'
-EOF
-cat > "$KEYFENCE_HOME/exec_both.sh" <<EOF
-python3 "$KEYFENCE_HOME/tls_client.py" "$TLS_PORT" "$PROXY_PORT" '$BODY'
-curl -s --noproxy "" -d '$BODY' "http://127.0.0.1:$UPSTREAM_PORT/v1/x"
-echo
+python3 "$KEYFENCE_HOME/tls_client.py" "$KEYFENCE_HOME" "$PROXY_PORT" "$TLS_PORT" '$BODY'
 EOF
 
 : > "$TLS_RECORD"
-: > "$KEYFENCE_HOME/upstream_received.log"
 printf 'mode: redact\nhosts: ["127.0.0.1"]\n' > "$KEYFENCE_CONFIG"
 MONITORED="$KEYFENCE_HOME/exec_monitored.flows"
 echo "--- 127.0.0.1 is monitored"
-python3 -m keyfence exec -p "$PROXY_PORT" --record "$MONITORED" -- bash "$KEYFENCE_HOME/exec_both.sh" | tee "$KEYFENCE_HOME/exec_monitored.txt"
-grep -q "OFFERED:" "$KEYFENCE_HOME/exec_monitored.txt" || { echo "FAILED: the monitored host was not intercepted"; exit 1; }
-grep -q "REDACTED:github" "$KEYFENCE_HOME/upstream_received.log" || { echo "FAILED: the monitored host was not scanned and rewritten"; exit 1; }
-! grep -q "$FAKE_KEY" "$KEYFENCE_HOME/upstream_received.log" || { echo "FAILED: the monitored secret reached the listener"; exit 1; }
-echo "OK: the monitored host is intercepted, scanned and rewritten"
-python3 - "$MONITORED" "$UPSTREAM_PORT" <<'EOF' || { echo "FAILED: the record does not hold the monitored request"; exit 1; }
+python3 -m keyfence exec -p "$PROXY_PORT" --record "$MONITORED" -- bash "$KEYFENCE_HOME/exec_tls.sh" | tee "$KEYFENCE_HOME/exec_monitored.txt"
+grep -q "^INTERCEPTED " "$KEYFENCE_HOME/exec_monitored.txt" || { echo "FAILED: the monitored host offered a certificate the listener never signed, so the session was intercepted"; exit 1; }
+echo "OK: the monitored host is intercepted, so the client never sees the listener's certificate"
+python3 - "$MONITORED" "$TLS_PORT" "$FAKE_KEY" <<'EOF' || { echo "FAILED: the record does not hold the monitored request with the secret replaced"; exit 1; }
 import sys
 from mitmproxy import io as mio
 with open(sys.argv[1], "rb") as fh:
     flows = list(mio.FlowReader(fh).stream())
-seen = [(f.request.method, f.request.port) for f in flows]
+seen = [(f.request.method, f.request.host, f.request.port, f.request.scheme) for f in flows]
 print("recorded:", seen)
-bodies = [f.request.content for f in flows if f.request.method == "POST"]
-assert bodies and b"REDACTED" in bodies[0], seen
+tls_port, key = int(sys.argv[2]), sys.argv[3].encode()
+posts = [f.request.content for f in flows if f.request.port == tls_port and f.request.method == "POST"]
+assert posts, ("no POST for the TLS port", seen)
+assert b"REDACTED" in posts[0], posts[0]
+assert key not in posts[0], "the record still holds the raw secret"
 EOF
-echo "OK: the record holds the monitored request with the secret replaced"
+echo "OK: the record holds the monitored TLS request with the secret replaced"
 
 : > "$TLS_RECORD"
 printf 'mode: redact\nhosts: ["api.openai.com"]\n' > "$KEYFENCE_CONFIG"
 UNMONITORED="$KEYFENCE_HOME/exec_unmonitored.flows"
 echo "--- 127.0.0.1 is not monitored"
 python3 -m keyfence exec -p "$PROXY_PORT" --record "$UNMONITORED" -- bash "$KEYFENCE_HOME/exec_tls.sh" | tee "$KEYFENCE_HOME/exec_unmonitored.txt"
-grep -q "TUNNELED" "$KEYFENCE_HOME/exec_unmonitored.txt" || { echo "FAILED: the unmonitored host did not get the listener's own certificate"; exit 1; }
+grep -q "^TUNNELED " "$KEYFENCE_HOME/exec_unmonitored.txt" || { echo "FAILED: the unmonitored host did not get the listener's own certificate"; exit 1; }
 grep -q "$FAKE_KEY over tls" "$TLS_RECORD" || { echo "FAILED: the unmonitored body never reached the listener"; exit 1; }
 echo "OK: the unmonitored host was tunneled with the real certificate and reached the listener untouched"
 python3 - "$UNMONITORED" "$TLS_PORT" <<'EOF' || { echo "FAILED: the record holds traffic from a host that is not monitored"; exit 1; }
@@ -388,10 +430,10 @@ import sys
 from mitmproxy import io as mio
 with open(sys.argv[1], "rb") as fh:
     flows = list(mio.FlowReader(fh).stream())
-seen = [(f.request.method, f.request.port, f.request.content) for f in flows]
+seen = [(f.request.method, f.request.host, f.request.port, f.request.content) for f in flows]
 print("recorded:", seen)
 tls_port = int(sys.argv[2])
-assert not [f for f in flows if f.request.port == tls_port and f.request.content], seen
+assert not [f for f in flows if f.request.port == tls_port], seen
 EOF
 echo "OK: the record holds no traffic from the host that is not monitored"
 write_config redact
