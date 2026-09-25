@@ -93,6 +93,7 @@ def test_the_shell_check_names_cargo_when_only_its_cainfo_is_missing(home, tmp_p
     assert check.status == doctor.WARN
     assert check.detail.count("CARGO_HTTP_CAINFO") == 1
     assert "the 5 that replace the trust store" in check.detail
+    assert "git, cargo)" in check.detail
 
 
 def test_the_shell_check_counts_cargo_among_the_ca_variables_it_reports(home, tmp_path):
