@@ -180,12 +180,10 @@ def test_stream_returns_the_same_bytes_as_feed():
 def test_two_text_blocks_first_ends_with_lt_does_not_move_to_second():
     r = SSERestorer(MAPPING)
     
-    # Block 0: content_block_start, then delta ending with "<", then content_block_stop
     block0_start = 'event: content_block_start\ndata: {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}\n\n'
     block0_delta = 'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hello <"}}\n\n'
     block0_stop = 'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 0}\n\n'
     
-    # Block 1: another text block
     block1_start = 'event: content_block_start\ndata: {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}}\n\n'
     block1_delta = 'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "world"}}\n\n'
     block1_stop = 'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 1}\n\n'
@@ -193,13 +191,9 @@ def test_two_text_blocks_first_ends_with_lt_does_not_move_to_second():
     stream = block0_start + block0_delta + block0_stop + block1_start + block1_delta + block1_stop
     
     out = r.feed(stream.encode()) + r.feed(b"")
-    
-    # Extract text from both blocks
     result_texts = texts(out)
     
-    # Block 0 should have "hello <" (the "<" stays in block 0)
-    # Block 1 should have "world" (no "<" prepended)
-    assert result_texts == ["hello <", "world"], f"Expected ['hello <', 'world'], got {result_texts}"
+    assert result_texts == ["hello <", "world"]
 
 
 def test_events_after_block_stop_emitted_without_waiting_for_next_block():
@@ -209,14 +203,11 @@ def test_events_after_block_stop_emitted_without_waiting_for_next_block():
     block0_delta = 'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hello <"}}\n\n'
     block0_stop = 'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 0}\n\n'
     
-    # Feed up to and including block 0's content_block_stop
     stream_part1 = block0_start + block0_delta + block0_stop
     out1 = r.feed(stream_part1.encode())
     
-    # Block 0's events should be emitted now (queue drained at content_block_stop)
     assert texts(out1) == ["hello <"]
     
-    # Now feed block 1 - should work independently
     block1_start = 'event: content_block_start\ndata: {"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}}\n\n'
     block1_delta = 'event: content_block_delta\ndata: {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "world"}}\n\n'
     block1_stop = 'event: content_block_stop\ndata: {"type": "content_block_stop", "index": 1}\n\n'
@@ -243,7 +234,7 @@ def test_openai_two_choices_restores_each_independently():
     )
     
     out = r.feed(stream.encode()) + r.feed(b"")
-    
     result_texts = texts(out)
+    
     assert result_texts == ["key: ", KEY, "key2: ", "second-secret-value"]
     assert out.endswith(b"data: [DONE]\n\n")
