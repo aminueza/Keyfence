@@ -62,6 +62,19 @@
   a 101 goes to the raw TCP layer and every frame passes unscanned, and a
   `websocket: false` in `~/.mitmproxy/config.yaml` beats the command line,
   so an argument could not close that hole.
+- Text in one Anthropic response no longer jumps between its content blocks.
+  Restoring a placeholder the provider split across deltas means holding
+  back a trailing `<` until it is clear whether the token continues or the
+  model wrote a `<` of its own, and that character was filed under the JSON
+  path of the string inside the event. In an Anthropic stream that path is
+  `delta.text` for every text block, so two blocks shared it: a `<` held at
+  the end of the first was taken out of it and put in front of the next.
+  Nothing was written out while anything was held, so the rest of the
+  response waited as well, a tool call included, until the next delta on
+  that path or the end of the stream. Held text now carries the block's
+  `index` next to the path, and a block's held text is released when its
+  own `content_block_stop` arrives. OpenAI chunks already had the choice
+  index in their path, so two choices were never affected.
 
 ## 0.7.0 (2026-09-24)
 
