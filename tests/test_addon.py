@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import stat
+from pathlib import Path
 
 import pytest
 from mitmproxy import http
@@ -146,6 +148,62 @@ def test_audit_log_caps_previews(guard, home, monkeypatch):
     entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
     assert entry["count"] == 2
     assert len(entry["findings"]) == 1
+
+
+def test_audit_log_shows_at_most_two_characters_of_a_short_secret(guard, home):
+    secret = "Zq8xK2mP9vL4"
+    Vault().add(secret)
+    kf = guard("redact")
+    kf.request(make_flow(body=json.dumps({"content": f"my token is {secret}"}).encode()))
+    text = (home / "audit.log").read_text()
+    entry = json.loads(text.splitlines()[-1])
+    finding = next(f for f in entry["findings"] if f["kind"] == "vault")
+    assert finding["key"] == "content"
+    assert secret not in text
+    assert sum(finding["preview"].count(c) for c in set(secret)) <= 2
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_audit_log_is_private_from_the_first_moment_it_exists(guard, home, monkeypatch):
+    modes_at_chmod = []
+    chmod = os.chmod
+
+    def watching_chmod(path, mode, *args, **kwargs):
+        if Path(path) == home / "audit.log":
+            modes_at_chmod.append(stat.S_IMODE(Path(path).stat().st_mode))
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "chmod", watching_chmod)
+    kf = guard("redact")
+    kf.request(make_flow())
+    assert stat.S_IMODE((home / "audit.log").stat().st_mode) == 0o600
+    assert modes_at_chmod in ([], [0o600])
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_audit_log_left_world_readable_by_an_older_version_is_tightened(guard, home):
+    log = home / "audit.log"
+    log.write_text("")
+    log.chmod(0o644)
+    guard("redact").request(make_flow())
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+    assert len(log.read_text().splitlines()) == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_audit_log_is_left_alone_when_the_mode_cannot_be_set(guard, home, caplog, monkeypatch):
+    log = home / "audit.log"
+    log.write_text("")
+    log.chmod(0o644)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        raise OSError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    with caplog.at_level("WARNING", logger="keyfence"):
+        guard("redact").request(make_flow())
+    assert "could not write audit log" in caplog.text
+    assert log.read_text() == ""
 
 
 def test_redaction_adds_notice_to_system_prompt(guard):
@@ -329,7 +387,7 @@ def test_canary_is_logged_and_audited(guard, home, caplog):
     assert "CANARY tripped" in caplog.text and "/work/.env" in caplog.text
     assert flow.request.get_text() == "INTERNAL_API_TOKEN=[REDACTED:canary]"
     entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
-    assert entry["findings"][0] == {"kind": "canary", "preview": "cana…6789 (23 chars)", "key": None, "label": "/work/.env"}
+    assert entry["findings"][0] == {"kind": "canary", "preview": "*" * 23, "key": None, "label": "/work/.env"}
     assert kf.stats["canaries"] == 1
 
 
@@ -559,7 +617,7 @@ def test_ignored_value_is_neither_blocked_nor_audited_and_never_written_in_clear
     assert mixed.response.status_code == 403
     entry = json.loads((home / "audit.log").read_text().splitlines()[-1])
     assert entry["count"] == 1 and entry["suppressed"] == 1
-    assert entry["findings"] == [{"kind": "github-token", "preview": "ghp_…6789 (40 chars)", "key": "content"}]
+    assert entry["findings"] == [{"kind": "github-token", "preview": "gh…89 (40 chars)", "key": "content"}]
     assert HOST not in (home / "audit.log").read_text()
     assert HOST not in (home / "vault.json").read_text()
 

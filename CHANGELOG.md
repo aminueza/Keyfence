@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- The audit log previews less of a secret. A preview was the first and last
+  four characters of any value over ten characters, so a twelve-character
+  password left eight of its twelve characters in a file any user on the
+  machine could read. A preview is now two characters at each end of a value
+  of 24 characters or more, and a shorter value is logged as its kind and its
+  length alone.
+- `audit.log` and `proxy.log` are created with mode 0600. Both were opened
+  with the plain append mode, so they landed with the umask, 0644 on a
+  default machine, while the vault next to them is 0600 and the `--record`
+  file is created private. They are now created with `os.open` and
+  `O_CREAT | O_APPEND` at 0600, so no other account on the machine can read
+  them, and a log an older version left at 0644 is tightened on the next
+  write. `keyfence exec` says on stderr when the mode cannot be set. The
+  audit log drops the line instead, so a preview never lands in a file it
+  cannot prove is private.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence

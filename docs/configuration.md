@@ -121,8 +121,9 @@ touched. Set `notice: false` to disable.
 - If the detector raises an exception, the request gets a 403. A bug in
   keyfence cannot let a secret through.
 - Secret values are never written to disk. The vault stores hashes, the
-  audit log stores masked previews, and the `exec` environment snapshot is a
-  temporary hash file removed on exit.
+  audit log stores a two-character preview of a value of 24 characters or
+  more and the length of a shorter one, and the `exec` environment snapshot
+  is a temporary hash file removed on exit.
 - Placeholders are deterministic. The id in `<<SECRET_id>>` is derived from
   an HMAC of the value with the vault salt, so the same secret gets the same
   placeholder in every request and every session on that machine. The
