@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Child processes get a CA bundle instead of the single mitmproxy
+  certificate. `keyfence exec` pointed `SSL_CERT_FILE`,
+  `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` at
+  `~/.mitmproxy/mitmproxy-ca-cert.pem`, which holds one certificate, and
+  those four replace the trust store rather than add to it, unlike
+  `NODE_EXTRA_CA_CERTS`. A host reached directly, through a `NO_PROXY` the
+  user set, had its perfectly good public certificate rejected by curl,
+  Python, requests and git. The four now point at
+  `~/.keyfence/ca-bundle.pem`, the system roots with the mitmproxy CA
+  appended, and `NODE_EXTRA_CA_CERTS` keeps the single certificate. The
+  roots come from `certifi` when it is importable, then from
+  `ssl.get_default_verify_paths().cafile`, then from the usual Linux
+  paths. The bundle is rewritten whenever its content would differ, so a
+  changed mitmproxy CA or a rotated root is picked up on the next `exec`.
+  With no system roots anywhere keyfence says which sources it looked at,
+  writes no bundle and does not start the command, because a bundle with
+  the mitmproxy CA alone is the bug this fixes. It is written with mode
+  0644: it holds no secret, but a permissive umask must not make it
+  world-writable. `keyfence doctor` and `keyfence selftest` name the
+  bundle and the file the roots came from, and the shell environment check
+  now wants the four at the bundle rather than at the certificate.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence
