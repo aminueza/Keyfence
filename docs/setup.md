@@ -338,6 +338,16 @@ request otherwise.
 
 ## Docker
 
+The container runs as the unprivileged user `keyfence`, uid 1000, gid
+1000, and keeps its state in `./data/`, so that directory has to belong
+to it. Prepare it once:
+
+```bash
+mkdir -p data && sudo chown -R 1000:1000 data
+```
+
+Then start it:
+
 ```bash
 docker compose up -d
 docker compose run --rm keyfence import /data/.env
@@ -347,26 +357,23 @@ docker compose logs -f
 
 The container writes its state to `./data/`: `vault.json`, `config.yaml`,
 `audit.log` and the CA certificate in `certs/`. Trust
-`./data/certs/mitmproxy-ca-cert.pem` as shown above. The proxy reloads the
+`./data/certs/mitmproxy-ca-cert.pem` as shown above. Every `keyfence`
+command in the container keeps that CA in the same place, so `selftest`
+and `doctor` check the certificate you trusted. The proxy reloads the
 vault when the file changes, so `import` and `add-secret` do not need a
 restart.
 
-The container runs as the unprivileged user `keyfence`, uid 1000, gid
-1000, and keeps its state in `./data/`, so that directory has to belong
-to it. Prepare it once:
-
-```bash
-mkdir -p data && sudo chown -R 1000:1000 data
-```
-
 When it cannot write there the container says so and stops, with that
-same command in the message, instead of failing later on the vault.
+same command in the message, instead of failing later on the vault or
+on the audit log.
 
 `docker compose ps` shows `healthy` only when the proxy answers on port
 8888 and the addon is loaded. The check asks the proxy for
 `http://keyfence.invalid/` and requires a keyfence answer, so a proxy
 that came up without the addon stays `unhealthy` instead of looking fine.
-`docker inspect` has the last runs and what they got:
+`restart: unless-stopped` does not act on that, so an unhealthy
+container keeps proxying. Stop it and read the log. `docker inspect` has
+the last runs and what they got:
 
 ```bash
 docker inspect --format '{{.State.Health.Status}}' keyfence

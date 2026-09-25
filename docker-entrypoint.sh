@@ -5,13 +5,23 @@ DATA_DIR="${KEYFENCE_HOME:-/data}"
 CONFIG_FILE="${KEYFENCE_CONFIG:-$DATA_DIR/config.yaml}"
 CONFIG_EXAMPLE="${KEYFENCE_CONFIG_EXAMPLE:-/app/config.example.yaml}"
 
-if ! mkdir -p "$DATA_DIR/certs" 2>/dev/null || [ ! -w "$DATA_DIR" ]; then
-  echo "[keyfence] $DATA_DIR is not writable by $(id -un) (uid $(id -u))." >&2
-  echo "[keyfence] keyfence keeps the vault, the audit log and the CA certificate there." >&2
+refuse() {
+  echo "[keyfence] $1 is not writable by $(id -un) (uid $(id -u))." >&2
+  echo "[keyfence] keyfence keeps the vault, the audit log and the CA certificate in $DATA_DIR." >&2
   echo "[keyfence] fix it on the host, then start again:" >&2
   echo "[keyfence]   sudo chown -R $(id -u):$(id -g) ./data" >&2
   exit 1
+}
+
+if ! mkdir -p "$DATA_DIR/certs" || [ ! -w "$DATA_DIR" ]; then
+  refuse "$DATA_DIR"
 fi
+
+for path in "$DATA_DIR/certs" "$CONFIG_FILE" "$DATA_DIR/vault.json" "$DATA_DIR/audit.log"; do
+  if [ -e "$path" ] && [ ! -w "$path" ]; then
+    refuse "$path"
+  fi
+done
 
 if [ ! -f "$CONFIG_FILE" ]; then
   cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"

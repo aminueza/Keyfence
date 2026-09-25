@@ -21,7 +21,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
   && chown -R keyfence:keyfence /data
 
 ENV KEYFENCE_HOME=/data \
-    KEYFENCE_CONFIG=/data/config.yaml \
+    MITMPROXY_CONFDIR=/data/certs \
     KEYFENCE_CONFIG_EXAMPLE=/app/config.example.yaml
 
 USER keyfence

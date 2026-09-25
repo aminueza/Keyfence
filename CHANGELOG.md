@@ -14,11 +14,14 @@
   dependencies at build time. The versions `mitmproxy` itself depends
   on are still resolved by pip.
 - A container that could not write its state directory started anyway
-  and only failed later, when it first reached for the vault. It now
-  takes the directory from `KEYFENCE_HOME` instead of assuming `/data`,
-  checks that it can write there on every start, and stops with the
-  `sudo chown` that fixes it, rather than running as root to skip the
-  question.
+  and only failed later, when it first reached for the vault, or kept
+  running while it wrote nothing to the audit log. It now takes the
+  directory from `KEYFENCE_HOME` instead of assuming `/data`, checks on
+  every start that it can write the directory and the state files in it,
+  and stops with the `sudo chown` that fixes it, rather than running as
+  root to skip the question. `MITMPROXY_CONFDIR` points at that same
+  directory, so `selftest` and `doctor` inside the container find the CA
+  the proxy already made.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence
