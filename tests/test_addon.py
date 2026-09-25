@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import stat
+from pathlib import Path
 
 import pytest
 from mitmproxy import http
@@ -159,6 +161,33 @@ def test_audit_log_shows_at_most_two_characters_of_a_short_secret(guard, home):
     assert finding["key"] == "content"
     assert secret not in text
     assert sum(finding["preview"].count(c) for c in set(secret)) <= 2
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_audit_log_is_private_from_the_first_moment_it_exists(guard, home, monkeypatch):
+    modes_at_chmod = []
+    chmod = os.chmod
+
+    def watching_chmod(path, mode, *args, **kwargs):
+        if Path(path) == home / "audit.log":
+            modes_at_chmod.append(stat.S_IMODE(Path(path).stat().st_mode))
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "chmod", watching_chmod)
+    kf = guard("redact")
+    kf.request(make_flow())
+    assert stat.S_IMODE((home / "audit.log").stat().st_mode) == 0o600
+    assert modes_at_chmod in ([], [0o600])
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_audit_log_left_world_readable_by_an_older_version_is_tightened(guard, home):
+    log = home / "audit.log"
+    log.write_text("")
+    log.chmod(0o644)
+    guard("redact").request(make_flow())
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+    assert len(log.read_text().splitlines()) == 1
 
 
 def test_redaction_adds_notice_to_system_prompt(guard):

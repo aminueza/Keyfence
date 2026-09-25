@@ -30,7 +30,7 @@ On disk it keeps:
   preview and the JSON key, never the value. A preview is two characters at
   each end of a value of 24 characters or more; a shorter value is logged as
   its kind and its length alone, because a preview of a short secret is most
-  of the secret.
+  of the secret. Mode 0600, like the vault.
 - `~/.keyfence/env/`: the environment snapshot of a running `keyfence exec`,
   hashes only, deleted by the proxy at startup.
 - `~/.keyfence/proxy.log`: the proxy's own output during `keyfence exec`:

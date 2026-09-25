@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -415,7 +416,10 @@ class KeyFence:
                 entry["suppressed"] = suppressed
             if websocket:
                 entry["websocket"] = True
-            with path.open("a") as fh:
+            fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+            with contextlib.suppress(OSError):
+                os.chmod(path, 0o600)
+            with os.fdopen(fd, "a") as fh:
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         except OSError as exc:
             log.warning("could not write audit log: %s", exc)
