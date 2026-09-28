@@ -245,9 +245,29 @@ def test_two_fresh_vaults_agree_on_the_salt(tmp_path):
     assert a.salt == b.salt == final.salt
 
 
-def test_chmod_failure_is_ignored(tmp_path, monkeypatch):
+def test_vault_mode_goes_on_the_open_handle_and_never_on_the_path(tmp_path, monkeypatch):
+    seen = []
+    fchmod = os.fchmod
+    chmod = os.chmod
+
+    def watching_fchmod(fd, mode, *args, **kwargs):
+        seen.append((os.fstat(fd).st_ino, mode))
+        return fchmod(fd, mode, *args, **kwargs)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        raise AssertionError(f"the vault mode went on the path {path}, not on the handle")
+
+    monkeypatch.setattr(os, "fchmod", watching_fchmod)
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    path = tmp_path / "vault.json"
+    assert Vault(path=path).add("persisted-secret-value")
+    assert seen == [(path.stat().st_ino, 0o600)]
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_fchmod_failure_is_ignored(tmp_path, monkeypatch):
     def boom(*_args, **_kwargs):
-        raise OSError("no chmod")
-    monkeypatch.setattr("keyfence.vault.os.chmod", boom)
+        raise OSError("no fchmod")
+    monkeypatch.setattr("keyfence.vault.os.fchmod", boom)
     v = Vault(path=tmp_path / "vault.json")
     assert v.add("persisted-secret-value")

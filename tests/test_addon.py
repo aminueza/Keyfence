@@ -181,6 +181,31 @@ def test_audit_log_is_private_from_the_first_moment_it_exists(guard, home, monke
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_audit_log_mode_goes_on_the_open_handle_and_never_on_the_path(guard, home, monkeypatch):
+    log = home / "audit.log"
+    log.write_text("")
+    log.chmod(0o644)
+    seen = []
+    fchmod = os.fchmod
+    chmod = os.chmod
+
+    def watching_fchmod(fd, mode, *args, **kwargs):
+        seen.append((os.fstat(fd).st_ino, mode))
+        return fchmod(fd, mode, *args, **kwargs)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        if Path(path) == log:
+            raise AssertionError(f"the audit log mode went on the path {path}, not on the handle")
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fchmod", watching_fchmod)
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    guard("redact").request(make_flow())
+    assert [(ino, mode) for ino, mode in seen if ino == log.stat().st_ino] == [(log.stat().st_ino, 0o600)]
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
 def test_audit_log_left_world_readable_by_an_older_version_is_tightened(guard, home):
     log = home / "audit.log"
     log.write_text("")
@@ -195,11 +220,14 @@ def test_audit_log_is_left_alone_when_the_mode_cannot_be_set(guard, home, caplog
     log = home / "audit.log"
     log.write_text("")
     log.chmod(0o644)
+    fchmod = os.fchmod
 
-    def refusing_chmod(path, mode, *args, **kwargs):
-        raise OSError(1, "Operation not permitted")
+    def refusing_fchmod(fd, mode, *args, **kwargs):
+        if os.fstat(fd).st_ino == log.stat().st_ino:
+            raise OSError(1, "Operation not permitted")
+        return fchmod(fd, mode, *args, **kwargs)
 
-    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    monkeypatch.setattr(os, "fchmod", refusing_fchmod)
     with caplog.at_level("WARNING", logger="keyfence"):
         guard("redact").request(make_flow())
     assert "could not write audit log" in caplog.text
