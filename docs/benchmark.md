@@ -160,3 +160,69 @@ finding):
   as well; og-local uses an ML model with a different trade-off. Running
   them needs their binaries, and the runner in `bench/run.py` accepts new
   detectors as plain functions if you want to add them.
+
+## Overlap check scaling (issue #84)
+
+The `_overlaps` function in `keyfence/detectors.py` is quadratic in the number
+of findings. It is called from `_scan_rules` (per-rule deduplication) and
+from `scan_report` (final deduplication across all sources). This benchmark
+measures the cost of `scan_report` against finding counts spanning two orders
+of magnitude.
+
+Measured on 2026-09-25 with keyfence 0.8.0.dev0, Python 3.14, on a MacBook
+Pro (Apple M-series). Single run, not repeated.
+
+Body: N lines of `api_key="sk-proj-..."` (OpenAI-style keys), JSON-escaped as
+they would be in a request body.
+
+```bash
+python bench/overlap_bench.py
+```
+
+### Patterns only (entropy disabled, no gitleaks)
+
+| findings | time (ms) | time per finding (µs) | findings returned |
+|----------|-----------|----------------------|-------------------|
+|       10 |      0.22 |                21.57 |                10 |
+|      100 |      2.25 |                22.50 |               100 |
+|     1000 |     79.30 |                79.30 |              1000 |
+|     5000 |   1652.22 |               330.44 |              5000 |
+
+### Patterns + gitleaks rules (entropy disabled)
+
+| findings | time (ms) | time per finding (µs) | findings returned |
+|----------|-----------|----------------------|-------------------|
+|       10 |      0.49 |                48.77 |                10 |
+|      100 |      3.67 |                36.68 |               100 |
+|     1000 |     93.66 |                93.66 |              1000 |
+|     5000 |   1732.42 |               346.48 |              5000 |
+
+### Default (patterns + gitleaks + entropy)
+
+| findings | time (ms) | time per finding (µs) | findings returned |
+|----------|-----------|----------------------|-------------------|
+|       10 |      0.69 |                69.24 |                10 |
+|      100 |      5.20 |                52.04 |               100 |
+|     1000 |    109.39 |               109.39 |              1000 |
+|     5000 |   1811.30 |               362.26 |              5000 |
+
+### Mixed secret types (YAML-like, ~1500 findings, 151 KB)
+
+| config | time (ms) | findings returned |
+|--------|-----------|-------------------|
+| default | 268.41 | 1500 |
+
+### Realistic corpus maximum
+
+The detection benchmark corpus (411 positive, 336 negative samples) has at most
+**2 findings in a single sample** (average 0.5). At that scale the overlap cost
+is negligible (< 0.1 ms).
+
+### Conclusion
+
+The quadratic behavior is measurable: time per finding grows ~15x from 10 to
+5000 findings. At realistic sizes (≤ 100 findings) the cost is 2–5 ms and not
+a concern. At 1000 findings it reaches ~100 ms; at 5000 findings ~1.6–1.8 s.
+A fix (interval tree keyed by start offset) is only warranted if real traffic
+regularly produces thousands of findings in one body. Current evidence says it
+does not. Closing as "measured, fast enough".

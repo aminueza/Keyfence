@@ -23,6 +23,44 @@ streaming, block, WebSocket frames, `keyfence exec` and
 Fake keys used in tests are assembled at runtime in `tests/fakes.py` so
 that secret scanners, including GitHub push protection, do not flag them.
 
+### Checking a leak from inside `keyfence exec`
+
+`keyfence exec` sets the proxy and CA variables for the child and runs it
+with `subprocess.call`, so the child's stdout is never touched
+(`keyfence/runner.py`). A shell, and a person at the terminal, see
+everything the child printed, in clear, a leaked value included. The
+response side is the same: the addon scans the request body and the frames
+a client sends, and its response hooks only put placeholders back
+(`keyfence/addon.py`, `keyfence/streaming.py`). A secret in a response body
+passes unchanged.
+
+The blind spot belongs to the model. The output an agent read is not the
+terminal: it reaches the provider inside the next request, and that request
+is a request, so keyfence scans it and rewrites it. In `redact` mode the
+model reads `[REDACTED:kind]` where the leak was; in `placeholder` mode,
+`<<SECRET_...>>`. A probe that carries that marker literally is not a
+finding, so it arrives unchanged and the model reads the same text in both
+cases. Judging the output by eye, a model cannot tell a leaking run from a
+clean one. That is what produced a false positive while the WebSocket frame
+scanning was under development
+([PR #69](https://github.com/aminueza/keyfence/pull/69)).
+
+Decide in code instead:
+
+- Build the value in the test client at run time, from fragments, so a
+  real-shaped secret reaches the detector and nothing secret-shaped is
+  committed. `tests/fakes.py` serves the opposite purpose: it keeps
+  committed test keys out of secret scanners and push protection, and only
+  `tests/test_detectors.py` imports it.
+- Assert on what the provider received. The listener the test starts is the
+  only honest view: `tests/integration_test.sh` logs every body to
+  `upstream_received.log` and echoes it back inside
+  `{"upstream_received": ...}`, and each check greps that log or parses the
+  echoed body in Python.
+- Trust the exit status. The script runs under `set -euo pipefail` and
+  exits on the first failed check, so the verdict sits in the exit code,
+  which no redaction touches.
+
 ## Layout
 
 | path | role |
@@ -97,8 +135,10 @@ To release:
 3. Right after, set `__version__` to the next dev version (`X.Y+1.0.dev0`),
    open a new `Unreleased` section in `CHANGELOG.md` and commit.
 
-The workflow builds the sdist and wheel, checks that the tag matches the
-package version, and publishes.
+The workflow checks that the `CI` workflow passed for the tagged commit,
+builds the sdist and wheel, checks that the tag matches the package
+version, and publishes. A tag pushed on a commit whose suite fails will
+not publish.
 
 Between releases `main` carries a `.dev0` version, so `keyfence doctor`
 tells a checkout of `main` apart from the build published on PyPI.

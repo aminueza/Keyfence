@@ -30,10 +30,18 @@ would have been caught. Switch to `redact` when you are comfortable.
 mitmproxy creates a certificate authority in `~/.mitmproxy/` the first time
 the proxy starts. Tools need to trust it so the proxy can read HTTPS traffic.
 
-`keyfence exec` passes the certificate to the child process through
-`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
-`CURL_CA_BUNDLE` and `GIT_SSL_CAINFO`, so Claude Code, Codex, Aider, curl,
-git and anything on the Python or Node SDKs work with no further step. Git
+`keyfence exec` hands the child process a CA bundle at
+`~/.keyfence/ca-bundle.pem` through `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+`CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` and `CARGO_HTTP_CAINFO`, and the mitmproxy
+certificate itself through `NODE_EXTRA_CA_CERTS`, so Claude Code, Codex,
+Aider, curl, git, cargo and anything on the Python or Node SDKs work with no
+further step. The first five replace the trust store rather than add to it, so
+the bundle is the system roots with the mitmproxy CA appended: a host the
+child reaches directly, through a `NO_PROXY` you set, is then validated
+against the public roots it was issued from. The bundle is written on the
+first `keyfence exec` and rewritten whenever the mitmproxy CA or the
+system roots change; `keyfence doctor` and `keyfence selftest` name the
+file and say where the roots came from. Git
 for Windows uses the schannel backend by default, which ignores
 `GIT_SSL_CAINFO` unless `http.schannelUseSSLCAInfo` is set, so on Windows
 `keyfence exec` also sets that option for its session through
@@ -79,8 +87,13 @@ Linux and Windows: see the
 directory (except `.env.example` and similar) and these files in your home
 directory: `.aws/credentials`, `.netrc`, `.npmrc`, `.pypirc`,
 `.git-credentials`, `.docker/config.json`. Only values that look like secrets
-are registered: names containing key, token, secret, password and similar, or
-values with high entropy. Passwords inside connection URLs are extracted too.
+are registered: names whose words are key, token, secret, password and
+similar, or values with high entropy. The name is read word by word, on
+separator and camel-case boundaries, and a word that ends with `token`,
+`secret` or `password` counts on its own. `DB_PASSWORD`, `dbPassword`,
+`APIKEY` and `ACCESSTOKEN` are registered; `GIT_AUTHOR_EMAIL`,
+`KEYBOARD_LAYOUT` and `MONKEY_ISLAND` are not. Passwords inside connection
+URLs are extracted too.
 `--all` registers every value longer than 8 characters. `--env` adds values
 from environment variables.
 
@@ -138,11 +151,12 @@ ok    config: mode=redact, 20 hosts from ~/.keyfence/config.yaml; copied to a te
 ok    proxy: mitmdump up on 127.0.0.1:55460
 ok    addon: answering the probe for http://keyfence.invalid/
 ok    CA certificate: ~/.mitmproxy/mitmproxy-ca-cert.pem, the path keyfence exec hands to child processes
+ok    CA bundle: ~/.keyfence/ca-bundle.pem, /etc/ssl/certs/ca-certificates.crt (a system path) plus ~/.mitmproxy/mitmproxy-ca-cert.pem
 ok    mode: the proxy reports redact, as configured, with 127.0.0.1 monitored
 ok    request: the listener received [REDACTED:vault] instead of the value
 ok    response: HTTP 200 passed back with the redaction in place
 ok    audit log: 1 entry(ies) with a vault finding written for the request
-info  TLS: not exercised: the request was plain HTTP, so the CA above is only checked to exist, not trusted by a client
+ok    TLS: handshake to proxy succeeded with mitmproxy's certificate, body redacted
 
 The proxy is protecting traffic in redact mode.
 ```
@@ -166,12 +180,7 @@ the listener unchanged, the placeholder not restored, no audit entry. The
 last lines of the proxy's own log are printed under the failed step; the
 full log is in `~/.keyfence/selftest.log`.
 
-What is not covered: the request is plain HTTP, so TLS interception and
-whether a client trusts the CA are not exercised; the CA is only checked to
-exist at the path `keyfence exec` hands to child processes. `--local`
-capture and the agent hooks are not part of it either; `keyfence doctor`
-reports on those. `-p` picks the proxy port instead of a free one, and
-`--timeout` how long to wait for the proxy and the addon.
+What is not covered: the upstream leg (proxy to listener) uses `ssl_insecure` because the listener's self-signed certificate is not in any trust store; the client-to-proxy leg verifies for real against the CA bundle. `--local` capture and the agent hooks are not part of it either; `keyfence doctor` reports on those. `-p` picks the proxy port instead of a free one, and `--timeout` how long to wait for the proxy and the addon.
 
 ## Capturing tools that ignore proxy variables
 
@@ -322,13 +331,26 @@ If you do not use `keyfence exec`, run the proxy and point your tools at it:
 ```bash
 keyfence run
 
+SYSTEM_ROOTS=$(python3 -c "import ssl; print(ssl.get_default_verify_paths().cafile)")
+mkdir -p ~/.keyfence
+cat "$SYSTEM_ROOTS" ~/.mitmproxy/mitmproxy-ca-cert.pem > ~/.keyfence/ca-bundle.pem
+
 export HTTPS_PROXY=http://127.0.0.1:8888
 export HTTP_PROXY=http://127.0.0.1:8888
 export NODE_EXTRA_CA_CERTS=~/.mitmproxy/mitmproxy-ca-cert.pem   # Node tools, e.g. Claude Code
-export SSL_CERT_FILE=~/.mitmproxy/mitmproxy-ca-cert.pem         # Python tools
-export REQUESTS_CA_BUNDLE=~/.mitmproxy/mitmproxy-ca-cert.pem
-export GIT_SSL_CAINFO=~/.mitmproxy/mitmproxy-ca-cert.pem        # git over HTTPS
+export SSL_CERT_FILE=~/.keyfence/ca-bundle.pem                  # Python tools
+export REQUESTS_CA_BUNDLE=~/.keyfence/ca-bundle.pem
+export CURL_CA_BUNDLE=~/.keyfence/ca-bundle.pem
+export GIT_SSL_CAINFO=~/.keyfence/ca-bundle.pem                # git over HTTPS
+export CARGO_HTTP_CAINFO=~/.keyfence/ca-bundle.pem             # cargo
 ```
+
+The first five replace the trust store, so they need the system roots with
+the mitmproxy CA appended, which is what `keyfence exec` writes for you
+under `~/.keyfence/ca-bundle.pem`. Pointing them at
+`~/.mitmproxy/mitmproxy-ca-cert.pem` on its own works only while everything
+goes through the proxy: a host you put in `NO_PROXY` is then validated
+against a trust store that holds one certificate.
 
 For desktop apps, set the system proxy to `127.0.0.1:8888`.
 
