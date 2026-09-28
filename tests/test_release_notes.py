@@ -9,6 +9,11 @@ SPEC = importlib.util.spec_from_file_location("release_notes", ROOT / "tools" / 
 release_notes = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release_notes)
 
+@pytest.fixture(autouse=True)
+def no_repository_in_the_environment(monkeypatch):
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+
+
 SAMPLE = """# Changelog
 
 ## Unreleased
