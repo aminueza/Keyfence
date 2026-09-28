@@ -21,6 +21,27 @@
   change catches that class of problem. There is no cost to the user: the
   selftest still runs in a temporary home with a throwaway secret and leaves
   your config, vault and audit log untouched.
+- `keyfence doctor` checks that a keyfence proxy answers where
+  `HTTPS_PROXY` points, instead of comparing that variable against
+  8888. `keyfence exec` falls back to a free port when 8888 is busy but
+  doctor compared against its own `-p`, which defaults to 8888, so
+  every session that took the fallback was warned about its own proxy
+  variable, and with two sessions running the output contradicted
+  itself two lines apart: the proxy line confirmed the other session's
+  keyfence on 8888 and the environment line warned about this one.
+  Reading the port back out of `HTTPS_PROXY` would compare the variable
+  against itself and never warn again, so doctor takes the host and
+  the port from it and probes there, and the `proxy` line follows the
+  same endpoint instead of reporting a different session's keyfence as
+  this one's. This changes one case from ok to warn: a shell that
+  exports `HTTPS_PROXY=http://127.0.0.1:8888` from a profile, with the
+  CA variables set and no keyfence running, used to pass and now warns,
+  because the variable names a proxy and nothing answers there.
+- `keyfence run` checks the port before it prints the banner, and says
+  in `--help` why it keeps 8888 while `keyfence exec` picks a free port.
+  The banner printed the two `export` lines and then refused the port
+  it had just announced. An explicit `-p` still fails with the same
+  message on both commands: a port the user typed is a choice.
 - Child processes get a CA bundle instead of the single mitmproxy
   certificate. `keyfence exec` pointed `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` at
@@ -28,7 +49,7 @@
   those four replace the trust store rather than add to it, unlike
   `NODE_EXTRA_CA_CERTS`. A host reached directly, through a `NO_PROXY` the
   user set, had its perfectly good public certificate rejected by curl,
-  Python, requests and git. The four now point at
+  Python, requests and git. Those four now point at
   `~/.keyfence/ca-bundle.pem`, the system roots with the mitmproxy CA
   appended, and `NODE_EXTRA_CA_CERTS` keeps the single certificate. The
   roots come from `certifi` when it is importable, then from
@@ -41,7 +62,21 @@
   0644: it holds no secret, but a permissive umask must not make it
   world-writable. `keyfence doctor` and `keyfence selftest` name the
   bundle and the file the roots came from, and the shell environment check
-  now wants the four at the bundle rather than at the certificate.
+  now wants them at the bundle rather than at the certificate.
+- cargo can reach crates.io inside `keyfence exec`. It could not before,
+  failing with "SSL certificate problem: unable to get local issuer
+  certificate" even though `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+  `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` were all exported, because cargo
+  reads none of them: it sets `CURLOPT_CAINFO` from `http.cainfo`, and
+  libcurl only falls back to its own `CURL_CA_BUNDLE` default when no CA
+  file was set, while `SSL_CERT_FILE` is read by the curl command line
+  tool and never by libcurl. `CARGO_HTTP_CAINFO` now points at the CA
+  bundle. It replaces the trust store rather than adding to it, so it
+  joins the variables that take the bundle rather than the single
+  certificate `NODE_EXTRA_CA_CERTS` gets. `AWS_CA_BUNDLE` was considered
+  and left out: botocore reads it, but only as an override, and with it
+  unset it already falls back to `REQUESTS_CA_BUNDLE`, which keyfence
+  sets, so the AWS CLI did not have this bug.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence

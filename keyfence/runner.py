@@ -26,7 +26,7 @@ CONFDIR = Path(os.environ["MITMPROXY_CONFDIR"]) if os.environ.get("MITMPROXY_CON
 CA_CERT = (CONFDIR or Path.home() / ".mitmproxy") / "mitmproxy-ca-cert.pem"
 ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
 PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
-BUNDLE_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO")
+BUNDLE_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO", "CARGO_HTTP_CAINFO")
 CA_ENV_VARS = ("NODE_EXTRA_CA_CERTS", *BUNDLE_ENV_VARS)
 BUNDLE_NAME = "ca-bundle.pem"
 BUNDLE_MODE = 0o644
@@ -91,8 +91,8 @@ def pick_port(preferred: int = DEFAULT_PORT) -> int:
     return free_port() if port_open(preferred) else preferred
 
 
-def probe(port: int, timeout: float = 1.0) -> dict | None:
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+def probe(port: int, host: str = "127.0.0.1", timeout: float = 1.0) -> dict | None:
+    conn = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
         conn.request("GET", PROBE_URL, headers={"Host": PROBE_HOST})
         resp = conn.getresponse()
@@ -106,8 +106,8 @@ def probe(port: int, timeout: float = 1.0) -> dict | None:
         conn.close()
 
 
-def addon_live(port: int, timeout: float = 1.0) -> bool:
-    return probe(port, timeout) is not None
+def addon_live(port: int, host: str = "127.0.0.1", timeout: float = 1.0) -> bool:
+    return probe(port, host, timeout) is not None
 
 
 MISSING, NOT_UP, NOT_LIVE = "missing", "not-up", "not-live"
