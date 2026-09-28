@@ -4,6 +4,7 @@ from keyfence.ignore import IgnoreList
 from keyfence.importer import (
     default_paths, env_values, import_files, looks_secret,
     values_from_file, values_from_json, values_from_text,
+    _joins_secret_words,
 )
 from keyfence.vault import Vault
 
@@ -207,3 +208,92 @@ def test_import_files_honour_ignore_lists(tmp_path):
     config = tmp_path / "config.json"
     config.write_text(json.dumps({"token": "jsonTokenValue123", "db_host": HOST}))
     assert values_from_file(config, MIN, everything=True, ignore=ignore) == {"jsonTokenValue123"}
+
+
+def test_secret_name_matches_whole_words_only():
+    assert not looks_secret("GIT_AUTHOR_EMAIL", "dev@example.com", MIN)
+    assert not looks_secret("GIT_AUTHOR_NAME", "Jane Doe", MIN)
+    assert not looks_secret("KEYBOARD_LAYOUT", "us-intl-mac", MIN)
+    assert not looks_secret("MONKEY_ISLAND", "game-save-3", MIN)
+    assert not looks_secret("COMPASS_URL", "localhost:9000", MIN)
+    assert not looks_secret("BYPASS_CACHE", "sometimes", MIN)
+    assert not looks_secret("CAPITAL_CITY", "Amsterdam-NL", MIN)
+    assert not looks_secret("RAPID_MODE", "always-on", MIN)
+    assert looks_secret("GIT_AUTHOR_TOKEN", "dev@example.com", MIN)
+
+
+def test_one_letter_segment_is_not_a_secret_name():
+    assert not looks_secret("AWS_S3_BUCKET", "acme-bucket", MIN)
+    assert not looks_secret("S3_ENDPOINT", "localhost:9000", MIN)
+    assert not looks_secret("s3Client", "acme-bucket", MIN)
+    assert env_values({"AWS_S3_BUCKET": "acme-bucket"}, MIN) == set()
+
+
+def test_secret_name_still_matches_real_secret_names():
+    for name in ("GITHUB_TOKEN", "DB_PASSWORD", "STRIPE_SECRET_KEY", "OPENAI_APIKEY",
+                 "authToken", "aws_secret_access_key", "credentials", "SESSION_COOKIE",
+                 "senha", "SENTRY_DSN", "PRIVATE_KEY", "_authToken", "apiKeys",
+                 "PASSPHRASE", "GPG_PASSPHRASE", "SSH_PASSCODE", "AUTHORIZATION",
+                 "PGPASSWORD", "SSHPASS", "ACCESSTOKEN", "REFRESHTOKEN",
+                 "CLIENTSECRET", "DBPASSWORD", "SECRETACCESSKEY",
+                 "//registry.npmjs.org/:_authToken"):
+        assert looks_secret(name, "short-value", MIN), name
+
+
+def test_a_name_that_points_at_a_file_is_not_a_secret_name():
+    assert not looks_secret("PGPASSFILE", "pgpass.conf", MIN)
+    assert not looks_secret("HTPASSWD_PATH", "site.htpasswd", MIN)
+
+
+def test_a_word_glued_in_front_of_a_long_secret_word_still_matches():
+    assert looks_secret("DBPASSWORD", "hunter2hunter", MIN)
+    assert not looks_secret("TOKENIZER_PATH", "bpe-v2.model", MIN)
+    assert not looks_secret("SECRETARY_DESK", "room-14-desk", MIN)
+    assert not looks_secret("MONKEYKEY", "game-save-3", MIN)
+
+
+def test_env_values_keeps_the_git_author_email():
+    environ = {"GIT_AUTHOR_EMAIL": "dev@example.com", "GITHUB_TOKEN": "tokenValue123"}
+    assert env_values(environ, MIN) == {"tokenValue123"}
+
+
+def test_acronym_glued_to_camelcase_matches():
+    assert looks_secret("APIkey", "short-value", MIN)
+    assert looks_secret("googleAPIkey", "short-value", MIN)
+
+
+def test_glued_pass_names_match():
+    for name in ("DBPASS", "SMTPPASS", "ADMINPASS", "DBPASSWD", "KEYSTOREPASS", "DBSENHA"):
+        assert looks_secret(name, "short-value", MIN), name
+
+
+def test_glued_pass_false_positives_stay_out():
+    assert not looks_secret("COMPASS_URL", "localhost:9000", MIN)
+    assert not looks_secret("BYPASS_CACHE", "sometimes", MIN)
+    assert not looks_secret("HTPASSWD_PATH", "site.htpasswd", MIN)
+
+
+def test_length_bound_in_joins_secret_words():
+    from keyfence.importer import _LONGEST_SECRET_WORD, SECRET_WORDS
+
+    class CountingSet:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+            self.count = 0
+
+        def __contains__(self, item):
+            self.count += 1
+            return item in self._wrapped
+
+    segment = "key" * 2000
+    counting = CountingSet(SECRET_WORDS)
+    original = SECRET_WORDS
+    import keyfence.importer as imp
+    imp.SECRET_WORDS = counting
+    try:
+        result = _joins_secret_words(segment)
+        assert result is True
+        max_ops = len(segment) * _LONGEST_SECRET_WORD
+        assert counting.count <= max_ops, f"{counting.count} > {max_ops} (bound not effective)"
+    finally:
+        imp.SECRET_WORDS = original
