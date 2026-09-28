@@ -339,15 +339,12 @@ def test_run_says_on_stderr_when_the_proxy_log_stays_readable(home, monkeypatch,
     log = home / "proxy.log"
     fchmod = os.fchmod
 
-    def refusing_fchmod(fd, mode, *args, **kwargs):
-        # Scope the refusal to proxy.log. A blanket refusal also catches the
-        # CA bundle's own fchmod in ensure_bundle, which makes run() fail for a
-        # reason this test is not about.
+    def refusing_only_the_proxy_log_fchmod(fd, mode, *args, **kwargs):
         if log.exists() and os.fstat(fd).st_ino == log.stat().st_ino:
             raise OSError(1, "Operation not permitted")
         return fchmod(fd, mode, *args, **kwargs)
 
-    monkeypatch.setattr(os, "fchmod", refusing_fchmod)
+    monkeypatch.setattr(os, "fchmod", refusing_only_the_proxy_log_fchmod)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
     assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
     err = capsys.readouterr().err
