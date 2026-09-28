@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Every release gets its notes. The workflow published to PyPI and stopped
+  there, so the tags carried no GitHub release at all and the releases page
+  was a list of bare tags. It now creates the release for the tag with the
+  `CHANGELOG.md` section of that version as the body and the sdist and
+  wheel attached, after the upload to PyPI succeeds. A tag whose version
+  has no section, or an empty one, fails the step instead of publishing an
+  empty release. `tools/release_notes.py` prints the same body locally.
+
 - The Tests section of `docs/development.md` says how to check a leak
   from inside `keyfence exec`. The blind spot is the model's, not the
   terminal's: `exec` sets the proxy and CA variables and runs the child

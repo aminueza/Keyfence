@@ -137,8 +137,16 @@ To release:
 
 The workflow checks that the `CI` workflow passed for the tagged commit,
 builds the sdist and wheel, checks that the tag matches the package
-version, and publishes. A tag pushed on a commit whose suite fails will
-not publish.
+version, publishes to PyPI, and then creates the GitHub release for the
+tag with the `CHANGELOG.md` section of that version as its body and the
+sdist and wheel attached. A tag pushed on a commit whose suite fails will
+not publish, and a tag whose version has no changelog section fails the
+release step with the sections it did find, so the release never goes out
+empty.
+
+`python tools/release_notes.py vX.Y.Z` prints the same body on your
+machine, which is the quickest way to see what a tag will publish before
+you push it.
 
 Between releases `main` carries a `.dev0` version, so `keyfence doctor`
 tells a checkout of `main` apart from the build published on PyPI.
