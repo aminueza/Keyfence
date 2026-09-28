@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import socket
 import stat
 import subprocess
@@ -129,6 +130,60 @@ def _hosts_covered_by(pattern):
     if "*" in pattern:
         return (pattern.replace("*", "eastus"), pattern.replace("*", "a.b"))
     return (pattern, f"sub.{pattern}")
+
+
+@pytest.mark.parametrize("pattern,host,expected", [
+    ("api.openai.com", "api.openai.com", True),
+    ("api.openai.com", "eastus.api.openai.com", True),
+    ("api.openai.com", "evil.com", False),
+    ("api.openai.com", "apiXopenai.com", False),
+    ("openai.com", "api.openai.com", True),
+    ("openai.com", "evilopenai.com", False),
+    ("*.openai.com", "eastus.openai.com", True),
+    ("*.openai.com", "openai.com", False),
+    ("*.a.b.com", "x.y.a.b.com", True),
+    ("*.a.b.com", "x.y.a.b.evil.com", False),
+])
+def test_both_matchers_agree_on_every_pattern_without_a_question_mark_or_a_class(pattern, host, expected):
+    monitored = _config_with([pattern]).host_matches(host)
+    allowed = bool(re.search(runner.host_regex(pattern), host, re.IGNORECASE))
+    assert monitored is expected
+    assert monitored == allowed, (pattern, host, monitored, allowed)
+
+
+@pytest.mark.parametrize("pattern,host", [
+    ("a?.com", "a?.com"),
+    ("a?.com", "ab.com"),
+    ("*?.com", "x.com"),
+    ("*?.openai.com", "eastus.openai.com"),
+    ("a[s]t.com", "a[s]t.com"),
+    ("a[s]t.com", "ast.com"),
+    ("*[s]t.com", "ast.com"),
+    ("foo].com", "foo].com"),
+    ("*].com", "x].com"),
+    ("[ab]cd.com", "bcd.com"),
+    ("api.openai.com", "sub.api.openai.com"),
+    ("*.openai.com", "eastus.openai.com"),
+    ("bedrock-runtime.*.amazonaws.com", "bedrock-runtime.us-east-1.amazonaws.com"),
+])
+def test_the_config_matcher_never_claims_a_host_the_allow_regex_would_tunnel(pattern, host):
+    if _config_with([pattern]).host_matches(host):
+        assert re.search(runner.host_regex(pattern), host, re.IGNORECASE), (pattern, host)
+
+
+@pytest.mark.parametrize("suffix", ["", ":443"], ids=["no-port", "port"])
+@pytest.mark.parametrize("pattern,host", [
+    ("api.openai.com", "api.openai.com"),
+    ("api.openai.com", "eastus.api.openai.com"),
+    ("openai.com", "api.openai.com"),
+    ("*.openai.com", "eastus.openai.com"),
+    ("*.a.b.com", "x.y.a.b.com"),
+    ("*?.com", "x.com"),
+    ("*[s]t.com", "ast.com"),
+])
+def test_the_allow_regex_accepts_the_address_mitmproxy_sees_whenever_the_config_matcher_accepts_the_host(pattern, host, suffix):
+    assert _config_with([pattern]).host_matches(host)
+    assert re.search(runner.host_regex(pattern), f"{host}{suffix}", re.IGNORECASE), (pattern, host, suffix)
 
 
 def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
