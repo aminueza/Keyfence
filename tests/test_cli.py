@@ -389,6 +389,16 @@ def test_install_hooks_project_and_remove(home, tmp_path, monkeypatch, capsys):
     assert "No keyfence hook" in out and "removed." not in out
 
 
+def test_install_hooks_names_the_hook_the_deny_block_and_the_record_it_writes(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    record = tmp_path / ".claude" / "keyfence-deny-rules.json"
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    out = capsys.readouterr().out
+    assert str(settings) in out and "permissions.deny" in out and str(record) in out
+    assert json.loads(record.read_text()) == sorted(cli.hooks.DENY_RULES)
+
+
 def test_install_hooks_remove_without_record_keeps_user_rules_until_forced(home, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     settings = tmp_path / ".claude" / "settings.json"

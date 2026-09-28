@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- `install-hooks claude-code` no longer refuses a project's example env
+  file. The `permissions.deny` block it writes covered `.env.example` with
+  `Read(./.env.*)`, so Claude Code would not read it and would not let the
+  agent create one either, failing with "File is covered by a Read deny
+  rule". The hook already let the same file through on both the Read and
+  the Bash path, so the two layers disagreed about whether an example env
+  file is a secret and the stricter one won. An `allow` rule would not have
+  fixed it: Claude Code evaluates deny, then ask, then allow, and no allow
+  rule re-permits what a deny rule matches. The block now ends in one
+  `Read(!.env.example)`-style carve-out per safe env name, taken from the
+  list the hook already keeps, so the two layers read from one list.
+  `.env`, `.env.local` and `.env.production` are still refused, at the
+  project root and in a subdirectory. 17 rules become 21.
+- `install-hooks claude-code` says what it wrote. The command touches
+  three things: the `PreToolUse` hook entry, the `permissions.deny` block
+  and the `keyfence-deny-rules.json` record that `--remove` reads back.
+  The output named the hook and left the other two to be found by
+  diffing the settings file afterwards. It now names all three, with the
+  rule count and the full path of the record.
+
 - The claude-code hook no longer refuses a command that mentions
   `mitmproxy-ca-cert.pem`. That is the certificate keyfence hands to every
   child process through `CA_ENV_VARS` and prints as "CA certificate" in
