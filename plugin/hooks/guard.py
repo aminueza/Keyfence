@@ -3,6 +3,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import re
+import shutil
 import sys
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -18,7 +19,8 @@ SENSITIVE_PATHS = (
     "*/.aws/credentials", "*/.docker/config.json", "*/.ssh/*", "*/.kube/config",
     "*/.config/gcloud/*credentials*", "*/.gnupg/*",
 )
-SAFE_NAMES = (".env.example", ".env.sample", ".env.template", ".env.dist", "*.pub")
+SAFE_NAMES = (".env.example", ".env.sample", ".env.template", ".env.dist", "*.pub", "mitmproxy-ca-cert.pem")
+SAFE_ENV_NAMES = tuple(name for name in SAFE_NAMES if name.startswith(".env"))
 FILE_TOOLS = {"read", "edit", "write", "multiedit", "notebookedit"}
 GREP_TOOLS = {"grep"}
 SHELL_TOOLS = {"bash", "powershell"}
@@ -56,7 +58,16 @@ DENY_RULES = (
     "Read(./**/*.key)", "Read(./**/credentials*)", "Read(./**/secrets.*)", "Read(./**/*.tfvars)",
     "Read(~/.aws/credentials)", "Read(~/.ssh/**)", "Read(~/.netrc)", "Read(~/.npmrc)",
     "Read(~/.pypirc)", "Read(~/.git-credentials)", "Read(~/.docker/config.json)", "Read(~/.kube/config)",
-)
+) + tuple(f"Read(!{name})" for name in SAFE_ENV_NAMES)
+
+
+def keyfence_path() -> str:
+    bindir = Path(sys.executable).parent
+    for name in ("keyfence", "keyfence.exe"):
+        candidate = bindir / name
+        if candidate.exists():
+            return str(candidate)
+    return shutil.which("keyfence") or "keyfence"
 
 
 def is_sensitive(path: str) -> bool:
@@ -75,7 +86,7 @@ def paths_in_command(command: str) -> list[str]:
             if word and not word.startswith("-") and any(c in word for c in "/._")]
 
 
-def dumps_secrets(command: str) -> str | None:
+def refusal_for_command(command: str) -> str | None:
     if _DUMP_COMMANDS.search(command) or _NAMED_DUMP.search(command):
         return "it prints environment variables that hold the secrets keyfence protects"
     m = _SECRET_COMMANDS.search(command)
@@ -102,7 +113,7 @@ def decide(payload: dict) -> str | None:
         for path in paths_in_command(command):
             if is_sensitive(path):
                 return _reason(path)
-        why = dumps_secrets(command)
+        why = refusal_for_command(command)
         if why:
             return (f"keyfence blocked this command: {why}. Secrets must not enter the model "
                     "context. Ask the user to run it themselves if the output is needed.")
@@ -125,17 +136,21 @@ def run_hook(stdin=None, stderr=None) -> int:
     stdin = stdin or sys.stdin
     stderr = stderr or sys.stderr
     try:
-        payload = json.loads(stdin.read())
-    except ValueError:
-        payload = None
-    if not isinstance(payload, dict):
-        print(UNREADABLE, file=stderr)
+        try:
+            payload = json.loads(stdin.read())
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            print(UNREADABLE, file=stderr)
+            return 2
+        reason = decide(payload)
+        if reason:
+            print(reason, file=stderr)
+            return 2
+        return 0
+    except BaseException as exc:
+        print(f"keyfence blocked this call because its guard crashed: {type(exc).__name__}", file=stderr)
         return 2
-    reason = decide(payload)
-    if reason:
-        print(reason, file=stderr)
-        return 2
-    return 0
 
 
 def settings_path(project: bool, cwd: Path | None = None) -> Path:
@@ -144,16 +159,22 @@ def settings_path(project: bool, cwd: Path | None = None) -> Path:
 
 
 def _is_ours(entry: dict) -> bool:
-    return any(HOOK_COMMAND in str(h.get("command", "")) for h in entry.get("hooks", []))
+    for h in entry.get("hooks", []):
+        cmd = str(h.get("command", ""))
+        if HOOK_COMMAND in cmd:
+            return True
+        if "hook claude-code" in cmd:
+            return True
+    return False
 
 
-def _added_rules_path(path: Path) -> Path:
+def added_rules_path(path: Path) -> Path:
     return path.with_name("keyfence-deny-rules.json")
 
 
 def _added_rules(path: Path) -> list[str] | None:
     try:
-        rules = json.loads(_added_rules_path(path).read_text())
+        rules = json.loads(added_rules_path(path).read_text())
     except (OSError, ValueError):
         return None
     if not isinstance(rules, list) or not all(isinstance(rule, str) for rule in rules):
@@ -171,7 +192,10 @@ class Removal(NamedTuple):
         return self.hook or self.rules > 0
 
 
-def install(path: Path) -> bool:
+def install(path: Path, command: str | None = None) -> bool:
+    command = command or HOOK_COMMAND
+    if command != HOOK_COMMAND and "hook claude-code" not in command:
+        command = f"{command} hook claude-code"
     data = json.loads(path.read_text()) if path.exists() else {}
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     deny = data.setdefault("permissions", {}).setdefault("deny", [])
@@ -179,7 +203,7 @@ def install(path: Path) -> bool:
     if not any(_is_ours(e) for e in pre):
         pre.append({
             "matcher": HOOK_MATCHER,
-            "hooks": [{"type": "command", "command": HOOK_COMMAND, "timeout": 10}],
+            "hooks": [{"type": "command", "command": command, "timeout": 10}],
         })
         changed = True
     missing = [rule for rule in DENY_RULES if rule not in deny]
@@ -188,7 +212,7 @@ def install(path: Path) -> bool:
         changed = True
         path.parent.mkdir(parents=True, exist_ok=True)
         previous = _added_rules(path) or []
-        _added_rules_path(path).write_text(json.dumps(sorted(set(previous) | set(missing)), indent=2) + "\n")
+        added_rules_path(path).write_text(json.dumps(sorted(set(previous) | set(missing)), indent=2) + "\n")
     if not changed:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -212,7 +236,7 @@ def uninstall(path: Path, force: bool = False) -> Removal:
         unrecorded = [rule for rule in deny if rule in DENY_RULES]
     kept_deny = [rule for rule in deny if rule not in ours]
     if force or recorded is not None:
-        _added_rules_path(path).unlink(missing_ok=True)
+        added_rules_path(path).unlink(missing_ok=True)
     result = Removal(len(kept) < len(pre), len(deny) - len(kept_deny), unrecorded)
     if not result.changed:
         return result

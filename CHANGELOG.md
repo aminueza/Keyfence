@@ -2,6 +2,118 @@
 
 ## Unreleased
 
+- The Tests section of `docs/development.md` says how to check a leak
+  from inside `keyfence exec`. The blind spot is the model's, not the
+  terminal's: `exec` sets the proxy and CA variables and runs the child
+  with `subprocess.call`, so a person sees what the child printed in
+  clear, and a secret in a response body is never touched. The output an
+  agent read, though, reaches the provider inside the next request, and
+  keyfence rewrites that request, so the model reads `[REDACTED:kind]`
+  for a leaked value and for a printed marker alike.
+  `tests/test_scan_scope.py` pins the claims the page rests on.
+- `keyfence selftest` now exercises TLS through the proxy. It used to send
+  its request over plain HTTP and print `info  TLS: not exercised`, so it
+  proved the addon scans and rewrites but never that a TLS client trusts the
+  CA the way `keyfence exec` hands it out. It now starts an HTTPS listener
+  with a self-signed certificate, sends the request with `HTTPSConnection`
+  configured with the CA bundle (the system roots plus the mitmproxy CA, the
+  way `keyfence exec` hands it to child processes), and asserts the handshake
+  to the proxy succeeds with mitmproxy's minted certificate while the body is
+  still redacted. The upstream leg (proxy to listener) uses `ssl_insecure`
+  because the listener's certificate is self-signed and not in any trust
+  store; the client-to-proxy leg verifies for real against the bundle. The
+  TLS line changes from `info  TLS: not exercised` to `ok    TLS: handshake
+  to proxy succeeded with mitmproxy's certificate, body redacted`. A
+  deliberately wrong CA bundle path makes the step fail with a message that
+  names the path, proving the check is not vacuous. Issues #35 and #41 were
+  both TLS-only failures that `keyfence doctor` reported as fine; this
+  change catches that class of problem. There is no cost to the user: the
+  selftest still runs in a temporary home with a throwaway secret and leaves
+  your config, vault and audit log untouched.
+- `keyfence doctor` checks that a keyfence proxy answers where
+  `HTTPS_PROXY` points, instead of comparing that variable against
+  8888. `keyfence exec` falls back to a free port when 8888 is busy but
+  doctor compared against its own `-p`, which defaults to 8888, so
+  every session that took the fallback was warned about its own proxy
+  variable, and with two sessions running the output contradicted
+  itself two lines apart: the proxy line confirmed the other session's
+  keyfence on 8888 and the environment line warned about this one.
+  Reading the port back out of `HTTPS_PROXY` would compare the variable
+  against itself and never warn again, so doctor takes the host and
+  the port from it and probes there, and the `proxy` line follows the
+  same endpoint instead of reporting a different session's keyfence as
+  this one's. This changes one case from ok to warn: a shell that
+  exports `HTTPS_PROXY=http://127.0.0.1:8888` from a profile, with the
+  CA variables set and no keyfence running, used to pass and now warns,
+  because the variable names a proxy and nothing answers there.
+- `keyfence run` checks the port before it prints the banner, and says
+  in `--help` why it keeps 8888 while `keyfence exec` picks a free port.
+  The banner printed the two `export` lines and then refused the port
+  it had just announced. An explicit `-p` still fails with the same
+  message on both commands: a port the user typed is a choice.
+- Child processes get a CA bundle instead of the single mitmproxy
+  certificate. `keyfence exec` pointed `SSL_CERT_FILE`,
+  `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` at
+  `~/.mitmproxy/mitmproxy-ca-cert.pem`, which holds one certificate, and
+  those four replace the trust store rather than add to it, unlike
+  `NODE_EXTRA_CA_CERTS`. A host reached directly, through a `NO_PROXY` the
+  user set, had its perfectly good public certificate rejected by curl,
+  Python, requests and git. Those four now point at
+  `~/.keyfence/ca-bundle.pem`, the system roots with the mitmproxy CA
+  appended, and `NODE_EXTRA_CA_CERTS` keeps the single certificate. The
+  roots come from `certifi` when it is importable, then from
+  `ssl.get_default_verify_paths().cafile`, then from the usual Linux
+  paths. The bundle is rewritten whenever its content would differ, so a
+  changed mitmproxy CA or a rotated root is picked up on the next `exec`.
+  With no system roots anywhere keyfence says which sources it looked at,
+  writes no bundle and does not start the command, because a bundle with
+  the mitmproxy CA alone is the bug this fixes. It is written with mode
+  0644: it holds no secret, but a permissive umask must not make it
+  world-writable. `keyfence doctor` and `keyfence selftest` name the
+  bundle and the file the roots came from, and the shell environment check
+  now wants them at the bundle rather than at the certificate.
+- cargo can reach crates.io inside `keyfence exec`. It could not before,
+  failing with "SSL certificate problem: unable to get local issuer
+  certificate" even though `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+  `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` were all exported, because cargo
+  reads none of them: it sets `CURLOPT_CAINFO` from `http.cainfo`, and
+  libcurl only falls back to its own `CURL_CA_BUNDLE` default when no CA
+  file was set, while `SSL_CERT_FILE` is read by the curl command line
+  tool and never by libcurl. `CARGO_HTTP_CAINFO` now points at the CA
+  bundle. It replaces the trust store rather than adding to it, so it
+  joins the variables that take the bundle rather than the single
+  certificate `NODE_EXTRA_CA_CERTS` gets. `AWS_CA_BUNDLE` was considered
+  and left out: botocore reads it, but only as an override, and with it
+  unset it already falls back to `REQUESTS_CA_BUNDLE`, which keyfence
+  sets, so the AWS CLI did not have this bug.
+- `install-hooks claude-code` no longer refuses a project's example env
+  file. The `permissions.deny` block it writes covered `.env.example` with
+  `Read(./.env.*)`, so Claude Code would not read it and would not let the
+  agent create one either, failing with "File is covered by a Read deny
+  rule". The hook already let the same file through on both the Read and
+  the Bash path, so the two layers disagreed about whether an example env
+  file is a secret and the stricter one won. An `allow` rule would not have
+  fixed it: Claude Code evaluates deny, then ask, then allow, and no allow
+  rule re-permits what a deny rule matches. The block now ends in one
+  `Read(!.env.example)`-style carve-out per safe env name, taken from the
+  list the hook already keeps, so the two layers read from one list.
+  `.env`, `.env.local` and `.env.production` are still refused, at the
+  project root and in a subdirectory. 17 rules become 21.
+- `install-hooks claude-code` says what it wrote. The command touches
+  three things: the `PreToolUse` hook entry, the `permissions.deny` block
+  and the `keyfence-deny-rules.json` record that `--remove` reads back.
+  The output named the hook and left the other two to be found by
+  diffing the settings file afterwards. It now names all three, with the
+  rule count and the full path of the record.
+
+- The claude-code hook no longer refuses a command that mentions
+  `mitmproxy-ca-cert.pem`. That is the certificate keyfence hands to every
+  child process through `CA_ENV_VARS` and prints as "CA certificate" in
+  `keyfence doctor`, so refusing it as a secret worked against keyfence
+  itself. It is the only name added to the safe list, matched on the
+  basename, so the entry still holds when `MITMPROXY_CONFDIR` moves the
+  directory. `mitmproxy-ca.pem` stays refused: it holds the private key,
+  which forges TLS for any host.
 - The audit log previews less of a secret. A preview was the first and last
   four characters of any value over ten characters, so a twelve-character
   password left eight of its twelve characters in a file any user on the
@@ -77,6 +189,58 @@
   a 101 goes to the raw TCP layer and every frame passes unscanned, and a
   `websocket: false` in `~/.mitmproxy/config.yaml` beats the command line,
   so an argument could not close that hole.
+- Secret names are matched word by word. The name test was a plain
+  substring search, so `auth` fired on `GIT_AUTHOR_EMAIL`, `key` on
+  `KEYBOARD_LAYOUT`, `pass` on `COMPASS_URL` and `api` on `CAPITAL_CITY`.
+  `keyfence exec` reads the whole environment, so an author's email was
+  registered in the vault and every request carrying `git log` output came
+  out with `[REDACTED:vault]` in it. The name is now split on separators
+  and camel case, and each segment has to be a secret word or a run of
+  them, so `OPENAI_APIKEY`, `authToken` and `aws_secret_access_key` still
+  match while `GIT_AUTHOR_EMAIL` does not. A segment that ends with
+  `token`, `secret` or `password` counts on its own, so `ACCESSTOKEN`,
+  `CLIENTSECRET`, `DBPASSWORD` and the `identitytoken` field of the docker
+  config keep matching, and so does one that opens with those words and
+  closes on a secret word, such as `SECRETACCESSKEY`. `key` is not in that
+  list, so `MONKEY_ISLAND` stays out. The names a tool fixes and a
+  developer cannot rename are words of their own: `PGPASSWORD`, `SSHPASS`,
+  `PASSPHRASE` and `PASSCODE`.
+
+What this costs: a short, low-entropy value under a name that glues an
+   ordinary word onto `key` alone, such as `SSHKEY` or `SECKEY`, is no
+   longer registered by name. Use a separator (`SSH_KEY`), camel case
+   (`sshKey`) or `keyfence import --all`. The matcher now tries two
+   splittings of each name (the standard camel-case split and one that keeps
+   the trailing capital on an acronym), so the quadratic bound applies to
+   both. Names that glue an ordinary word onto `pass`, `passwd` or `senha`
+   (`DBPASS`, `SMTPPASS`, `ADMINPASS`, `DBPASSWD`, `KEYSTOREPASS`,
+   `DBSENHA`) are recovered with a bounded exception list that keeps
+   `COMPASS` and `BYPASS` out; `HTPASSWD` is also excepted because it names
+   a file, not a secret.
+- The Claude Code hook fails closed. An exception inside `decide()` used
+  to exit 1, which Claude Code reads as no opinion, so the call went
+  through with the guard half-alive. A hook that never started had the
+  same effect: `keyfence hook claude-code` was written into settings.json
+  as a bare command, so a keyfence that is not on PATH, as with `uv tool`
+  or a project venv, was never found and every call passed unchecked.
+  `run_hook` now wraps the decision in `try/except BaseException`, prints
+  a reason naming the exception type, and exits 2 on anything,
+  `SystemExit` and `KeyboardInterrupt` included. A new install writes the
+  absolute path of the running keyfence into settings.json, and
+  `keyfence doctor` reads the command out of each settings file and fails,
+  naming the command, when its executable does not exist, is not
+  executable, or is not on PATH.
+  A hook that does not resolve now refuses the call instead of letting it
+  through unguarded, so a rebuilt venv or a moved install needs
+  `keyfence install-hooks claude-code` again to bake the new path, and a
+  bug in the hook blocks calls instead of passing them. The entry is
+  written only when no keyfence hook is present, so an install that
+  already has one keeps the bare command and relies on the doctor check.
+  The 10-second timeout Claude Code applies is still a way to fail open,
+  and the hook cannot close it, since a call the hook never answers is
+  allowed. Closing it needs a wrapper process or a timeout in the hook
+  protocol. The plugin runs `guard.py` with `python3`, which a default
+  Windows install does not have, and `plugin/README.md` now says so.
 
 ## 0.7.0 (2026-09-24)
 
