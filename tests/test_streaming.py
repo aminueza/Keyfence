@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from keyfence.streaming import Event, SSERestorer, partial_suffix, restore, restore_json
 
 KEY = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
@@ -411,3 +413,14 @@ def test_restore_json_partial_json_starting_with_brace_keeps_two_levels():
     restored = restore_json(body, mapping)
     inner = json.loads(json.loads(restored)["partial_json"])
     assert inner == {"key": PEM}
+
+
+def test_restore_json_stringified_document_under_content_parses_outer_body_only():
+    mapping = {"<<SECRET_1>>": PEM}
+    nested = json.dumps({"key": "<<SECRET_1>>"})
+    body = json.dumps({"content": nested})
+    restored = restore_json(body, mapping)
+    parsed = json.loads(restored)
+    assert "\nMIIE" in parsed["content"]
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(parsed["content"])
