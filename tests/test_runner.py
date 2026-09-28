@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import socket
 import stat
 import subprocess
@@ -8,9 +9,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from mitmproxy import ctx as mitm_ctx
+from mitmproxy.addons import next_layer as mitm_next_layer
+from mitmproxy.connection import Client
+from mitmproxy.options import Options
+from mitmproxy.proxy import layer as mitm_layer
+from mitmproxy.proxy.context import Context
 
 from fakes import CA_PEM
 from keyfence import runner
+from keyfence.config import Config
 from keyfence.vault import Vault
 
 
@@ -37,6 +45,147 @@ def test_listen_args():
     assert "local:claude" in cmd and "--listen-port" not in cmd
 
 
+def _tunnels(host, port=443, patterns=("api.openai.com",), peername=("93.184.216.34", 443)):
+    return _tunnels_with_argv(runner.allow_hosts_args(_config_with(patterns)), host, port, peername)
+
+
+def _config_with(patterns):
+    config = Config()
+    config.hosts = list(patterns)
+    config.intercept_all_hosts = False
+    return config
+
+
+def _tunnels_with_argv(argv, host, port=443, peername=("93.184.216.34", 443)):
+    options = Options()
+    options.allow_hosts = [argv[i + 1] for i, flag in enumerate(argv) if flag == "--allow-hosts"]
+    options.ignore_hosts = []
+    original = getattr(mitm_ctx, "options", None)
+    mitm_ctx.options = options
+    try:
+        context = Context(Client(peername=("127.0.0.1", 5555), sockname=("127.0.0.1", 1234)), options)
+        context.server.address = (host, port)
+        context.server.peername = peername
+        probe = mitm_layer.NextLayer(context)
+        context.layers.append(probe)
+        mitm_next_layer.NextLayer().next_layer(probe)
+        return probe.layer.flow is None
+    finally:
+        mitm_ctx.options = original
+
+
+def test_a_monitored_host_is_intercepted_and_every_other_one_is_tunneled():
+    assert not _tunnels("api.openai.com")
+    assert _tunnels("evil.com")
+
+
+def test_the_proxy_intercepts_the_host_with_its_port_and_in_any_case():
+    assert not _tunnels("api.openai.com", 8443)
+    assert not _tunnels("API.OpenAI.com")
+
+
+def test_the_proxy_tunnels_a_host_whose_name_only_looks_like_a_monitored_one():
+    assert _tunnels("apiXopenai.com")
+    assert _tunnels("api.openai.com.evil.com")
+    assert _tunnels("evil.com/api.openai.com")
+
+
+def test_the_proxy_intercepts_a_subdomain_because_the_addon_monitors_it_too():
+    config = _config_with(["api.openai.com"])
+    assert not _tunnels("sub.api.openai.com")
+    assert config.host_matches("sub.api.openai.com")
+    assert not _tunnels("evil.com.api.openai.com")
+    assert config.host_matches("evil.com.api.openai.com")
+
+
+def test_the_wildcard_crosses_dots_like_the_config_matcher():
+    assert not _tunnels("eastus.services.ai.azure.com", patterns=["*.services.ai.azure.com"])
+    assert not _tunnels("a.b.services.ai.azure.com", patterns=["*.services.ai.azure.com"])
+    assert _tunnels("services.ai.azure.com.evil.com", patterns=["*.services.ai.azure.com"])
+
+
+def test_the_proxy_intercepts_every_host_when_the_list_is_empty():
+    config = _config_with(["api.openai.com"])
+    config.intercept_all_hosts = True
+    assert runner.allow_hosts_args(config) == []
+    assert not _tunnels_with_argv(runner.allow_hosts_args(config), "evil.com")
+
+
+def test_a_monitored_address_intercepts_every_host_that_resolves_to_it():
+    assert not _tunnels("example.com", patterns=["127.0.0.1"], peername=("127.0.0.1", 9997))
+
+
+def test_the_probe_host_stays_reachable_because_it_is_in_the_list():
+    assert not _tunnels(runner.PROBE_HOST)
+
+
+def test_every_default_host_stays_intercepted_once_allow_hosts_is_passed():
+    for pattern in Config().hosts:
+        for host in _hosts_covered_by(pattern):
+            assert _config_with([pattern]).host_matches(host), (pattern, host)
+            assert not _tunnels(host, patterns=(pattern,)), (pattern, host)
+
+
+def _hosts_covered_by(pattern):
+    if "*" in pattern:
+        return (pattern.replace("*", "eastus"), pattern.replace("*", "a.b"))
+    return (pattern, f"sub.{pattern}")
+
+
+@pytest.mark.parametrize("pattern,host,expected", [
+    ("api.openai.com", "api.openai.com", True),
+    ("api.openai.com", "eastus.api.openai.com", True),
+    ("api.openai.com", "evil.com", False),
+    ("api.openai.com", "apiXopenai.com", False),
+    ("openai.com", "api.openai.com", True),
+    ("openai.com", "evilopenai.com", False),
+    ("*.openai.com", "eastus.openai.com", True),
+    ("*.openai.com", "openai.com", False),
+    ("*.a.b.com", "x.y.a.b.com", True),
+    ("*.a.b.com", "x.y.a.b.evil.com", False),
+])
+def test_both_matchers_agree_on_every_pattern_without_a_question_mark_or_a_class(pattern, host, expected):
+    monitored = _config_with([pattern]).host_matches(host)
+    allowed = bool(re.search(runner.host_regex(pattern), host, re.IGNORECASE))
+    assert monitored is expected
+    assert monitored == allowed, (pattern, host, monitored, allowed)
+
+
+@pytest.mark.parametrize("pattern,host", [
+    ("a?.com", "a?.com"),
+    ("a?.com", "ab.com"),
+    ("*?.com", "x.com"),
+    ("*?.openai.com", "eastus.openai.com"),
+    ("a[s]t.com", "a[s]t.com"),
+    ("a[s]t.com", "ast.com"),
+    ("*[s]t.com", "ast.com"),
+    ("foo].com", "foo].com"),
+    ("*].com", "x].com"),
+    ("[ab]cd.com", "bcd.com"),
+    ("api.openai.com", "sub.api.openai.com"),
+    ("*.openai.com", "eastus.openai.com"),
+    ("bedrock-runtime.*.amazonaws.com", "bedrock-runtime.us-east-1.amazonaws.com"),
+])
+def test_the_config_matcher_never_claims_a_host_the_allow_regex_would_tunnel(pattern, host):
+    if _config_with([pattern]).host_matches(host):
+        assert re.search(runner.host_regex(pattern), host, re.IGNORECASE), (pattern, host)
+
+
+@pytest.mark.parametrize("suffix", ["", ":443"], ids=["no-port", "port"])
+@pytest.mark.parametrize("pattern,host", [
+    ("api.openai.com", "api.openai.com"),
+    ("api.openai.com", "eastus.api.openai.com"),
+    ("openai.com", "api.openai.com"),
+    ("*.openai.com", "eastus.openai.com"),
+    ("*.a.b.com", "x.y.a.b.com"),
+    ("*?.com", "x.com"),
+    ("*[s]t.com", "ast.com"),
+])
+def test_the_allow_regex_accepts_the_address_mitmproxy_sees_whenever_the_config_matcher_accepts_the_host(pattern, host, suffix):
+    assert _config_with([pattern]).host_matches(host)
+    assert re.search(runner.host_regex(pattern), f"{host}{suffix}", re.IGNORECASE), (pattern, host, suffix)
+
+
 def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
     seen = {}
     ca = tmp_path / "ca.pem"
@@ -54,6 +203,39 @@ def test_confdir_is_passed_to_mitmdump(tmp_path):
     assert "confdir=" not in " ".join(runner.proxy_command(1, confdir=None))
     cmd = runner.proxy_command(1, confdir=tmp_path / "conf")
     assert cmd[cmd.index(f"confdir={tmp_path / 'conf'}") - 1] == "--set"
+
+
+def test_run_tells_mitmdump_to_tunnel_the_hosts_it_does_not_monitor(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    write_config("mode: audit\nhosts:\n  - api.openai.com\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert not _tunnels_with_argv(seen["cmd"], "api.openai.com")
+    assert _tunnels_with_argv(seen["cmd"], "evil.com")
+    assert not _tunnels_with_argv(seen["cmd"], runner.PROBE_HOST)
+
+
+def test_run_still_tunnels_the_hosts_it_does_not_monitor_while_recording(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    write_config("mode: audit\nhosts:\n  - api.openai.com\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    record = tmp_path / "flows"
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert ["-w", str(record.resolve())] in _pairs(seen["cmd"])
+    assert not _tunnels_with_argv(seen["cmd"], "api.openai.com")
+    assert _tunnels_with_argv(seen["cmd"], "evil.com")
+
+
+def _pairs(argv):
+    return [argv[i:i + 2] for i in range(len(argv) - 1)]
+
+
+def test_run_keeps_intercepting_every_host_when_asked_to(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    write_config("mode: audit\nintercept_all_hosts: true\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert not _tunnels_with_argv(seen["cmd"], "evil.com")
 
 
 def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
@@ -77,8 +259,8 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     assert proxy.terminated
 
 
-def _wire_fake_proxy(monkeypatch, tmp_path):
-    seen = {}
+def _wire_fake_proxy(monkeypatch, tmp_path, seen=None):
+    seen = {} if seen is None else seen
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
