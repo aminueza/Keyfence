@@ -33,4 +33,4 @@ ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["proxy"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
-  CMD python -c "import sys; from keyfence.runner import probe; sys.exit(0 if probe(8888, 3.0) else 1)"
+  CMD python -c "import sys; from keyfence.runner import probe; sys.exit(0 if probe(8888, timeout=3.0) else 1)"
