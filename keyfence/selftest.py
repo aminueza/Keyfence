@@ -88,6 +88,7 @@ class Listener:
             self._cert_pem = cert_pem
             self._key_pem = key_pem
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".pem") as cert_file:
                 cert_file.write(cert_pem)
                 cert_path = cert_file.name
