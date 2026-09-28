@@ -86,8 +86,25 @@ def is_sensitive(path: str) -> bool:
 def _is_url_remainder(word: str) -> bool:
     if not word.startswith("//"):
         return False
-    host_part = word[2:].split("/")[0].split("?")[0].split(":")[0]
-    return "." in host_part and not host_part.startswith(".")
+    rest = word[2:]
+    host_end = len(rest)
+    for sep in ("/", "?", ":"):
+        idx = rest.find(sep)
+        if idx != -1 and idx < host_end:
+            host_end = idx
+    host = rest[:host_end]
+    if "." not in host or host.startswith("."):
+        return False
+    after_host = rest[host_end:]
+    if "?" in after_host:
+        q_idx = after_host.find("?")
+        query_part = after_host[q_idx + 1:]
+        if "=" in query_part or "&" in query_part or query_part.isalnum():
+            return True
+        return False
+    if any(c in after_host for c in "*?["):
+        return False
+    return True
 
 
 def paths_in_command(command: str) -> list[str]:
