@@ -26,6 +26,7 @@ GREP_TOOLS = {"grep"}
 SHELL_TOOLS = {"bash", "powershell"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
 _WORD_SEPARATORS = re.compile(r"""[\s;&|()`<>"'=,:]+""")
+_GLOB = re.compile(r"[*?]+")
 _PREFIXES = (
     r"(?:(?:sudo|xargs|nohup|time|exec)(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+|(?:command(?:\s+-p)?|builtin|eval)\s+|"
     r"(?:ba|da|k|z)?sh\s+(?:-\S+\s+)*-\w*c\s+[\"']?|[A-Za-z_]\w*=\S*\s+)*")
@@ -82,8 +83,16 @@ def is_sensitive(path: str) -> bool:
 
 
 def paths_in_command(command: str) -> list[str]:
-    return [word for word in _WORD_SEPARATORS.split(command)
-            if word and not word.startswith("-") and any(c in word for c in "/._")]
+    found: list[str] = []
+    for word in _WORD_SEPARATORS.split(command):
+        if not word or word.startswith("-") or not any(c in word for c in "/._"):
+            continue
+        found.append(word)
+        if any(glob in word for glob in "*?"):
+            unglobbed = _GLOB.sub("", word)
+            if unglobbed and unglobbed != word:
+                found.append(unglobbed)
+    return found
 
 
 def refusal_for_command(command: str) -> str | None:

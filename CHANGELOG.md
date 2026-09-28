@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- A path written with a trailing glob is refused again. `cat .env*` is how
+  an agent asks for `.env` and `.env.local` in one command, and the hook
+  let it through: matching splits the command into words and hands each to
+  `is_sensitive`, which compares the word as literal text, so `.env*` is
+  not `.env`, does not match `.env.*`, which wants a dot after `env`, and
+  does not match `*.env`, which wants the name to end there. A word that
+  carries `*` or `?` is now also tested with those characters removed, so
+  `cat .env*`, `ls .env*`, `rm .env*`, `cat .env?` and `cat id_rsa*` are
+  refused while `cat *.md` and `ls *.py` still pass. A glob that stands in
+  for a character of the name itself, such as `credential?`, is not
+  recovered by that and is still allowed.
 - `keyfence hook --help` prints the usage for `hook` instead of
   `unknown agent: --help`. The fast path that serves the hook without
   loading the rest of the CLI read the first argument as the agent name,
