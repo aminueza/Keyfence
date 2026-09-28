@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A release note is one line. The workflow put the whole `CHANGELOG.md`
+  section in the release body, which runs to 150 lines for a release like
+  0.6.0 and reads as a wall of text on the releases page. The body is now
+  the first two entries of the section, the number of changes left out and
+  a link to the section itself, so the page skims and the detail stays in
+  one place. `tools/release_notes.py --full` still prints the section.
+
 - Placeholder restoration in streamed and buffered responses now decides the
   escaping level from the event or field type, not from the first character
   of the value. This fixes three regressions:
