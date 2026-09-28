@@ -1,5 +1,6 @@
 import http.client
 import json
+import os
 import re
 
 import pytest
@@ -387,6 +388,94 @@ def test_wrong_ca_bundle_fails_tls_check(addon, ca, home, tmp_path):
     detail_text = detail(report, "TLS")
     assert "TLS handshake to the proxy failed" in detail_text
     assert "wrong-bundle.pem" in detail_text or "certificate" in detail_text.lower()
+
+
+@pytest.mark.parametrize("name", ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+                                  "GIT_SSL_CAINFO", "CARGO_HTTP_CAINFO", "NODE_EXTRA_CA_CERTS"))
+def test_a_ca_variable_that_points_nowhere_fails_the_tls_step(addon, ca, tmp_path, name):
+    fake = addon("redact")
+    missing = tmp_path / "gone" / "wrong.pem"
+    report = fake.run(ca, environ={name: str(missing)})
+    assert labels(report, FAIL) == ["TLS"]
+    assert name in detail(report, "TLS") and str(missing) in detail(report, "TLS")
+
+
+def test_a_ca_variable_without_the_mitmproxy_ca_fails_the_tls_step(addon, ca, tmp_path):
+    fake = addon("redact")
+    stale = tmp_path / "stale-bundle.pem"
+    stale.write_text("-----BEGIN CERTIFICATE-----\nsomebodyelse\n-----END CERTIFICATE-----\n")
+    report = fake.run(ca, environ={"GIT_SSL_CAINFO": str(stale)})
+    assert labels(report, FAIL) == ["TLS"]
+    assert "GIT_SSL_CAINFO" in detail(report, "TLS") and str(ca) in detail(report, "TLS")
+
+
+def test_ca_variables_that_hold_the_certificate_pass_and_are_named(addon, ca, tmp_path):
+    fake = addon("redact")
+    bundle = tmp_path / "session-bundle.pem"
+    bundle.write_text(f"-----BEGIN CERTIFICATE-----\nroots\n-----END CERTIFICATE-----\n{ca.read_text()}")
+    report = fake.run(ca, environ={"SSL_CERT_FILE": str(bundle), "GIT_SSL_CAINFO": str(bundle)})
+    assert report.ok, labels(report, FAIL)
+    assert str(bundle) in detail(report, "TLS")
+    assert "SSL_CERT_FILE" in detail(report, "TLS") and "GIT_SSL_CAINFO" in detail(report, "TLS")
+
+
+def test_a_session_without_ca_variables_verifies_against_the_bundle(addon, ca):
+    fake = addon("redact")
+    report = fake.run(ca, environ={})
+    assert report.ok, labels(report, FAIL)
+    assert "ca-bundle.pem" in detail(report, "TLS") and "CONNECT tunnel" in detail(report, "TLS")
+
+
+def test_a_ca_certificate_that_cannot_be_read_is_reported(tmp_path, ca):
+    problem = selftest.ca_variable_problem({}, tmp_path, tmp_path / "bundle.pem")
+    assert problem is not None and "could not be read" in problem
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="POSIX file modes, and root reads anything")
+def test_a_ca_variable_that_cannot_be_read_is_reported(tmp_path, ca):
+    locked = tmp_path / "locked.pem"
+    locked.write_text(ca.read_text())
+    locked.chmod(0o000)
+    try:
+        problem = selftest.ca_variable_problem({"CURL_CA_BUNDLE": str(locked)}, ca, tmp_path / "bundle.pem")
+    finally:
+        locked.chmod(0o600)
+    assert problem is not None and "CURL_CA_BUNDLE" in problem and "could not be read" in problem
+
+
+def test_send_through_tunnels_to_the_listener_over_tls(monkeypatch):
+    calls = {}
+
+    class FakeResponse:
+        status = 200
+
+        def read(self):
+            return b"{}"
+
+    class FakeConnection:
+        def __init__(self, host, port, timeout=None, context=None):
+            calls["proxy"] = (host, port)
+            calls["context"] = context
+
+        def set_tunnel(self, host, port=None):
+            calls["tunnel"] = (host, port)
+
+        def request(self, method, target, body=None, headers=None):
+            calls["request"] = (method, target, headers)
+
+        def getresponse(self):
+            return FakeResponse()
+
+        def close(self):
+            calls["closed"] = True
+
+    monkeypatch.setattr(http.client, "HTTPSConnection", FakeConnection)
+    selftest.send_through(9999, "https://127.0.0.1:44300/v1/selftest", b"{}")
+    assert calls["proxy"] == (selftest.LISTENER_HOST, 9999)
+    assert calls["tunnel"] == ("127.0.0.1", 44300)
+    assert calls["request"][:2] == ("POST", "/v1/selftest")
+    assert calls["request"][2]["Host"] == "127.0.0.1:44300"
+    assert calls["closed"]
 
 
 def test_free_port_and_throwaway_value_and_log_tail(tmp_path):

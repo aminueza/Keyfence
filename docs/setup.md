@@ -160,7 +160,7 @@ ok    mode: the proxy reports redact, as configured, with 127.0.0.1 monitored
 ok    request: the listener received [REDACTED:vault] instead of the value
 ok    response: HTTP 200 passed back with the redaction in place
 ok    audit log: 1 entry(ies) with a vault finding written for the request
-ok    TLS: handshake to proxy succeeded with mitmproxy's certificate, body redacted
+ok    TLS: CONNECT tunnel to the listener, handshake with the certificate the proxy minted, verified against the bundle ~/.keyfence/ca-bundle.pem; SSL_CERT_FILE, GIT_SSL_CAINFO checked
 
 The proxy is protecting traffic in redact mode.
 ```
@@ -169,8 +169,9 @@ It starts a proxy the way `keyfence exec` does, on a free port, with a copy
 of your config and a vault holding one throwaway value in a temporary
 directory, so your config, vault and audit log are not touched while your
 configured mode, hosts and scan settings are the ones under test. It then
-starts a small HTTP listener on 127.0.0.1, adds that address to the
-monitored hosts of the copy, sends one request carrying the throwaway
+starts a small HTTPS listener on 127.0.0.1, adds that address to the
+monitored hosts of the copy, reaches it through a `CONNECT` tunnel the way
+a child of `keyfence exec` does, sends one request carrying the throwaway
 value through the proxy to the listener, never to a provider, and checks
 what came out: a 403 and an empty listener in `block`, `[REDACTED:vault]`
 at the listener in `redact`, a `<<SECRET_...>>` placeholder at the listener
@@ -181,8 +182,14 @@ the first `FAIL` line says which step broke: mitmdump missing, the proxy
 not coming up, the addon not answering the probe, the config not applied
 (mode or host count differ from what the proxy reports), the value reaching
 the listener unchanged, the placeholder not restored, no audit entry. The
-last lines of the proxy's own log are printed under the failed step; the
-full log is in `~/.keyfence/selftest.log`.
+CA variables of the shell it runs in are checked too: each of
+`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`,
+`CARGO_HTTP_CAINFO` and `NODE_EXTRA_CA_CERTS` that is set has to be a file
+holding the mitmproxy CA, and the `TLS` step fails with the name of the
+first one that is not, so a session whose variables point somewhere stale
+does not pass. With `SSL_CERT_FILE` set, the handshake is verified against
+the file it names. The last lines of the proxy's own log are printed under
+the failed step; the full log is in `~/.keyfence/selftest.log`.
 
 What is not covered: the upstream leg (proxy to listener) uses `ssl_insecure` because the listener's self-signed certificate is not in any trust store; the client-to-proxy leg verifies for real against the CA bundle. `--local` capture and the agent hooks are not part of it either; `keyfence doctor` reports on those. `-p` picks the proxy port instead of a free one, and `--timeout` how long to wait for the proxy and the addon.
 

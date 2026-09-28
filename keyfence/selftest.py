@@ -157,14 +157,44 @@ def send_through(proxy_port: int, url: str, body: bytes, timeout: float = REQUES
         if ca_bundle:
             context.load_verify_locations(cafile=str(ca_bundle))
         conn = http.client.HTTPSConnection(LISTENER_HOST, proxy_port, timeout=timeout, context=context)
+        name, _, listener_port = host.partition(":")
+        conn.set_tunnel(name, int(listener_port or 443))
+        target = url[len(f"https://{host}"):] or "/"
     else:
         conn = http.client.HTTPConnection(LISTENER_HOST, proxy_port, timeout=timeout)
+        target = url
     try:
-        conn.request("POST", url, body=body, headers={"Host": host, "Content-Type": "application/json"})
+        conn.request("POST", target, body=body, headers={"Host": host, "Content-Type": "application/json"})
         resp = conn.getresponse()
         return resp.status, resp.read().decode("utf-8", "replace")
     finally:
         conn.close()
+
+
+def ca_variables(environ: Mapping[str, str], ca_cert: Path, bundle: Path) -> dict[str, Path]:
+    wanted = {"NODE_EXTRA_CA_CERTS": ca_cert, **{name: bundle for name in runner.BUNDLE_ENV_VARS}}
+    return {name: path for name, path in wanted.items() if environ.get(name)}
+
+
+def ca_variable_problem(environ: Mapping[str, str], ca_cert: Path, bundle: Path) -> str | None:
+    try:
+        wanted = ca_cert.read_text(errors="replace").strip()
+    except OSError as exc:
+        return f"{ca_cert} could not be read ({exc})"
+    for name, expected in ca_variables(environ, ca_cert, bundle).items():
+        raw = environ[name]
+        path = Path(raw).expanduser()
+        if not path.is_file():
+            return (f"{name}={raw} is not a file; keyfence exec would set it to {expected}, and every tool that "
+                    f"reads {name} fails TLS in a session where it points somewhere else")
+        try:
+            held = path.read_text(errors="replace")
+        except OSError as exc:
+            return (f"{name}={raw} could not be read ({exc}); keyfence exec would set it to {expected}")
+        if wanted not in held:
+            return (f"{name}={raw} does not hold {ca_cert}; keyfence exec would set it to {expected}, and a tool "
+                    f"that reads {name} rejects the certificate the proxy mints")
+    return None
 
 
 def write_home(root: Path, value: str) -> Path:
@@ -303,6 +333,11 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
                     checks.append(Check(FAIL, "CA bundle", str(exc)))
                     return report
                 checks.append(Check(OK, "CA bundle", f"{bundle}, {label}"))
+                problem = ca_variable_problem(environ, ca_cert, bundle)
+                if problem:
+                    checks.append(Check(FAIL, "TLS", problem))
+                    return report
+                verify_with = Path(environ["SSL_CERT_FILE"]).expanduser() if environ.get("SSL_CERT_FILE") else bundle
                 info = probe(port)
                 if not info:
                     checks.append(Check(FAIL, "addon", "stopped answering the probe" + log_tail(log_path)))
@@ -315,7 +350,7 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
                 checks.append(Check(OK, "mode", f"the proxy reports {cfg.mode}, as configured, with {LISTENER_HOST} monitored"))
                 body = json.dumps({"messages": [{"role": "user", "content": f"selftest token {value}"}]}).encode("utf-8")
                 try:
-                    status, response = send(port, listener.url, body, ca_bundle=bundle)
+                    status, response = send(port, listener.url, body, ca_bundle=verify_with)
                 except (OSError, http.client.HTTPException, ssl.SSLError) as exc:
                     checks.append(Check(FAIL, "TLS", f"TLS handshake to the proxy failed: {exc}" + log_tail(log_path)))
                     return report
@@ -328,7 +363,11 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
                                                            + log_tail(log_path)))
                     return report
                 checks.append(Check(OK, "audit log", f"{entries} entry(ies) with a vault finding written for the request"))
-                checks.append(Check(OK, "TLS", f"handshake to proxy succeeded with mitmproxy's certificate, body redacted"))
+                named = ", ".join(ca_variables(environ, ca_cert, bundle))
+                source = f"the CA in {verify_with}" if verify_with != bundle else f"the bundle {bundle}"
+                checks.append(Check(OK, "TLS", f"CONNECT tunnel to the listener, handshake with the certificate the "
+                                               f"proxy minted, verified against {source}"
+                                               + (f"; {named} checked" if named else "")))
                 return report
             finally:
                 stop_proxy(proxy)
