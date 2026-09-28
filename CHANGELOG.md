@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- The private files keyfence writes are set private through the handle it
+  already had open, not through the path. The audit log, the proxy log, the
+  CA bundle, the vault and the file `keyfence exec --record` writes each went
+  through `os.chmod(path, ...)`, which resolves the path a second time: a
+  path swapped between the open and the chmod sent the mode change to
+  whatever now answered that name, which is how a file holding secrets in
+  clear text ends up with the mode of a file the caller never wrote. Each of
+  the five now calls `os.fchmod(handle.fileno(), ...)`, so the mode lands on
+  the file the descriptor already refers to. Two of them, the bundle and the
+  vault, chmod'd after closing the handle, so those calls moved inside the
+  block that holds it, and the record file, whose `touch` opened and closed
+  it, is now opened once and set private on that descriptor. The outcome is
+  the same mode as before; what changed is that it can no longer land
+  somewhere else.
+
 ## 0.8.1 (2026-09-28)
 
 - A path written with a trailing glob is refused again. `cat .env*` is how
