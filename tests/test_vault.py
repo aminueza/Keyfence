@@ -245,6 +245,7 @@ def test_two_fresh_vaults_agree_on_the_salt(tmp_path):
     assert a.salt == b.salt == final.salt
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
 def test_vault_mode_goes_on_the_open_handle_and_never_on_the_path(tmp_path, monkeypatch):
     seen = []
     fchmod = os.fchmod

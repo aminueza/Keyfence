@@ -642,6 +642,7 @@ def test_bundle_is_not_world_writable_under_a_permissive_umask(home, tmp_path, o
     assert stat.S_IMODE(path.stat().st_mode) == 0o644
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
 def test_bundle_mode_goes_on_the_open_handle_and_never_on_the_path(home, tmp_path, only_roots, monkeypatch):
     only_roots(_roots(tmp_path))
     ca = tmp_path / "ca.pem"
