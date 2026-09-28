@@ -370,8 +370,7 @@ def test_blocker3_no_dead_branch_in_restore_json():
     """
     Blocker 3: Dead branch in restore_json where elif key in NESTED_JSON_FIELDS
     and else both did extra=1. The fix: the key decides the level, and the
-    value's first character only breaks the tie inside partial_json and
-    arguments, where both shapes genuinely occur.
+    value's first character breaks the tie inside partial_json and arguments.
     """
     mapping = {"<<SECRET_1>>": PEM}
 
@@ -397,14 +396,11 @@ def test_blocker3_no_dead_branch_in_restore_json():
 
 
 def test_restore_json_brace_starting_prose_in_plain_field_restores_real_newlines():
-    pem = ("-----BEGIN PRIVATE KEY-----\n"
-           "MIIEvQIBADANBg\n"
-           "-----END PRIVATE KEY-----")
-    mapping = {"<<SECRET_1>>": pem}
+    mapping = {"<<SECRET_1>>": PEM}
     body = '{"content": "{\\"example\\": \\"<<SECRET_1>>\\"} explained above"}'
     restored = restore_json(body, mapping)
     parsed = json.loads(restored)
-    assert parsed["content"] == '{"example": "' + pem + '"} explained above'
+    assert parsed["content"] == '{"example": "' + PEM + '"} explained above'
     assert "\\n" not in parsed["content"]
 
 
