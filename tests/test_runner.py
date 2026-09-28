@@ -117,8 +117,15 @@ def test_run_tightens_a_proxy_log_left_world_readable_by_an_older_version(home, 
 
 
 def test_run_says_on_stderr_when_the_proxy_log_stays_readable(home, monkeypatch, tmp_path, capsys):
+    chmod = os.chmod
+
     def refusing_chmod(path, mode, *args, **kwargs):
-        raise OSError(1, "Operation not permitted")
+        # Scope the refusal to proxy.log. A blanket refusal also catches the
+        # CA bundle's own chmod in ensure_bundle, which makes run() fail for a
+        # reason this test is not about.
+        if Path(path) == home / "proxy.log":
+            raise OSError(1, "Operation not permitted")
+        return chmod(path, mode, *args, **kwargs)
 
     monkeypatch.setattr(os, "chmod", refusing_chmod)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
