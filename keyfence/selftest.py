@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import ssl
 import tempfile
 import threading
 from collections.abc import Callable, Mapping
@@ -31,9 +32,40 @@ PLACEHOLDER_RE = re.compile(r"<<SECRET_[0-9a-f]{10,}>>")
 STAGE_LABELS = {runner.MISSING: "mitmdump", runner.NOT_UP: "proxy", runner.NOT_LIVE: "addon"}
 
 
+def _make_self_signed_cert() -> tuple[bytes, bytes]:
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    import datetime
+    import ipaddress
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "keyfence-selftest")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1))
+        .not_valid_after(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost"), x509.IPAddress(ipaddress.IPv4Address("127.0.0.1"))]), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+    key_pem = key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    return cert_pem, key_pem
+
+
 class Listener:
-    def __init__(self):
+    def __init__(self, use_tls: bool = False):
         self.received: list[bytes] = []
+        self.use_tls = use_tls
         received = self.received
 
         class Handler(BaseHTTPRequestHandler):
@@ -51,6 +83,21 @@ class Listener:
                 pass
 
         self.server = HTTPServer((LISTENER_HOST, 0), Handler)
+        if self.use_tls:
+            cert_pem, key_pem = _make_self_signed_cert()
+            self._cert_pem = cert_pem
+            self._key_pem = key_pem
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".pem") as cert_file:
+                cert_file.write(cert_pem)
+                cert_path = cert_file.name
+            with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".pem") as key_file:
+                key_file.write(key_pem)
+                key_path = key_file.name
+            context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+            self.server.socket = context.wrap_socket(self.server.socket, server_side=True)
+            self._cert_path = cert_path
+            self._key_path = key_path
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
     @property
@@ -59,7 +106,12 @@ class Listener:
 
     @property
     def url(self) -> str:
-        return f"http://{LISTENER_HOST}:{self.port}{REQUEST_PATH}"
+        scheme = "https" if self.use_tls else "http"
+        return f"{scheme}://{LISTENER_HOST}:{self.port}{REQUEST_PATH}"
+
+    @property
+    def cert_pem(self) -> bytes | None:
+        return getattr(self, "_cert_pem", None)
 
     def text(self) -> str:
         return b"\n".join(self.received).decode("utf-8", "replace")
@@ -71,6 +123,13 @@ class Listener:
     def __exit__(self, *_exc) -> None:
         self.server.shutdown()
         self.server.server_close()
+        for attr in ("_cert_path", "_key_path"):
+            path = getattr(self, attr, None)
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
 
 
 @dataclass
@@ -90,9 +149,15 @@ def throwaway_value() -> str:
     return f"keyfence-selftest-{secrets.token_hex(8)}"
 
 
-def send_through(proxy_port: int, url: str, body: bytes, timeout: float = REQUEST_TIMEOUT) -> tuple[int, str]:
+def send_through(proxy_port: int, url: str, body: bytes, timeout: float = REQUEST_TIMEOUT, ca_bundle: Path | None = None) -> tuple[int, str]:
     host = url.split("/")[2]
-    conn = http.client.HTTPConnection(LISTENER_HOST, proxy_port, timeout=timeout)
+    if url.startswith("https://"):
+        context = ssl.create_default_context()
+        if ca_bundle:
+            context.load_verify_locations(cafile=str(ca_bundle))
+        conn = http.client.HTTPSConnection(LISTENER_HOST, proxy_port, timeout=timeout, context=context)
+    else:
+        conn = http.client.HTTPConnection(LISTENER_HOST, proxy_port, timeout=timeout)
     try:
         conn.request("POST", url, body=body, headers={"Host": host, "Content-Type": "application/json"})
         resp = conn.getresponse()
@@ -207,7 +272,7 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
         checks.append(Check(FAIL, "proxy", f"port {port} is already in use; pick another one with -p"))
         return report
     value = value or throwaway_value()
-    with tempfile.TemporaryDirectory(prefix="keyfence-selftest-") as tmp, Listener() as listener:
+    with tempfile.TemporaryDirectory(prefix="keyfence-selftest-") as tmp, Listener(use_tls=True) as listener:
         root = home or Path(tmp)
         root.mkdir(parents=True, exist_ok=True)
         config_path = write_home(root, value)
@@ -217,7 +282,7 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
         log_path = vault_module.DEFAULT_DIR / LOG_NAME
         with log_path.open("w") as log:
             try:
-                proxy = start_proxy(port, env, log, timeout, ca_cert)
+                proxy = start_proxy(port, env, log, timeout, ca_cert, extra=["--set", "ssl_insecure=true"])
             except runner.ProxyError as exc:
                 if exc.stage == runner.NOT_LIVE:
                     checks.append(Check(OK, "proxy", f"mitmdump up on {LISTENER_HOST}:{port}"))
@@ -249,9 +314,9 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
                 checks.append(Check(OK, "mode", f"the proxy reports {cfg.mode}, as configured, with {LISTENER_HOST} monitored"))
                 body = json.dumps({"messages": [{"role": "user", "content": f"selftest token {value}"}]}).encode("utf-8")
                 try:
-                    status, response = send(port, listener.url, body)
-                except (OSError, http.client.HTTPException) as exc:
-                    checks.append(Check(FAIL, "request", f"no answer through the proxy: {exc}" + log_tail(log_path)))
+                    status, response = send(port, listener.url, body, ca_bundle=bundle)
+                except (OSError, http.client.HTTPException, ssl.SSLError) as exc:
+                    checks.append(Check(FAIL, "TLS", f"TLS handshake to the proxy failed: {exc}" + log_tail(log_path)))
                     return report
                 checks.extend(verify(cfg.mode, value, status, response, listener.text()))
                 if not report.ok:
@@ -262,8 +327,7 @@ def run(port: int | None = None, timeout: float = 20.0, ca_cert: Path = runner.C
                                                            + log_tail(log_path)))
                     return report
                 checks.append(Check(OK, "audit log", f"{entries} entry(ies) with a vault finding written for the request"))
-                checks.append(Check(INFO, "TLS", "not exercised: the request was plain HTTP, so the CA and the bundle "
-                                                 "above are only checked to exist, not trusted by a client"))
+                checks.append(Check(OK, "TLS", f"handshake to proxy succeeded with mitmproxy's certificate, body redacted"))
                 return report
             finally:
                 stop_proxy(proxy)
