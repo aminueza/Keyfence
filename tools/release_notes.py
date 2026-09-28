@@ -11,6 +11,7 @@ HEADING = re.compile(r"^## (\S+)(.*)$", re.M)
 LEAD_END = re.compile(r"(?<=[\w`)\]])[.:;](?=\s)")
 TOPICS = 2
 TOPIC_CHARS = 72
+SINGLE_CHARS = 140
 DANGLING = ("of", "and", "the", "with", "for", "to", "in", "on", "by", "a", "an", "that", "its", "it", "or", "no", "not", "into", "from", "as", "at", "so")
 
 
@@ -61,7 +62,7 @@ def entries(body: str) -> list[str]:
     return found or [body.splitlines()[0].strip()]
 
 
-def lead(entry: str) -> str:
+def lead(entry: str, budget: int = TOPIC_CHARS) -> str:
     quoted = False
     for index, char in enumerate(entry):
         if char == "`":
@@ -70,11 +71,11 @@ def lead(entry: str) -> str:
             entry = entry[:index]
             break
     entry = entry.strip().rstrip(".")
-    if len(entry) <= TOPIC_CHARS:
+    if len(entry) <= budget:
         return entry
-    head = entry[:TOPIC_CHARS]
+    head = entry[:budget]
     cut = head.rfind(",")
-    head = head[:cut] if cut > TOPIC_CHARS // 2 else head.rsplit(" ", 1)[0]
+    head = head[:cut] if cut > budget // 2 else head.rsplit(" ", 1)[0]
     words = head.split()
     while words and words[-1].strip("`,").lower() in DANGLING:
         words.pop()
@@ -91,14 +92,16 @@ def summary(text: str, tag: str) -> str:
     if not body:
         raise SystemExit(f"the {version_of(tag)} section of CHANGELOG.md is empty")
     found = entries(body)
-    topics = "; ".join(lead(entry) for entry in found[:TOPICS])
+    budget = SINGLE_CHARS if len(found) == 1 else TOPIC_CHARS
+    topics = "; ".join(lead(entry, budget) for entry in found[:TOPICS])
     rest = len(found) - TOPICS
     if rest > 0:
         topics = f"{topics}; and {rest} more change{'s' if rest > 1 else ''}"
     repo = os.environ.get("GITHUB_REPOSITORY")
     where = (f"[CHANGELOG.md](https://github.com/{repo}/blob/{tag}/CHANGELOG.md#{anchor(heading)})"
              if repo else "CHANGELOG.md")
-    return f"{topics}. Full notes in {where}."
+    stop = "" if topics.endswith("…") else "."
+    return f"{topics}{stop} Full notes in {where}."
 
 
 def main(argv: list[str] | None = None) -> int:
