@@ -6,7 +6,9 @@
   imports it as the first source of system roots for the CA bundle, but
   it was only present because mitmproxy depends on it; on Windows the
   other fallbacks are unlikely to answer, so the bundle rested on a
-  transitive dependency. The floor is the one mitmproxy itself declares.
+  transitive dependency. The floor is the oldest release that works:
+  the code calls only `certifi.where()`, which has pointed at the
+  bundled `cacert.pem` since 0.0.4.
 
 ## 0.8.1 (2026-09-28)
 
