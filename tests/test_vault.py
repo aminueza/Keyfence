@@ -265,6 +265,14 @@ def test_vault_mode_goes_on_the_open_handle_and_never_on_the_path(tmp_path, monk
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_vault_still_gets_its_mode_on_a_python_without_fchmod(tmp_path, monkeypatch):
+    monkeypatch.delattr(os, "fchmod")
+    path = tmp_path / "vault.json"
+    assert Vault(path=path).add("persisted-secret-value")
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 def test_fchmod_failure_is_ignored(tmp_path, monkeypatch):
     def boom(*_args, **_kwargs):
         raise OSError("no fchmod")

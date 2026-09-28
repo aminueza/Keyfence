@@ -315,6 +315,17 @@ def test_proxy_log_mode_goes_on_the_open_handle_and_never_on_the_path(home, monk
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_run_still_sets_every_mode_it_owns_on_a_python_without_fchmod(home, monkeypatch, tmp_path):
+    monkeypatch.delattr(os, "fchmod")
+    record = tmp_path / "rec" / "s.flows"
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert stat.S_IMODE((home / "proxy.log").stat().st_mode) == 0o600
+    assert stat.S_IMODE(record.stat().st_mode) == 0o600
+    assert stat.S_IMODE((home / runner.BUNDLE_NAME).stat().st_mode) == runner.BUNDLE_MODE
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
 def test_run_tightens_a_proxy_log_left_world_readable_by_an_older_version(home, monkeypatch, tmp_path):
     log = home / "proxy.log"
     log.write_text("")

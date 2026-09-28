@@ -206,6 +206,15 @@ def test_audit_log_mode_goes_on_the_open_handle_and_never_on_the_path(guard, hom
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_audit_log_still_gets_its_mode_on_a_python_without_fchmod(guard, home, monkeypatch):
+    monkeypatch.delattr(os, "fchmod")
+    log = home / "audit.log"
+    guard("redact").request(make_flow())
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+    assert len(log.read_text().splitlines()) == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
 def test_audit_log_left_world_readable_by_an_older_version_is_tightened(guard, home):
     log = home / "audit.log"
     log.write_text("")
