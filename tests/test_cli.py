@@ -141,6 +141,42 @@ def test_entry_hook_fast_path_loads_only_hooks(home, monkeypatch, capsys):
     assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "0 False"
 
 
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_hook_help_prints_usage_instead_of_reading_the_flag_as_an_agent(capsys, flag):
+    from keyfence import entry
+
+    with pytest.raises(SystemExit) as exc:
+        entry.main(["hook", flag])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert out.startswith("usage: keyfence hook") and "claude-code" in out
+
+
+def test_hook_help_after_the_agent_also_reaches_the_parser(capsys):
+    from keyfence import entry
+
+    with pytest.raises(SystemExit) as exc:
+        entry.main(["hook", "claude-code", "--help"])
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.startswith("usage: keyfence hook")
+
+
+def test_an_agent_named_like_a_flag_is_still_refused(capsys):
+    from keyfence import entry
+
+    assert entry.main(["hook", "--agent"]) == 1
+    assert "unknown agent: --agent" in capsys.readouterr().err
+
+
+def test_the_fast_path_still_skips_the_cli_when_a_hook_runs():
+    import subprocess, sys
+
+    code = ("import sys, json, io; sys.stdin = io.StringIO(json.dumps({'tool_name':'Read','tool_input':{'file_path':'a.py'}}));"
+            "import keyfence.entry as e; rc = e.main(['hook','claude-code']);"
+            "print(rc, any(m in sys.modules for m in ('argparse','keyfence.cli','mitmproxy')))")
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "0 False"
+
+
 def test_import_all_flag(home, tmp_path):
     env = tmp_path / ".env"
     env.write_text("NODE_ENV=production\n")

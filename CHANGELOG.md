@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `keyfence hook --help` prints the usage for `hook` instead of
+  `unknown agent: --help`. The fast path that serves the hook without
+  loading the rest of the CLI read the first argument as the agent name,
+  so the one subcommand a person is most likely to try by hand answered as
+  if keyfence were broken. `-h` and `--help` now fall through to the
+  parser that holds the text, and a hook call with a payload still takes
+  the fast path, with argparse and the CLI left unimported.
+
 ## 0.8.0 (2026-09-28)
 
 - Placeholder restoration in streamed and buffered responses now decides the
