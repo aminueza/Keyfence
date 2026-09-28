@@ -1,5 +1,6 @@
 import json
 import re
+import tomllib
 from pathlib import Path
 
 from keyfence import __version__, doctor, runner
@@ -35,6 +36,12 @@ def test_dev_version_is_ahead_of_the_last_release():
     last = tuple(int(p) for p in released[0].split("."))
     current = tuple(int(p) for p in __version__.split(".dev")[0].split("."))
     assert current > last
+
+
+def test_certifi_is_declared_as_a_project_dependency():
+    dependencies = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
+    names = {re.match(r"[A-Za-z0-9_.-]+", requirement).group().lower() for requirement in dependencies}
+    assert "certifi" in names
 
 
 def test_plugin_manifest_carries_the_released_version():
