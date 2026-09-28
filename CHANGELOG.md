@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.8.1 (2026-09-28)
 
 - A path written with a trailing glob is refused again. `cat .env*` is how
