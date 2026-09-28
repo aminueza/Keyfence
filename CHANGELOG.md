@@ -251,6 +251,27 @@ What this costs: a short, low-entropy value under a name that glues an
   allowed. Closing it needs a wrapper process or a timeout in the hook
   protocol. The plugin runs `guard.py` with `python3`, which a default
   Windows install does not have, and `plugin/README.md` now says so.
+- Text in one Anthropic response no longer jumps between its content blocks.
+  Restoring a placeholder the provider split across deltas means holding
+  back a trailing `<` until it is clear whether the token continues or the
+  model wrote a `<` of its own, and that character was filed under the JSON
+  path of the string inside the event. In an Anthropic stream that path is
+  `delta.text` for every text block, so two blocks shared it: a `<` held at
+  the end of the first was taken out of it and put in front of the next.
+  Nothing was written out while anything was held, so the rest of the
+  response waited as well, a tool call included, until the next delta on
+  that path or the end of the stream. Held text now carries the block's
+  `index` next to the path, and a block's held text is released when its
+  own `content_block_stop` arrives. OpenAI chunks already had the choice
+  index in their path, so two choices were never affected.
+  The cost is the mirror of the bug: a placeholder split across two
+  content blocks is no longer restored. Holding across a block boundary is
+  what let the first block's `<` travel to the second, so releasing at
+  `content_block_stop` gives up the cross-block case to fix the
+  within-block one. A provider that splits its own echoed placeholder
+  exactly on a block boundary now leaves a raw `<<SECRET_...>>` in the
+  first block and the tail in the second. No provider was found that does
+  this, and the alternative is the bug this change fixes.
 
 ## 0.7.0 (2026-09-24)
 
