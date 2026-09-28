@@ -101,16 +101,19 @@ Every request with findings appends one JSON line to
 ```json
 {"ts": "2026-09-08T15:46:20-0300", "host": "api.anthropic.com",
  "path": "/v1/messages", "mode": "redact", "count": 2,
- "findings": [{"kind": "vault", "preview": "ghp_…6789 (40 chars)", "key": "content"}]}
+ "findings": [{"kind": "vault", "preview": "gh…89 (40 chars)", "key": "content"}]}
 ```
 
-`preview` is the first and last four characters. `key` is the JSON key the
-value was found under, which is how you trace a false positive. At most 50
-findings are listed per request; `count` is the real total. When the ignore
-lists dropped findings from a request that still had others, the entry
-carries `suppressed` with how many; a request whose only findings were
-ignored is not logged. The log never contains a secret, and never an
-ignored value either.
+`preview` is the first and last two characters, and only for a value of 24
+characters or more. Below that length it is a run of asterisks, one per
+character, and the entry carries the kind and the length instead, because
+four characters at each end of a short password is most of the password.
+`key` is the JSON key the value was found under, which is how you trace a
+false positive. At most 50 findings are listed per request; `count` is the
+real total. When the ignore lists dropped findings from a request that still
+had others, the entry carries `suppressed` with how many; a request whose
+only findings were ignored is not logged. The log never contains a secret,
+and never an ignored value either.
 
 `keyfence scan` prints the same information for a text, file or stdin, and
 `keyfence status` shows the last five requests grouped by kind.

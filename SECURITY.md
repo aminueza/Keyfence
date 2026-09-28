@@ -27,15 +27,17 @@ On disk it keeps:
   request, and must answer in milliseconds. Protect the file like the CA
   key below, and prefer registering long random values.
 - `~/.keyfence/audit.log`: one line per request with findings, with a masked
-  preview (first and last four characters) and the JSON key, never the
-  value.
+  preview and the JSON key, never the value. A preview is two characters at
+  each end of a value of 24 characters or more; a shorter value is logged as
+  its kind and its length alone, because a preview of a short secret is most
+  of the secret. Mode 0600, like the vault.
 - `~/.keyfence/env/`: the environment snapshot of a running `keyfence exec`,
   hashes only, deleted by the proxy at startup.
 - `~/.keyfence/proxy.log`: the proxy's own output during `keyfence exec`:
   the startup summary (version, mode, host count, rule count, vault size)
   and one line per detection with the host, the number of secrets and
   their kinds. The `CANARY tripped` line names the file the canary was
-  planted in. Never a value.
+  planted in. Never a value. Mode 0600, like the vault.
 - the file given to `keyfence exec --record FILE`, only when you ask for
   it: a mitmproxy flows file with every request that reached the proxy,
   headers and body in full, in the state keyfence left it. That includes

@@ -21,9 +21,9 @@ class Finding:
     @property
     def masked(self) -> str:
         v = self.value
-        if len(v) <= 10:
+        if len(v) < 24:
             return "*" * len(v)
-        return f"{v[:4]}…{v[-4:]} ({len(v)} chars)"
+        return f"{v[:2]}…{v[-2:]} ({len(v)} chars)"
 
 
 def _rule(name: str, regex: str, **kwargs) -> Rule:

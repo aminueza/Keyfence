@@ -352,6 +352,16 @@ def test_masked_preview_hides_secret():
     assert Finding("x", "short", 0, 5).masked == "*****"
 
 
+@pytest.mark.parametrize("length, preview", [
+    (12, "*" * 12),
+    (23, "*" * 23),
+    (24, "ab…wx (24 chars)"),
+])
+def test_masked_preview_shows_characters_only_from_24_on(length, preview):
+    value = "abcdefghijklmnopqrstuvwxyz0123456789"[:length]
+    assert Finding("x", value, 0, length).masked == preview
+
+
 def test_gitleaks_rules_extend_builtins():
     cfg = ScanConfig(entropy_enabled=False, rules=load_rules())
     text = f"the adobe value is {ADOBE_SECRET} here"
