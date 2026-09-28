@@ -75,6 +75,14 @@
   `index` next to the path, and a block's held text is released when its
   own `content_block_stop` arrives. OpenAI chunks already had the choice
   index in their path, so two choices were never affected.
+  The cost is the mirror of the bug: a placeholder split across two
+  content blocks is no longer restored. Holding across a block boundary is
+  what let the first block's `<` travel to the second, so releasing at
+  `content_block_stop` gives up the cross-block case to fix the
+  within-block one. A provider that splits its own echoed placeholder
+  exactly on a block boundary now leaves a raw `<<SECRET_...>>` in the
+  first block and the tail in the second. No provider was found that does
+  this, and the alternative is the bug this change fixes.
 
 ## 0.7.0 (2026-09-24)
 
