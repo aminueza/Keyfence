@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- `keyfence doctor` checks that a keyfence proxy answers where
+  `HTTPS_PROXY` points, instead of comparing that variable against
+  8888. `keyfence exec` falls back to a free port when 8888 is busy but
+  doctor compared against its own `-p`, which defaults to 8888, so
+  every session that took the fallback was warned about its own proxy
+  variable, and with two sessions running the output contradicted
+  itself two lines apart: the proxy line confirmed the other session's
+  keyfence on 8888 and the environment line warned about this one.
+  Reading the port back out of `HTTPS_PROXY` would compare the variable
+  against itself and never warn again, so doctor takes the host and
+  the port from it and probes there, and the `proxy` line follows the
+  same endpoint instead of reporting a different session's keyfence as
+  this one's. This changes one case from ok to warn: a shell that
+  exports `HTTPS_PROXY=http://127.0.0.1:8888` from a profile, with the
+  CA variables set and no keyfence running, used to pass and now warns,
+  because the variable names a proxy and nothing answers there.
+- `keyfence run` checks the port before it prints the banner, and says
+  in `--help` why it keeps 8888 while `keyfence exec` picks a free port.
+  The banner printed the two `export` lines and then refused the port
+  it had just announced. An explicit `-p` still fails with the same
+  message on both commands: a port the user typed is a choice.
+
 - Child processes get a CA bundle instead of the single mitmproxy
   certificate. `keyfence exec` pointed `SSL_CERT_FILE`,
   `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE` and `GIT_SSL_CAINFO` at

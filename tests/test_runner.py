@@ -665,6 +665,19 @@ def test_addon_live_probe_distinguishes_keyfence_from_anything_else():
     assert not runner.addon_live(servers["live"].server_port)
 
 
+def test_the_addon_probe_goes_to_the_host_it_is_given():
+    server = _serve(200, '{"keyfence": "0.6.0.dev0", "mode": "redact", "hosts": 9}')
+    try:
+        assert runner.addon_live(server.server_port)
+        assert runner.probe(server.server_port) == {"keyfence": "0.6.0.dev0", "mode": "redact", "hosts": 9}
+        assert runner.addon_live(server.server_port, "127.0.0.1")
+        assert not runner.addon_live(server.server_port, "keyfence.invalid")
+        assert runner.probe(server.server_port, "keyfence.invalid") is None
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_start_proxy_reports_each_stage_and_stops_what_it_started(monkeypatch, tmp_path):
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)

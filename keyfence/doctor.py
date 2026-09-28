@@ -9,6 +9,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import __version__, hooks, pi, runner
 from . import vault as vault_module
@@ -104,12 +105,22 @@ def check_vault() -> Check:
     return Check(OK, "vault", f"{vault.count()} secret(s), {vault.canary_count()} canary(ies) in {vault.path}")
 
 
-def check_proxy(port: int) -> Check:
-    if not runner.port_open(port):
-        return Check(INFO, "proxy", f"nothing on 127.0.0.1:{port}; keyfence exec starts its own, keyfence run starts one here")
-    if runner.addon_live(port):
-        return Check(OK, "proxy", f"keyfence is answering on 127.0.0.1:{port}")
-    return Check(WARN, "proxy", f"something is listening on 127.0.0.1:{port} but the keyfence addon is not answering; "
+def proxy_endpoint(environ, port: int) -> tuple[str, int]:
+    proxy = (environ.get("HTTPS_PROXY") or environ.get("https_proxy") or "").strip()
+    try:
+        parsed = urlsplit(proxy if "//" in proxy else f"//{proxy}")
+        host, found = parsed.hostname, parsed.port
+    except ValueError:
+        host = found = None
+    return host or "127.0.0.1", found or port
+
+
+def check_proxy(host: str, port: int) -> Check:
+    if not runner.port_open(port, host):
+        return Check(INFO, "proxy", f"nothing on {host}:{port}; keyfence exec starts its own, keyfence run starts one here")
+    if runner.addon_live(port, host):
+        return Check(OK, "proxy", f"keyfence is answering on {host}:{port}")
+    return Check(WARN, "proxy", f"something is listening on {host}:{port} but the keyfence addon is not answering; "
                                 "requests through it are not scanned")
 
 
@@ -142,7 +153,7 @@ def git_ignores_ca(environ=os.environ, run: Callable = _run, system: str | None 
             f"`git config --global {runner.GIT_SCHANNEL_KEY} true`; keyfence exec sets it for its own session")
 
 
-def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_CERT,
+def check_environment(host: str, port: int, environ=os.environ, ca_cert: Path = runner.CA_CERT,
                       bundle: Path | None = None, run: Callable = _run,
                       system: str | None = None) -> Check:
     bundle = bundle or runner.bundle_path()
@@ -150,9 +161,10 @@ def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_C
     if not proxy:
         return Check(INFO, "shell environment",
                      "HTTPS_PROXY is not set in this shell; fine with keyfence exec or --local, tools started plainly here go direct")
-    expected = f"http://127.0.0.1:{port}"
-    if proxy.rstrip("/") != expected:
-        return Check(WARN, "shell environment", f"HTTPS_PROXY={proxy}, keyfence would be {expected}")
+    if not runner.addon_live(port, host):
+        return Check(WARN, "shell environment",
+                     f"HTTPS_PROXY={proxy} does not reach a keyfence proxy on {host}:{port}; keyfence exec wires the "
+                     "variables for the command it starts, keyfence run prints the ones to export")
     wanted = {"NODE_EXTRA_CA_CERTS": ca_cert, **{name: bundle for name in runner.BUNDLE_ENV_VARS}}
     missing = [name for name, path in wanted.items() if Path(environ.get(name, "")) != path]
     if missing:
@@ -160,7 +172,7 @@ def check_environment(port: int, environ=os.environ, ca_cert: Path = runner.CA_C
                      f"HTTPS_PROXY is set but {', '.join(missing)} do not hold what keyfence exec would put there "
                      f"({bundle} for the {len(runner.BUNDLE_ENV_VARS)} that replace the trust store, {ca_cert} for the one that adds to it); "
                      "the tools that read them (Node, Python, curl, git, cargo) will fail TLS")
-    detail = f"HTTPS_PROXY and the {len(runner.CA_ENV_VARS)} CA variables point at keyfence on port {port}"
+    detail = f"HTTPS_PROXY and the {len(runner.CA_ENV_VARS)} CA variables point at keyfence on {host}:{port}"
     problem = git_ignores_ca(environ, run, system)
     if problem:
         return Check(WARN, "shell environment", f"{detail}, but {problem}")
@@ -238,6 +250,7 @@ def check_audit() -> Check:
 
 
 def run_checks(port: int, cwd: Path | None = None) -> list[Check]:
+    host, target = proxy_endpoint(os.environ, port)
     return [
         Check(OK, "keyfence", f"{__version__} on Python {sys.version.split()[0]}, {platform.system()}"),
         check_mitmdump(),
@@ -246,8 +259,8 @@ def run_checks(port: int, cwd: Path | None = None) -> list[Check]:
         check_ca_trusted(),
         check_config(),
         check_vault(),
-        check_proxy(port),
-        check_environment(port),
+        check_proxy(host, target),
+        check_environment(host, target),
         check_local_mode(),
         check_hook(cwd),
         check_pi_extension(cwd),
