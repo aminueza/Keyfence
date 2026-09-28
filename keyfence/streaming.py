@@ -79,7 +79,7 @@ class SSERestorer:
         self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self.pending = ""
         self.queue: list[Event] = []
-        self.held: dict[JsonPath, tuple[Event, str]] = {}
+        self.held: dict[tuple[JsonPath, int | None], tuple[Event, str]] = {}
 
     def feed(self, chunk: bytes) -> bytes:
         final = chunk == b""
@@ -113,13 +113,35 @@ class SSERestorer:
         ]
         return min(candidates) if candidates else None
 
+    def _block_index(self, event: Event) -> int | None:
+        if isinstance(event.obj, dict):
+            return event.obj.get("index")
+        return None
+
+    def _held_key(self, path: JsonPath, index: int | None) -> tuple[JsonPath, int | None]:
+        return (path, index)
+
+    def _release_held(self, index: int | None) -> None:
+        keys_to_remove = [k for k in self.held if k[1] == index]
+        for key in keys_to_remove:
+            self.held.pop(key)
+
     def _process(self, event: Event) -> None:
         self.queue.append(event)
         if not isinstance(event.obj, (dict, list)):
             return
 
+        obj = event.obj
+        index = self._block_index(event)
+        event_type = obj.get("type") if isinstance(obj, dict) else None
+
+        if event_type == "content_block_stop":
+            self._release_held(index)
+            return
+
         def fn(path: JsonPath, s: str) -> str:
-            previous = self.held.pop(path, None)
+            key = self._held_key(path, index)
+            previous = self.held.pop(key, None)
             if previous is not None:
                 prev_event, partial = previous
                 prev_event.set(path, prev_event.get(path)[:-len(partial)])
@@ -127,7 +149,7 @@ class SSERestorer:
             s = restore(s, self.mapping)
             suffix = partial_suffix(s, self.tokens, self.max_len)
             if suffix:
-                self.held[path] = (event, suffix)
+                self.held[key] = (event, suffix)
             return s
 
         new_obj = _map_strings(event.obj, fn)

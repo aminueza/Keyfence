@@ -114,6 +114,31 @@
   basename, so the entry still holds when `MITMPROXY_CONFDIR` moves the
   directory. `mitmproxy-ca.pem` stays refused: it holds the private key,
   which forges TLS for any host.
+- The healthcheck only opened port 8888, so a container whose proxy came
+  up without the addon reported itself healthy while every request went
+  straight through. The check now asks the proxy for
+  `http://keyfence.invalid/` and requires a keyfence answer, the same
+  one `keyfence doctor` uses, so it fails for as long as the addon is
+  not loaded.
+- The image ran as root and installed whatever `mitmproxy` and `PyYAML`
+  version the day of the build happened to be. It now runs as the
+  unprivileged user `keyfence`, uid 1000, gid 1000, and pins both
+  dependencies at build time. The versions `mitmproxy` itself depends
+  on are still resolved by pip.
+- A container that could not write its state directory started anyway
+  and only failed later, when it first reached for the vault, or kept
+  running while it wrote nothing to the audit log. It now takes the
+  directory from `KEYFENCE_HOME` instead of assuming `/data`, checks on
+  every start that it can write the directory, the vault and the audit
+  log, and stops with the `sudo chown` that fixes it, rather than
+  running as root to skip the question.
+- The user of the image has no home directory. Every `keyfence`
+  command that reached for `~/.mitmproxy` or `~/.claude` failed with a
+  `PermissionError`, so `selftest`, `exec`, `doctor` and
+  `install-hooks` all broke in there. The state directory is the home
+  of that user now, and `MITMPROXY_CONFDIR` points at its `certs`
+  subdirectory, so the container keeps one CA and it is the one already
+  on the host.
 - The audit log previews less of a secret. A preview was the first and last
   four characters of any value over ten characters, so a twelve-character
   password left eight of its twelve characters in a file any user on the
@@ -241,6 +266,27 @@ What this costs: a short, low-entropy value under a name that glues an
   allowed. Closing it needs a wrapper process or a timeout in the hook
   protocol. The plugin runs `guard.py` with `python3`, which a default
   Windows install does not have, and `plugin/README.md` now says so.
+- Text in one Anthropic response no longer jumps between its content blocks.
+  Restoring a placeholder the provider split across deltas means holding
+  back a trailing `<` until it is clear whether the token continues or the
+  model wrote a `<` of its own, and that character was filed under the JSON
+  path of the string inside the event. In an Anthropic stream that path is
+  `delta.text` for every text block, so two blocks shared it: a `<` held at
+  the end of the first was taken out of it and put in front of the next.
+  Nothing was written out while anything was held, so the rest of the
+  response waited as well, a tool call included, until the next delta on
+  that path or the end of the stream. Held text now carries the block's
+  `index` next to the path, and a block's held text is released when its
+  own `content_block_stop` arrives. OpenAI chunks already had the choice
+  index in their path, so two choices were never affected.
+  The cost is the mirror of the bug: a placeholder split across two
+  content blocks is no longer restored. Holding across a block boundary is
+  what let the first block's `<` travel to the second, so releasing at
+  `content_block_stop` gives up the cross-block case to fix the
+  within-block one. A provider that splits its own echoed placeholder
+  exactly on a block boundary now leaves a raw `<<SECRET_...>>` in the
+  first block and the tail in the second. No provider was found that does
+  this, and the alternative is the bug this change fixes.
 
 ## 0.7.0 (2026-09-24)
 
