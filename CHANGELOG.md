@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A URL that contains a query parameter whose name matches a sensitive
+  pattern is no longer refused. The unglob logic that strips `*` and `?`
+  from words now skips words that start with `http://`, `https://`, or `//`
+  (the latter covers the scheme-less remainder after word splitting), so
+  `curl https://x.com/?credentials=1` and `curl 'https://x.com/?credentials=1'`
+  are allowed while `cat .env*`, `rm .env*`, and `cat id_rsa*` are still
+  refused. A test pins the URL case.
+
 ## 0.8.1 (2026-09-28)
 
 - A path written with a trailing glob is refused again. `cat .env*` is how

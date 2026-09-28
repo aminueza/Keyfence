@@ -133,6 +133,19 @@ def test_commands_mentioning_no_secret_file_pass(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
 
 
+@pytest.mark.parametrize("command", [
+    "curl https://x.com/?credentials=1",
+    "curl http://x.com/?credentials=1",
+    "curl HTTPS://x.com/?credentials=1",
+    "curl 'https://x.com/?credentials=1'",
+    "curl \"https://x.com/?credentials=1\"",
+    "wget https://example.com/?token=secret",
+    "curl https://api.example.com/v1/users?api_key=abc123",
+])
+def test_url_with_query_parameter_is_allowed(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
 @pytest.mark.parametrize("path", [".ssh/known_hosts", ".kube/config", ".docker/config.json", ".gnupg/pubring.kbx"])
 def test_relative_paths_under_secret_directories_are_sensitive(path):
     assert hooks.is_sensitive(path)

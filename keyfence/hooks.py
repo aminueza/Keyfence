@@ -89,9 +89,11 @@ def paths_in_command(command: str) -> list[str]:
             continue
         found.append(word)
         if any(glob in word for glob in "*?"):
-            unglobbed = _GLOB.sub("", word)
-            if unglobbed and unglobbed != word:
-                found.append(unglobbed)
+            lower = word.lower()
+            if not (lower.startswith(("http://", "https://")) or lower.startswith("//")):
+                unglobbed = _GLOB.sub("", word)
+                if unglobbed and unglobbed != word:
+                    found.append(unglobbed)
     return found
 
 
