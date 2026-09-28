@@ -12,9 +12,16 @@ from .vault import Vault
 
 NO_IGNORE = IgnoreList()
 
-SECRET_NAME = re.compile(
-    r"(?i)(?:key|token|secret|pass|passwd|password|senha|credential|auth|api|"
-    r"private|session|cookie|bearer|dsn)")
+SECRET_WORDS = frozenset({
+    "key", "token", "secret", "pass", "passwd", "password", "passphrase", "passcode",
+    "senha", "credential", "auth", "authorization", "api", "private", "session",
+    "cookie", "bearer", "dsn", "pgpassword", "sshpass",
+})
+SECRET_SUFFIXES = ("token", "secret", "password")
+_LONGEST_SECRET_WORD = max(len(word) for word in SECRET_WORDS)
+_GLUE_PASS_EXCEPTIONS = frozenset({"compass", "bypass", "htpasswd"})
+_NAME_SEGMENT = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")
+_NAME_SEGMENT_VARIANT = re.compile(r"[A-Z]+|[a-z]+")
 _KV_LINE = re.compile(r"^\s*(?:export\s+)?(?P<key>[A-Za-z_/][A-Za-z0-9_.\-/:@]*)\s*[=:]\s*(?P<val>.+?)\s*$")
 _NETRC_PASSWORD = re.compile(r"\bpassword\s+(\S+)")
 _SKIP_VALUE = re.compile(r"^(?:\$\{|\$[A-Za-z_]|<|`|/|~|https?://[^@]*$)")
@@ -49,10 +56,43 @@ def _url_password(value: str) -> str | None:
     return unquote(parts.password) if parts.password else None
 
 
+def _joins_secret_words(segment: str) -> bool:
+    if not segment:
+        return False
+    reachable = {0}
+    for end in range(1, len(segment) + 1):
+        first = max(0, end - _LONGEST_SECRET_WORD)
+        if any(start in reachable and segment[start:end] in SECRET_WORDS
+               for start in range(first, end)):
+            reachable.add(end)
+    return len(segment) in reachable
+
+
+def _matches_secret_words(segment: str) -> bool:
+    if _joins_secret_words(segment) or segment.endswith(SECRET_SUFFIXES):
+        return True
+    if segment not in _GLUE_PASS_EXCEPTIONS and segment.endswith(("pass", "passwd", "senha")):
+        return True
+    return segment.startswith(SECRET_SUFFIXES) and any(
+        segment.endswith(word) for word in SECRET_WORDS)
+
+
+def _segment_is_secret(segment: str) -> bool:
+    return _matches_secret_words(segment) or (
+        segment.endswith("s") and _matches_secret_words(segment[:-1]))
+
+
+def _has_secret_name(key: str) -> bool:
+    for pattern in (_NAME_SEGMENT, _NAME_SEGMENT_VARIANT):
+        if any(_segment_is_secret(segment.lower()) for segment in pattern.findall(key)):
+            return True
+    return False
+
+
 def looks_secret(key: str, value: str, min_length: int) -> bool:
     if len(value) < min_length:
         return False
-    if SECRET_NAME.search(key):
+    if _has_secret_name(key):
         return True
     return len(value) >= 16 and shannon_entropy(value) >= 3.5
 
