@@ -1,13 +1,6 @@
 # Changelog
 
-## Unreleased
-
-- A release note is one line. The workflow put the whole `CHANGELOG.md`
-  section in the release body, which runs to 150 lines for a release like
-  0.6.0 and reads as a wall of text on the releases page. The body is now
-  the first two entries of the section, the number of changes left out and
-  a link to the section itself, so the page skims and the detail stays in
-  one place. `tools/release_notes.py --full` still prints the section.
+## 0.8.0 (2026-09-28)
 
 - Placeholder restoration in streamed and buffered responses now decides the
   escaping level from the event or field type, not from the first character
@@ -45,13 +38,6 @@
   for the list to match and is tunneled now, where it used to be
   decrypted. `keyfence run` and `keyfence selftest` are unchanged and
   keep intercepting every host.
-- Every release gets its notes. The workflow published to PyPI and stopped
-  there, so the tags carried no GitHub release at all and the releases page
-  was a list of bare tags. It now creates the release for the tag with the
-  `CHANGELOG.md` section of that version as the body and the sdist and
-  wheel attached, after the upload to PyPI succeeds. A tag whose version
-  has no section, or an empty one, fails the step instead of publishing an
-  empty release. `tools/release_notes.py` prints the same body locally.
 - `keyfence selftest` reaches the listener through `CONNECT`, the way every
   client `keyfence exec` wires up does, instead of opening TLS straight at
   the proxy port with an absolute-form request line inside it. The old
@@ -65,15 +51,6 @@
   `SSL_CERT_FILE` is set, the handshake is verified against the file it
   names rather than against the bundle keyfence writes, so the check tests
   the session and not only keyfence's own state.
-- The Tests section of `docs/development.md` says how to check a leak
-  from inside `keyfence exec`. The blind spot is the model's, not the
-  terminal's: `exec` sets the proxy and CA variables and runs the child
-  with `subprocess.call`, so a person sees what the child printed in
-  clear, and a secret in a response body is never touched. The output an
-  agent read, though, reaches the provider inside the next request, and
-  keyfence rewrites that request, so the model reads `[REDACTED:kind]`
-  for a leaked value and for a printed marker alike.
-  `tests/test_scan_scope.py` pins the claims the page rests on.
 - `keyfence selftest` now exercises TLS through the proxy. It used to send
   its request over plain HTTP and print `info  TLS: not exercised`, so it
   proved the addon scans and rewrites but never that a TLS client trusts the
@@ -225,19 +202,6 @@
   names SigV4. Both the `Authorization: AWS4-...` header and presigned URLs
   with `X-Amz-Signature` count as signed; requests with a Bedrock API key
   are redacted as before.
-- The benchmark measures every sample as it reaches the proxy, inside a
-  JSON request body. Only the tool result template was wrapped before, and
-  it used the one assignment form that survives JSON escaping, so the
-  published recall for quoted values was higher than what the proxy
-  delivers. Plain samples are now the content of a `tool_result`, a third
-  of them with `ensure_ascii`; the raw text is still measured, a new table
-  shows recall by context with the raw number where it differs, and
-  `--json` returns both views under `as_sent` and `raw`.
-  `docs/benchmark.md` has the numbers for both views. The page is no
-  longer one of its own prose samples, so
-  regenerating it does not change the counts it publishes, and the output
-  names the Python version, since the code samples come partly from its
-  standard library.
 - Pattern rules see a JSON escape as a separator. In a JSON body `\t` is
   two characters, so the `t` sat right before a secret that followed a
   tab, and a rule that needs a word boundary, such as the built-in
@@ -378,6 +342,42 @@ What this costs: a short, low-entropy value under a name that glues an
   is gone. `docs/benchmark.md` is measured again on Python 3.13: the
   `code` context goes from 90% to 100% and pattern-only recall for a
   random password from 38% to 52%, with precision unchanged.
+- A release note is one line. The workflow put the whole `CHANGELOG.md`
+  section in the release body, which runs to 150 lines for a release like
+  0.6.0 and reads as a wall of text on the releases page. The body is now
+  the first two entries of the section, the number of changes left out and
+  a link to the section itself, so the page skims and the detail stays in
+  one place. `tools/release_notes.py --full` still prints the section.
+
+- Every release gets its notes. The workflow published to PyPI and stopped
+  there, so the tags carried no GitHub release at all and the releases page
+  was a list of bare tags. It now creates the release for the tag with the
+  `CHANGELOG.md` section of that version as the body and the sdist and
+  wheel attached, after the upload to PyPI succeeds. A tag whose version
+  has no section, or an empty one, fails the step instead of publishing an
+  empty release. `tools/release_notes.py` prints the same body locally.
+- The Tests section of `docs/development.md` says how to check a leak
+  from inside `keyfence exec`. The blind spot is the model's, not the
+  terminal's: `exec` sets the proxy and CA variables and runs the child
+  with `subprocess.call`, so a person sees what the child printed in
+  clear, and a secret in a response body is never touched. The output an
+  agent read, though, reaches the provider inside the next request, and
+  keyfence rewrites that request, so the model reads `[REDACTED:kind]`
+  for a leaked value and for a printed marker alike.
+  `tests/test_scan_scope.py` pins the claims the page rests on.
+- The benchmark measures every sample as it reaches the proxy, inside a
+  JSON request body. Only the tool result template was wrapped before, and
+  it used the one assignment form that survives JSON escaping, so the
+  published recall for quoted values was higher than what the proxy
+  delivers. Plain samples are now the content of a `tool_result`, a third
+  of them with `ensure_ascii`; the raw text is still measured, a new table
+  shows recall by context with the raw number where it differs, and
+  `--json` returns both views under `as_sent` and `raw`.
+  `docs/benchmark.md` has the numbers for both views. The page is no
+  longer one of its own prose samples, so
+  regenerating it does not change the counts it publishes, and the output
+  names the Python version, since the code samples come partly from its
+  standard library.
 
 ## 0.7.0 (2026-09-24)
 
