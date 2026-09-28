@@ -47,6 +47,41 @@ def test_the_mitmproxy_ca_certificate_keyfence_hands_to_every_child_is_allowed(p
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
 
 
+@pytest.mark.parametrize("command", [
+    "cat .env*",
+    "ls .env*",
+    "grep -r KEY .env*",
+    "rm .env*",
+    "tar czf backup.tgz .env*",
+    "cat .env?",
+    "cat id_rsa*",
+    "cat ~/.aws/credentials*",
+])
+def test_a_trailing_glob_does_not_hide_a_secret_file(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+@pytest.mark.parametrize("command", [
+    "cat *.md",
+    "ls *.py",
+    "rg TODO src/",
+    "cat .env.example",
+    "cat key.pub",
+    "mv a.txt b.txt",
+])
+def test_a_glob_that_names_nothing_sensitive_is_still_allowed(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+def test_paths_in_command_reports_the_word_and_the_name_without_the_glob():
+    assert hooks.paths_in_command("cat .env*") == [".env*", ".env"]
+    assert hooks.paths_in_command("cat .env") == [".env"]
+
+
+def test_a_glob_that_stands_in_for_a_character_of_the_name_is_not_recovered():
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": "cat ~/.aws/credential?"}}) is None
+
+
 def test_paths_in_command():
     cmd = "cat .env && cp ~/.aws/credentials /tmp/x && grep TOKEN ../secrets/prod.env | head; ls ~/.ssh/id_rsa"
     found = hooks.paths_in_command(cmd)
