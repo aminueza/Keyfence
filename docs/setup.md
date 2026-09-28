@@ -84,7 +84,8 @@ Linux and Windows: see the
 | `keyfence status` | show config, vault size, rule count and recent detections |
 
 `keyfence import` with no arguments reads `.env*` files in the current
-directory (except `.env.example` and similar) and these files in your home
+directory, skipping any whose name holds `example`, `sample` or
+`template`, or ends in `dist`, and these files in your home
 directory: `.aws/credentials`, `.netrc`, `.npmrc`, `.pypirc`,
 `.git-credentials`, `.docker/config.json`. Only values that look like secrets
 are registered: names whose words are key, token, secret, password and
@@ -95,7 +96,10 @@ separator and camel-case boundaries, and a word that ends with `token`,
 `KEYBOARD_LAYOUT` and `MONKEY_ISLAND` are not. Passwords inside connection
 URLs are extracted too.
 `--all` registers every value longer than 8 characters. `--env` adds values
-from environment variables.
+from environment variables. That template skip belongs to the importer and
+has nothing to do with `SAFE_NAMES` in
+[agents.md](agents.md#what-the-rules-look-at), the hook's own list; a `.pem`
+in this directory is not read by `import` at all.
 
 `keyfence import --from` reads a secret manager through its own CLI, which
 must be installed and logged in: `op` (1Password, `--path` is the vault
@@ -236,9 +240,14 @@ It adds a `PreToolUse` hook for Read, Edit, Write, MultiEdit, NotebookEdit,
 Grep and Bash that refuses `.env` files, private keys, `.netrc`, `.npmrc`,
 `.pypirc`, `.git-credentials`, `credentials*`, `secrets.*`, `*.tfvars`,
 service account files, anything under `.ssh`, `.aws/credentials`,
-`.docker/config.json` and `.kube/config`. `.env.example` and `*.pub` are
-allowed. Bash commands that mention such a path are refused too, and so
-are commands that print secrets: `env`, `printenv`, `export`, `set`,
+`.docker/config.json` and `.kube/config`. `.env.example`, the other
+`.env` templates and `*.pub` are allowed: they hold no values and a
+public key is meant to be distributed. So is
+`mitmproxy-ca-cert.pem`, the certificate you point your tools at above,
+and the exception is the name, not the `*.pem` rule: `mitmproxy-ca.pem`,
+the private key next to it, is still refused. Bash commands that mention
+such a path are refused too, and so are commands that print secrets:
+`env`, `printenv`, `export`, `set`,
 `declare -x`, `printenv NAME` when the name looks like a secret, `echo` or
 `printf` of a `$VARIABLE` whose name looks like a secret,
 `/proc/*/environ`, and the read commands of `aws secretsmanager`, `aws ssm`
@@ -263,11 +272,15 @@ tells the model to ask you instead or to use `keyfence import`.
 for `Read` on `.env` files, `*.pem`, `*.key`, `credentials*`, `secrets.*`,
 `*.tfvars` and the home-directory credential stores. These are Claude
 Code's own declarative rules: they need no Python on the path, and they
-are what managed settings can enforce for a whole organisation. Existing
-hooks and rules in the settings file are kept, and `--remove` takes out
-only what keyfence added: the rules it adds are listed in
-`keyfence-deny-rules.json` next to the settings file, and rules that were
-already there stay, even when they are identical to keyfence's.
+are what managed settings can enforce for a whole organisation. An example
+env file holds no values, so each of the safe `.env` names gets a
+`Read(!.env.example)`-style carve-out at the end of the block, which takes
+it out of the `.env.*` rules listed before it: `.env`, `.env.local` and
+`.env.production` are still refused, at the project root and in a
+subdirectory. Existing hooks and rules in the settings file are kept, and
+`--remove` takes out only what keyfence added: the rules it adds are listed
+in `keyfence-deny-rules.json` next to the settings file, and rules that
+were already there stay, even when they are identical to keyfence's.
 
 Installations made with 0.4.0 have no such list. There `--remove` takes
 out the hook, leaves every deny rule in place, prints the ones that match

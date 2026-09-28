@@ -86,6 +86,34 @@
   and left out: botocore reads it, but only as an override, and with it
   unset it already falls back to `REQUESTS_CA_BUNDLE`, which keyfence
   sets, so the AWS CLI did not have this bug.
+- `install-hooks claude-code` no longer refuses a project's example env
+  file. The `permissions.deny` block it writes covered `.env.example` with
+  `Read(./.env.*)`, so Claude Code would not read it and would not let the
+  agent create one either, failing with "File is covered by a Read deny
+  rule". The hook already let the same file through on both the Read and
+  the Bash path, so the two layers disagreed about whether an example env
+  file is a secret and the stricter one won. An `allow` rule would not have
+  fixed it: Claude Code evaluates deny, then ask, then allow, and no allow
+  rule re-permits what a deny rule matches. The block now ends in one
+  `Read(!.env.example)`-style carve-out per safe env name, taken from the
+  list the hook already keeps, so the two layers read from one list.
+  `.env`, `.env.local` and `.env.production` are still refused, at the
+  project root and in a subdirectory. 17 rules become 21.
+- `install-hooks claude-code` says what it wrote. The command touches
+  three things: the `PreToolUse` hook entry, the `permissions.deny` block
+  and the `keyfence-deny-rules.json` record that `--remove` reads back.
+  The output named the hook and left the other two to be found by
+  diffing the settings file afterwards. It now names all three, with the
+  rule count and the full path of the record.
+
+- The claude-code hook no longer refuses a command that mentions
+  `mitmproxy-ca-cert.pem`. That is the certificate keyfence hands to every
+  child process through `CA_ENV_VARS` and prints as "CA certificate" in
+  `keyfence doctor`, so refusing it as a secret worked against keyfence
+  itself. It is the only name added to the safe list, matched on the
+  basename, so the entry still holds when `MITMPROXY_CONFDIR` moves the
+  directory. `mitmproxy-ca.pem` stays refused: it holds the private key,
+  which forges TLS for any host.
 - The healthcheck only opened port 8888, so a container whose proxy came
   up without the addon reported itself healthy while every request went
   straight through. The check now asks the proxy for
@@ -199,6 +227,30 @@ What this costs: a short, low-entropy value under a name that glues an
    `DBSENHA`) are recovered with a bounded exception list that keeps
    `COMPASS` and `BYPASS` out; `HTPASSWD` is also excepted because it names
    a file, not a secret.
+- The Claude Code hook fails closed. An exception inside `decide()` used
+  to exit 1, which Claude Code reads as no opinion, so the call went
+  through with the guard half-alive. A hook that never started had the
+  same effect: `keyfence hook claude-code` was written into settings.json
+  as a bare command, so a keyfence that is not on PATH, as with `uv tool`
+  or a project venv, was never found and every call passed unchecked.
+  `run_hook` now wraps the decision in `try/except BaseException`, prints
+  a reason naming the exception type, and exits 2 on anything,
+  `SystemExit` and `KeyboardInterrupt` included. A new install writes the
+  absolute path of the running keyfence into settings.json, and
+  `keyfence doctor` reads the command out of each settings file and fails,
+  naming the command, when its executable does not exist, is not
+  executable, or is not on PATH.
+  A hook that does not resolve now refuses the call instead of letting it
+  through unguarded, so a rebuilt venv or a moved install needs
+  `keyfence install-hooks claude-code` again to bake the new path, and a
+  bug in the hook blocks calls instead of passing them. The entry is
+  written only when no keyfence hook is present, so an install that
+  already has one keeps the bare command and relies on the doctor check.
+  The 10-second timeout Claude Code applies is still a way to fail open,
+  and the hook cannot close it, since a call the hook never answers is
+  allowed. Closing it needs a wrapper process or a timeout in the hook
+  protocol. The plugin runs `guard.py` with `python3`, which a default
+  Windows install does not have, and `plugin/README.md` now says so.
 
 ## 0.7.0 (2026-09-24)
 
