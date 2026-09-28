@@ -9,7 +9,19 @@
   wheel attached, after the upload to PyPI succeeds. A tag whose version
   has no section, or an empty one, fails the step instead of publishing an
   empty release. `tools/release_notes.py` prints the same body locally.
-
+- `keyfence selftest` reaches the listener through `CONNECT`, the way every
+  client `keyfence exec` wires up does, instead of opening TLS straight at
+  the proxy port with an absolute-form request line inside it. The old
+  shape could pass while the tunnel a real tool uses was broken.
+- `keyfence selftest` reads the CA variables of the session it runs in. Each
+  of `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`,
+  `GIT_SSL_CAINFO`, `CARGO_HTTP_CAINFO` and `NODE_EXTRA_CA_CERTS` that is
+  set has to be a file that holds the mitmproxy CA, and the TLS step fails
+  with the name of the first one that is not, so a session whose variables
+  point at a path that does not exist no longer comes out green. When
+  `SSL_CERT_FILE` is set, the handshake is verified against the file it
+  names rather than against the bundle keyfence writes, so the check tests
+  the session and not only keyfence's own state.
 - The Tests section of `docs/development.md` says how to check a leak
   from inside `keyfence exec`. The blind spot is the model's, not the
   terminal's: `exec` sets the proxy and CA variables and runs the child
@@ -30,10 +42,10 @@
   still redacted. The upstream leg (proxy to listener) uses `ssl_insecure`
   because the listener's certificate is self-signed and not in any trust
   store; the client-to-proxy leg verifies for real against the bundle. The
-  TLS line changes from `info  TLS: not exercised` to `ok    TLS: handshake
-  to proxy succeeded with mitmproxy's certificate, body redacted`. A
-  deliberately wrong CA bundle path makes the step fail with a message that
-  names the path, proving the check is not vacuous. Issues #35 and #41 were
+  TLS line changes from `info  TLS: not exercised` to an `ok` line naming
+  the tunnel, the certificate and the file the handshake was verified
+  against. A deliberately wrong CA bundle path makes the step fail with a
+  message that names the path, proving the check is not vacuous. Issues #35 and #41 were
   both TLS-only failures that `keyfence doctor` reported as fine; this
   change catches that class of problem. There is no cost to the user: the
   selftest still runs in a temporary home with a throwaway secret and leaves
