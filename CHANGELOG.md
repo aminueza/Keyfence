@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The Tests section of `docs/development.md` says how to check a leak
+  from inside `keyfence exec`. The blind spot is the model's, not the
+  terminal's: `exec` sets the proxy and CA variables and runs the child
+  with `subprocess.call`, so a person sees what the child printed in
+  clear, and a secret in a response body is never touched. The output an
+  agent read, though, reaches the provider inside the next request, and
+  keyfence rewrites that request, so the model reads `[REDACTED:kind]`
+  for a leaked value and for a printed marker alike.
+  `tests/test_scan_scope.py` pins the claims the page rests on.
 - A request signed with AWS SigV4 that carries a secret is blocked in
   `redact` and `placeholder` mode instead of rewritten. Bedrock requests
   made with AWS credentials are signed over the body, so any change keyfence
