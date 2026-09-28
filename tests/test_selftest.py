@@ -5,6 +5,7 @@ import re
 import pytest
 import yaml
 
+from fakes import CA_PEM
 from keyfence import cli, doctor, runner, selftest
 from keyfence.config import Config
 from keyfence.doctor import FAIL, INFO, OK
@@ -16,9 +17,15 @@ MODES = ("block", "redact", "placeholder", "audit")
 BLOCKED = json.dumps({"error": {"type": "keyfence_blocked", "message": "no"}})
 
 
-def post(url, body):
-    host, port = url.split("/")[2].split(":")
-    conn = http.client.HTTPConnection(host, int(port), timeout=5)
+def post(url, body, ca_bundle=None):
+    import ssl
+    host_port = url.split("/")[2]
+    host, port = host_port.split(":")
+    if url.startswith("https://"):
+        context = ssl._create_unverified_context()
+        conn = http.client.HTTPSConnection(host, int(port), timeout=5, context=context)
+    else:
+        conn = http.client.HTTPConnection(host, int(port), timeout=5)
     try:
         conn.request("POST", url, body=body, headers={"Content-Type": "application/json"})
         resp = conn.getresponse()
@@ -46,7 +53,7 @@ class FakeAddon:
         self.started = False
         self.env = {}
 
-    def start_proxy(self, port, env, log, timeout, ca_cert):
+    def start_proxy(self, port, env, log, timeout, ca_cert, extra=None):
         self.started = True
         self.port = port
         self.env = env
@@ -62,7 +69,7 @@ class FakeAddon:
         cfg = Config.load(self.env["KEYFENCE_CONFIG"])
         return {"keyfence": "0.0", "mode": cfg.mode, "hosts": len(cfg.hosts)}
 
-    def send(self, port, url, body):
+    def send(self, port, url, body, ca_bundle=None):
         assert port == self.port
         text = body.decode()
         if self.audit:
@@ -79,7 +86,7 @@ class FakeAddon:
             text = text.replace(VALUE, TOKEN)
         if not self.forward:
             return self.status or 200, "{}"
-        status, response = post(url, text.encode())
+        status, response = post(url, text.encode(), ca_bundle=ca_bundle)
         if self.mode == "placeholder" and self.restore:
             response = response.replace(TOKEN, VALUE)
         return self.status or status, response
@@ -93,7 +100,7 @@ class FakeAddon:
 def ca(tmp_path):
     path = tmp_path / "mitm" / "mitmproxy-ca-cert.pem"
     path.parent.mkdir()
-    path.write_text("cert")
+    path.write_text(CA_PEM)
     return path
 
 
@@ -124,9 +131,13 @@ def test_every_mode_passes_with_a_faithful_addon(addon, ca, home, mode):
     environ = {"PATH": "/bin", runner.ENV_VAULT_VAR: "/stale/env.json"}
     report = fake.run(ca, environ=environ)
     assert report.ok and report.mode == mode
-    assert labels(report) == ["mitmdump", "config", "proxy", "addon", "CA certificate", "mode", "request",
+    assert labels(report) == ["mitmdump", "config", "proxy", "addon", "CA certificate", "CA bundle", "mode", "request",
                               "response", "audit log", "TLS"]
-    assert labels(report, INFO) == ["TLS"]
+    assert labels(report, OK) == ["mitmdump", "config", "proxy", "addon", "CA certificate", "CA bundle", "mode", "request",
+                                  "response", "audit log", "TLS"]
+    roots, kind = runner.system_roots((ca,))
+    assert detail(report, "CA bundle") == f"{runner.bundle_path()}, {roots} ({kind}) plus {ca}"
+    assert runner.bundle_path().read_text().endswith(ca.read_text())
     assert fake.started and fake.stopped
     assert fake.env["KEYFENCE_HOME"] == str(fake.home) and fake.env["PATH"] == "/bin"
     assert fake.env["KEYFENCE_CONFIG"] == str(fake.home / "config.yaml")
@@ -188,7 +199,7 @@ def test_busy_port_is_refused(addon, ca, monkeypatch):
 def test_proxy_start_failures_name_the_stage(addon, ca, home, stage, label, before):
     fake = addon("redact")
 
-    def failing(port, env, log, timeout, ca_cert):
+    def failing(port, env, log, timeout, ca_cert, extra=None):
         log.write("line one\n\nline two\n")
         log.flush()
         raise runner.ProxyError(stage, f"broken at {stage}")
@@ -204,7 +215,7 @@ def test_proxy_start_failures_name_the_stage(addon, ca, home, stage, label, befo
 def test_empty_log_is_said_so(addon, ca, home):
     fake = addon("redact")
 
-    def failing(port, env, log, timeout, ca_cert):
+    def failing(port, env, log, timeout, ca_cert, extra=None):
         raise runner.ProxyError(runner.NOT_UP, "dead")
 
     report = selftest.run(home=fake.home, value=VALUE, ca_cert=ca, start_proxy=failing, probe=fake.probe, send=fake.send)
@@ -226,6 +237,16 @@ def test_probe_that_stops_answering(addon, ca):
     assert labels(report).count("addon") == 2
 
 
+def test_a_bundle_keyfence_cannot_build_fails_the_selftest(addon, ca, only_roots):
+    fake = addon("redact")
+    missing = "/nowhere/ca-bundle.crt"
+    only_roots(paths=(missing,))
+    report = fake.run(ca)
+    assert labels(report, FAIL) == ["CA bundle"] and labels(report)[-1] == "CA bundle"
+    assert "no system trust store" in detail(report, "CA bundle")
+    assert not runner.bundle_path().exists() and fake.stopped
+
+
 @pytest.mark.parametrize("body", [{"mode": "audit", "hosts": 21}, {"mode": "redact", "hosts": 20}])
 def test_config_not_applied_is_a_mode_mismatch(addon, ca, body):
     fake = addon("redact")
@@ -239,12 +260,12 @@ def test_config_not_applied_is_a_mode_mismatch(addon, ca, body):
 def test_request_that_gets_no_answer(addon, ca):
     fake = addon("redact")
 
-    def dead(port, url, body):
+    def dead(port, url, body, ca_bundle=None):
         raise ConnectionRefusedError("refused")
 
     fake.send = dead
     report = fake.run(ca)
-    assert labels(report, FAIL) == ["request"] and "no answer through the proxy: refused" in detail(report, "request")
+    assert labels(report, FAIL) == ["TLS"] and "TLS handshake to the proxy failed: refused" in detail(report, "TLS")
 
 
 @pytest.mark.parametrize("mode", ("block", "redact", "placeholder"))
@@ -274,7 +295,7 @@ def test_redact_mode_failures(addon, ca):
     assert "neither the value nor [REDACTED:vault]" in detail(report, "request")
     fake = addon("redact")
     original = fake.send
-    fake.send = lambda port, url, body: (original(port, url, body)[0], f"leak {VALUE}")
+    fake.send = lambda port, url, body, ca_bundle=None: (original(port, url, body)[0], f"leak {VALUE}")
     report = fake.run(ca)
     assert labels(report, FAIL) == ["response"] and "came back in the response" in detail(report, "response")
 
@@ -288,7 +309,7 @@ def test_placeholder_mode_failures(addon, ca):
     assert labels(report, FAIL) == ["response"] and "was not restored" in detail(report, "response")
     fake = addon("placeholder")
     original = fake.send
-    fake.send = lambda port, url, body: (original(port, url, body)[0], "{}")
+    fake.send = lambda port, url, body, ca_bundle=None: (original(port, url, body)[0], "{}")
     report = fake.run(ca)
     assert labels(report, FAIL) == ["response"]
 
@@ -297,7 +318,7 @@ def test_the_notice_text_does_not_count_as_a_leftover_placeholder(addon, ca):
     fake = addon("placeholder")
     original = fake.send
 
-    def with_notice(port, url, body):
+    def with_notice(port, url, body, ca_bundle=None):
         status, response = original(port, url, body)
         return status, response.replace("selftest token", "keyfence replaced values with <<SECRET_id>> tokens; selftest token")
 
@@ -335,6 +356,37 @@ def test_send_through_speaks_absolute_form_http(home):
         assert listener.received == [b'{"content": "hello"}'] and listener.text() == '{"content": "hello"}'
     with pytest.raises(OSError):
         selftest.send_through(listener.port, listener.url, b"x", timeout=1)
+
+
+def test_tls_listener_pins_the_floor_at_tls_1_2():
+    # PROTOCOL_TLS_SERVER takes its floor from the host's OpenSSL policy, which on
+    # a lax host still offers TLS 1.0 and 1.1. CodeQL flags the bare constructor
+    # for that reason (py/insecure-protocol), so the listener pins TLS 1.2.
+    # This pins the value the listener ends up with. On a host whose OpenSSL policy
+    # is already strict the default equals the pin, so the assert cannot tell the
+    # two apart there; it is a regression guard for the pin, not a proof that a
+    # TLS 1.1 client is refused. Proving that needs a live handshake, and a failed
+    # handshake during accept kills the listener thread and hangs shutdown().
+    import ssl
+
+    with selftest.Listener(use_tls=True) as listener:
+        assert listener.server.socket.context.minimum_version == ssl.TLSVersion.TLSv1_2
+
+
+def test_wrong_ca_bundle_fails_tls_check(addon, ca, home, tmp_path):
+    fake = addon("redact")
+    wrong_bundle = tmp_path / "wrong-bundle.pem"
+    wrong_bundle.write_text("not a certificate")
+
+    def send_with_wrong_bundle(port, url, body, ca_bundle=None):
+        return selftest.send_through(port, url, body, ca_bundle=wrong_bundle)
+
+    fake.send = send_with_wrong_bundle
+    report = fake.run(ca)
+    assert labels(report, FAIL) == ["TLS"]
+    detail_text = detail(report, "TLS")
+    assert "TLS handshake to the proxy failed" in detail_text
+    assert "wrong-bundle.pem" in detail_text or "certificate" in detail_text.lower()
 
 
 def test_free_port_and_throwaway_value_and_log_tail(tmp_path):

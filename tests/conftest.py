@@ -1,5 +1,7 @@
 import os
+import sys
 import tempfile
+from types import SimpleNamespace
 
 os.environ["KEYFENCE_HOME"] = tempfile.mkdtemp(prefix="keyfence-test-home-")
 os.environ.pop("KEYFENCE_CONFIG", None)
@@ -25,3 +27,13 @@ def write_config(home):
         (home / "config.yaml").write_text(text)
         return home / "config.yaml"
     return _write
+
+
+@pytest.fixture
+def only_roots(monkeypatch):
+    def _only(cafile=None, paths=()):
+        monkeypatch.setitem(sys.modules, "certifi", None)
+        monkeypatch.setattr("keyfence.runner.ssl.get_default_verify_paths",
+                            lambda: SimpleNamespace(cafile=str(cafile) if cafile else None, capath=None))
+        monkeypatch.setattr("keyfence.runner.SYSTEM_CA_PATHS", tuple(paths))
+    return _only
