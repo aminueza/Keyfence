@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-- `docs/configuration.md` now says that `hosts` is read when the proxy
-  starts, so editing it takes effect on the next `keyfence exec` and not
-  during a running session. The behaviour shipped in 0.8.0 and the
-  caveat was never written down.
+- `docs/configuration.md` now says that `hosts` and `extra_hosts` are
+  read when the proxy starts, so editing either takes effect on the next
+  `keyfence exec` and not during a running session. The behaviour shipped
+  in 0.8.0 and the caveat was never written down.
 
 ## 0.8.1 (2026-09-28)
 
