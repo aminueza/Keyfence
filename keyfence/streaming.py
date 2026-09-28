@@ -4,14 +4,53 @@ import codecs
 import json
 from typing import Any
 
+from .detectors import string_value_spans, string_key_spans
+
 JsonPath = tuple[Any, ...]
 
 
-def restore(text: str, mapping: dict[str, str]) -> str:
+NESTED_JSON_FIELDS = ("partial_json", "arguments")
+RESPONSES_API_DELTA_EVENT = "response.function_call_arguments.delta"
+
+
+def json_escaped(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)[1:-1]
+
+
+def restore(text: str, mapping: dict[str, str], escape: int = 0) -> str:
     for token, original in mapping.items():
         if token in text:
-            text = text.replace(token, original)
+            value = original
+            for _ in range(escape):
+                value = json_escaped(value)
+            text = text.replace(token, value)
     return text
+
+
+def restore_json(text: str, mapping: dict[str, str]) -> str:
+    parts: list[str] = []
+    pos = 0
+    for start, end, key in string_value_spans(text):
+        parts.append(text[pos:start])
+        value = text[start:end]
+        if value and (value[0] == "{" or value[0] == "["):
+            extra = 2
+        else:
+            extra = 1
+        parts.append(restore(value, mapping, extra))
+        pos = end
+    parts.append(text[pos:])
+
+    text_with_restored_values = "".join(parts)
+    parts = []
+    pos = 0
+    for start, end in string_key_spans(text_with_restored_values):
+        parts.append(text_with_restored_values[pos:start])
+        key_value = text_with_restored_values[start:end]
+        parts.append(restore(key_value, mapping, 1))
+        pos = end
+    parts.append(text_with_restored_values[pos:])
+    return "".join(parts)
 
 
 def partial_suffix(text: str, tokens: tuple[str, ...], max_len: int) -> str:
@@ -140,16 +179,23 @@ class SSERestorer:
             return
 
         def fn(path: JsonPath, s: str) -> str:
-            key = self._held_key(path, index)
-            previous = self.held.pop(key, None)
+            held_key = self._held_key(path, index)
+            previous = self.held.pop(held_key, None)
             if previous is not None:
                 prev_event, partial = previous
                 prev_event.set(path, prev_event.get(path)[:-len(partial)])
                 s = partial + s
-            s = restore(s, self.mapping)
+            json_key = path[-1] if path else None
+            if json_key in NESTED_JSON_FIELDS:
+                escape = 1
+            elif event_type == RESPONSES_API_DELTA_EVENT and json_key == "delta":
+                escape = 1
+            else:
+                escape = 0
+            s = restore(s, self.mapping, escape)
             suffix = partial_suffix(s, self.tokens, self.max_len)
             if suffix:
-                self.held[key] = (event, suffix)
+                self.held[held_key] = (event, suffix)
             return s
 
         new_obj = _map_strings(event.obj, fn)

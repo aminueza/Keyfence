@@ -48,11 +48,15 @@ appears in the text. Rules with an entropy threshold apply it to the matched
 secret. Rule-level allowlists from the gitleaks file are honoured. Rules with
 a single capture group report that group as the secret, as gitleaks does.
 
-In a JSON body, pattern rules see each escape that stands for a
-character (`\n`, `\t`, `\r`, `\b`, `\f`, `\uXXXX`) as spaces of the same
-length, so a rule with a word boundary still matches a secret that follows
-one, and offsets stay those of the body as sent. `\"`, `\\` and `\/` are
-left as they are. The reported value is the text as sent, escapes included.
+In a JSON body, the detectors first decode the string values (turning
+`\n` into newline, `\uXXXX` into the Unicode character, etc.), run every
+detector over the decoded text, and map each finding back to the escaped
+span it came from. This means rules see word boundaries at real newlines
+and tabs, not at the escape sequences, and the reported value is the
+decoded text (e.g., a PEM with real newlines). The request is still
+rewritten at the original escaped coordinates so it stays valid JSON.
+Unknown escape sequences such as `\m` or a bare `\u` are preserved as-is
+in the decoded text so they act as token separators.
 
 The built-in assignment rule ignores placeholder values such as `changeme`
 or `${VAR}`, values that contain parentheses, and values that are already
