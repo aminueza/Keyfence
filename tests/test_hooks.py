@@ -146,6 +146,27 @@ def test_url_with_query_parameter_is_allowed(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
 
 
+@pytest.mark.parametrize("command", [
+    "cat .env[.]local",
+    "cat ~/.aws/credential[s]",
+    "cp .env[.]local /tmp/x",
+    "grep KEY .env[.]local",
+])
+def test_bracket_glob_expands_to_secret_name_is_refused(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+@pytest.mark.parametrize("command", [
+    "cat //.env*",
+    "cat //id_rsa*",
+    "cat //root/.aws/credentials*",
+    "ls //.ssh/id_rsa*",
+    "rm //.env*",
+])
+def test_filesystem_path_with_leading_double_slash_is_still_refused(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
 @pytest.mark.parametrize("path", [".ssh/known_hosts", ".kube/config", ".docker/config.json", ".gnupg/pubring.kbx"])
 def test_relative_paths_under_secret_directories_are_sensitive(path):
     assert hooks.is_sensitive(path)
