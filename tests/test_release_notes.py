@@ -140,3 +140,34 @@ def test_every_released_version_yields_a_single_line():
     for version in versions:
         line = release_notes.summary(text, f"v{version}")
         assert "\n" not in line and line.endswith(".") and len(line) > 20
+
+
+def test_a_truncated_topic_does_not_collect_a_period_after_its_ellipsis():
+    body = "# Changelog\n\n## 0.9.0 (2026-09-28)\n\n- " + "a long single entry that keeps going " * 6 + "\n"
+    line = release_notes.summary(body, "v0.9.0")
+    assert "…." not in line and "… ." not in line
+    assert "… Full notes in" in line
+
+
+def test_a_release_with_one_entry_gets_the_whole_sentence():
+    body = ("# Changelog\n\n## 0.2.2 (2026-09-08)\n\n- During `keyfence exec` the proxy's own output goes to\n"
+            "  `~/.keyfence/proxy.log` instead of the wrapped tool's terminal.\n")
+    line = release_notes.summary(body, "v0.2.2")
+    assert line.startswith("During `keyfence exec` the proxy's own output goes to "
+                           "`~/.keyfence/proxy.log` instead of the wrapped tool's terminal.")
+    assert "…" not in line
+
+
+def test_two_entries_keep_the_shorter_budget():
+    entry = "a long entry that keeps going and going and going and going and going and going"
+    body = f"# Changelog\n\n## 0.9.0 (2026-09-28)\n\n- {entry}\n- {entry}\n"
+    line = release_notes.summary(body, "v0.9.0")
+    assert line.count("…") == 2 and len(line) < 2 * release_notes.SINGLE_CHARS
+
+
+def test_no_published_style_defect_in_any_released_version():
+    text = (ROOT / "CHANGELOG.md").read_text()
+    versions = [m.group(1) for m in release_notes.HEADING.finditer(text) if m.group(1) != "Unreleased"]
+    for version in versions:
+        line = release_notes.summary(text, f"v{version}")
+        assert "…." not in line and ";." not in line and ",." not in line and "  " not in line
