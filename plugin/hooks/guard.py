@@ -27,6 +27,7 @@ SHELL_TOOLS = {"bash", "powershell"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
 _WORD_SEPARATORS = re.compile(r"""[\s;&|()`<>"'=,:]+""")
 _GLOB = re.compile(r"[*?]+")
+_BRACKET_GLOB = re.compile(r"\[(.)\]")
 _PREFIXES = (
     r"(?:(?:sudo|xargs|nohup|time|exec)(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+|(?:command(?:\s+-p)?|builtin|eval)\s+|"
     r"(?:ba|da|k|z)?sh\s+(?:-\S+\s+)*-\w*c\s+[\"']?|[A-Za-z_]\w*=\S*\s+)*")
@@ -82,18 +83,27 @@ def is_sensitive(path: str) -> bool:
     return any(fnmatch.fnmatch(full, pattern) for pattern in SENSITIVE_PATHS)
 
 
+def _is_url_remainder(word: str) -> bool:
+    if not word.startswith("//"):
+        return False
+    host_part = word[2:].split("/")[0].split("?")[0].split(":")[0]
+    return "." in host_part and not host_part.startswith(".")
+
+
 def paths_in_command(command: str) -> list[str]:
     found: list[str] = []
     for word in _WORD_SEPARATORS.split(command):
         if not word or word.startswith("-") or not any(c in word for c in "/._"):
             continue
         found.append(word)
-        if any(glob in word for glob in "*?"):
-            lower = word.lower()
-            if not (lower.startswith(("http://", "https://")) or lower.startswith("//")):
+        if any(glob in word for glob in "*?["):
+            if not _is_url_remainder(word):
                 unglobbed = _GLOB.sub("", word)
                 if unglobbed and unglobbed != word:
                     found.append(unglobbed)
+                normalized = _BRACKET_GLOB.sub(r"\1", word)
+                if normalized != word:
+                    found.append(normalized)
     return found
 
 
