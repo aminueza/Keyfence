@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.8.0 (2026-09-28)
 
 - Placeholder restoration in streamed and buffered responses now decides the
