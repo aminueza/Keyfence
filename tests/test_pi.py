@@ -122,10 +122,10 @@ def test_cli_bakes_the_command_given_and_says_what_it_calls(home, tmp_path, monk
 def test_keyfence_path_prefers_the_current_interpreters_bindir(tmp_path, monkeypatch):
     binary = tmp_path / "keyfence"
     binary.write_text("")
-    monkeypatch.setattr(pi.sys, "executable", str(tmp_path / "python"))
+    monkeypatch.setattr(hooks.sys, "executable", str(tmp_path / "python"))
     assert pi.keyfence_path() == str(binary)
     binary.unlink()
-    monkeypatch.setattr(pi.shutil, "which", lambda name: None)
+    monkeypatch.setattr(hooks.shutil, "which", lambda name: None)
     assert pi.keyfence_path() == "keyfence"
 
 

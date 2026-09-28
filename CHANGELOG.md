@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `keyfence_path()` is now defined in `keyfence.hooks` and re-exported by
+  `keyfence.pi`, removing the duplicate implementation. The hook guard
+  (`plugin/hooks/guard.py`) remains a byte-identical copy of `keyfence/hooks.py`
+  and runs standalone without importing the package.
+
 - A URL that contains a query parameter whose name matches a sensitive
   pattern is no longer refused. The unglob logic that strips `*` and `?`
   from words now skips words that start with `http://`, `https://`, or `//`
