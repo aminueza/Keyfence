@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `certifi` is now declared in `pyproject.toml`. `keyfence/runner.py`
+  imports it as the first source of system roots for the CA bundle, but
+  it was only present because mitmproxy depends on it; on Windows the
+  other fallbacks are unlikely to answer, so the bundle rested on a
+  transitive dependency. The floor is the one mitmproxy itself declares.
+
 ## 0.8.1 (2026-09-28)
 
 - A path written with a trailing glob is refused again. `cat .env*` is how
