@@ -358,6 +358,21 @@ def test_send_through_speaks_absolute_form_http(home):
         selftest.send_through(listener.port, listener.url, b"x", timeout=1)
 
 
+def test_tls_listener_pins_the_floor_at_tls_1_2():
+    # PROTOCOL_TLS_SERVER takes its floor from the host's OpenSSL policy, which on
+    # a lax host still offers TLS 1.0 and 1.1. CodeQL flags the bare constructor
+    # for that reason (py/insecure-protocol), so the listener pins TLS 1.2.
+    # This pins the value the listener ends up with. On a host whose OpenSSL policy
+    # is already strict the default equals the pin, so the assert cannot tell the
+    # two apart there; it is a regression guard for the pin, not a proof that a
+    # TLS 1.1 client is refused. Proving that needs a live handshake, and a failed
+    # handshake during accept kills the listener thread and hangs shutdown().
+    import ssl
+
+    with selftest.Listener(use_tls=True) as listener:
+        assert listener.server.socket.context.minimum_version == ssl.TLSVersion.TLSv1_2
+
+
 def test_wrong_ca_bundle_fails_tls_check(addon, ca, home, tmp_path):
     fake = addon("redact")
     wrong_bundle = tmp_path / "wrong-bundle.pem"
