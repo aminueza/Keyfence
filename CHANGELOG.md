@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The declarative deny rules installed by `keyfence install-hooks
+  claude-code` now include `NotebookEdit` rules alongside the existing
+  `Read` rules, covering `.env` files, private keys, credentials and other
+  secret paths. Carve-outs for safe `.env` names (`.env.example`,
+  `.env.sample`, `.env.template`, `.env.dist`) are added for both `Read`
+  and `NotebookEdit`. A version note documents that `Read` deny rules only
+  cover `Edit` on Claude Code 2.1.208+ and `Write` on 2.1.228+; on older
+  versions those tools are not blocked by the declarative rules, though the
+  Python hook still refuses them.
+
 - `keyfence_path()` is now defined in `keyfence.hooks` and re-exported by
   `keyfence.pi`, removing the duplicate implementation. The hook guard
   (`plugin/hooks/guard.py`) remains a byte-identical copy of `keyfence/hooks.py`
