@@ -27,6 +27,7 @@ GREP_TOOLS = {"grep"}
 SHELL_TOOLS = {"bash", "powershell"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
 _WORD_SEPARATORS = re.compile(r"""[\s;&|()`<>"'=,:]+""")
+_URL_WITH_SCHEME = re.compile(r"""[A-Za-z][A-Za-z0-9+.-]+://[^\s;&|()<>"']*""")
 _GLOB = re.compile(r"[*?]+")
 _BRACKET_CLASS = re.compile(r"\[([^\]/]+)\]")
 _BRACKET_EXPANSION_LIMIT = 10000
@@ -112,6 +113,10 @@ def _is_url_remainder(word: str) -> bool:
     return True
 
 
+def _mask_url_spans(command: str) -> str:
+    return _URL_WITH_SCHEME.sub(lambda match: "\0" * len(match.group(0)), command)
+
+
 class _ExpansionTooLarge(Exception):
     pass
 
@@ -145,7 +150,7 @@ def _expand_bracket_classes(word: str) -> list[str]:
 
 def paths_in_command(command: str) -> list[str]:
     found: list[str] = []
-    for word in _WORD_SEPARATORS.split(command):
+    for word in _WORD_SEPARATORS.split(_mask_url_spans(command)):
         if not word or word.startswith("-") or not any(c in word for c in "/._"):
             continue
         found.append(word)
@@ -159,7 +164,7 @@ def paths_in_command(command: str) -> list[str]:
 
 
 def _refusal_for_too_many_bracket_classes(command: str) -> str | None:
-    for word in _WORD_SEPARATORS.split(command):
+    for word in _WORD_SEPARATORS.split(_mask_url_spans(command)):
         if not word or word.startswith("-") or not any(c in word for c in "/._"):
             continue
         if _is_url_remainder(word):
