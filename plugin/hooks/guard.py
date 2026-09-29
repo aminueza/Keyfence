@@ -27,7 +27,7 @@ SHELL_TOOLS = {"bash", "powershell"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
 _WORD_SEPARATORS = re.compile(r"""[\s;&|()`<>"'=,:]+""")
 _GLOB = re.compile(r"[*?]+")
-_BRACKET_GLOB = re.compile(r"\[(.)\]")
+_BRACKET_CLASS = re.compile(r"\[([^\]/]+)\]")
 _PREFIXES = (
     r"(?:(?:sudo|xargs|nohup|time|exec)(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+|(?:command(?:\s+-p)?|builtin|eval)\s+|"
     r"(?:ba|da|k|z)?sh\s+(?:-\S+\s+)*-\w*c\s+[\"']?|[A-Za-z_]\w*=\S*\s+)*")
@@ -107,6 +107,14 @@ def _is_url_remainder(word: str) -> bool:
     return True
 
 
+def _expand_bracket_classes(word: str) -> list[str]:
+    expanded = []
+    for match in _BRACKET_CLASS.finditer(word):
+        for ch in match.group(1):
+            expanded.append(word[:match.start()] + ch + word[match.end():])
+    return expanded
+
+
 def paths_in_command(command: str) -> list[str]:
     found: list[str] = []
     for word in _WORD_SEPARATORS.split(command):
@@ -118,9 +126,7 @@ def paths_in_command(command: str) -> list[str]:
                 unglobbed = _GLOB.sub("", word)
                 if unglobbed and unglobbed != word:
                     found.append(unglobbed)
-                normalized = _BRACKET_GLOB.sub(r"\1", word)
-                if normalized != word:
-                    found.append(normalized)
+                found.extend(_expand_bracket_classes(word))
     return found
 
 
