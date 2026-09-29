@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- The release gate waits for the CI run to finish instead of reading it once.
+  A tag pushed while the `main` run for the release commit was still going
+  read `conclusion: null`, which is not `success`, and the release failed
+  with nothing wrong: the same suite went green a minute later. The
+  `check-ci` job now polls the workflow runs for the tagged SHA every 20
+  seconds until one of them reaches `status: completed`, and gives up after
+  30 minutes, so a queued or running suite is left to finish while a red one
+  still stops the release. The failure says which of the three things
+  happened: no run was ever registered for the commit, a run was registered
+  and never finished inside the window (`was still queued`, `was still
+  in_progress`, with the run id), or a run finished on something other than
+  `success` (`concluded with failure`, `concluded with cancelled`). Waiting
+  before reporting a missing run is part of the fix, because the API can
+  answer empty for a commit whose run has not been registered yet, which is
+  the same race that failed the release.
+  `tests/test_release_notes.py` pins the shape of the gate by parsing
+  `.github/workflows/release.yml` the way the other release tests do: the
+  read happens inside a loop that waits for `completed`, the three messages
+  stay distinct, `success` is the only conclusion that passes, and the wait
+  expires on a named `POLL_TIMEOUT_MS`.
+
 - `.github/PULL_REQUEST_TEMPLATE.md` carries the four sections every merged
   pull request here already used — Problem, What changed, How to test and
   Verification — as prompts under each heading instead of a form, so a
