@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import itertools
 import json
 import re
 import shutil
@@ -27,7 +28,8 @@ SHELL_TOOLS = {"bash", "powershell"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
 _WORD_SEPARATORS = re.compile(r"""[\s;&|()`<>"'=,:]+""")
 _GLOB = re.compile(r"[*?]+")
-_BRACKET_GLOB = re.compile(r"\[(.)\]")
+_BRACKET_CLASS = re.compile(r"\[([^\]/]+)\]")
+_BRACKET_EXPANSION_LIMIT = 10000
 _PREFIXES = (
     r"(?:(?:sudo|xargs|nohup|time|exec)(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+|(?:command(?:\s+-p)?|builtin|eval)\s+|"
     r"(?:ba|da|k|z)?sh\s+(?:-\S+\s+)*-\w*c\s+[\"']?|[A-Za-z_]\w*=\S*\s+)*")
@@ -110,6 +112,37 @@ def _is_url_remainder(word: str) -> bool:
     return True
 
 
+class _ExpansionTooLarge(Exception):
+    pass
+
+
+def _bracket_expansion_size(word: str) -> int:
+    size = 1
+    for match in _BRACKET_CLASS.finditer(word):
+        size *= len(match.group(1))
+        if size > _BRACKET_EXPANSION_LIMIT:
+            raise _ExpansionTooLarge(word)
+    return size
+
+
+def _expand_bracket_classes(word: str) -> list[str]:
+    classes = list(_BRACKET_CLASS.finditer(word))
+    if not classes:
+        return []
+    _bracket_expansion_size(word)
+    expanded = []
+    for combination in itertools.product(*(match.group(1) for match in classes)):
+        result = []
+        cursor = 0
+        for match, ch in zip(classes, combination):
+            result.append(word[cursor:match.start()])
+            result.append(ch)
+            cursor = match.end()
+        result.append(word[cursor:])
+        expanded.append("".join(result))
+    return expanded
+
+
 def paths_in_command(command: str) -> list[str]:
     found: list[str] = []
     for word in _WORD_SEPARATORS.split(command):
@@ -121,10 +154,21 @@ def paths_in_command(command: str) -> list[str]:
                 unglobbed = _GLOB.sub("", word)
                 if unglobbed and unglobbed != word:
                     found.append(unglobbed)
-                normalized = _BRACKET_GLOB.sub(r"\1", word)
-                if normalized != word:
-                    found.append(normalized)
+                found.extend(_expand_bracket_classes(word))
     return found
+
+
+def _refusal_for_too_many_bracket_classes(command: str) -> str | None:
+    for word in _WORD_SEPARATORS.split(command):
+        if not word or word.startswith("-") or not any(c in word for c in "/._"):
+            continue
+        if _is_url_remainder(word):
+            continue
+        try:
+            _bracket_expansion_size(word)
+        except _ExpansionTooLarge:
+            return word
+    return None
 
 
 def refusal_for_command(command: str) -> str | None:
@@ -151,6 +195,11 @@ def decide(payload: dict) -> str | None:
         return None
     if tool in SHELL_TOOLS:
         command = tool_input.get("command") or ""
+        oversized = _refusal_for_too_many_bracket_classes(command)
+        if oversized:
+            return (f"keyfence blocked {oversized}: it carries so many bracket classes that "
+                    f"deciding whether it names a secret file would take too long to be a "
+                    f"guard. Write the path without a character class.")
         for path in paths_in_command(command):
             if is_sensitive(path):
                 return _reason(path)

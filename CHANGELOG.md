@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `docs/configuration.md` now says that `hosts` and `extra_hosts` are
+  read when the proxy starts, so under `keyfence exec` editing either takes
+  effect on the next session and not during a running one. `keyfence run`
+  intercepts every host, so the addon reloads a new entry without a restart.
+  The behaviour shipped in 0.8.0 and the caveat was never written down.
+
+- `certifi` is now declared in `pyproject.toml`. `keyfence/runner.py`
+  imports it as the first source of system roots for the CA bundle, but
+  it was only present because mitmproxy depends on it; on Windows the
+  other fallbacks are unlikely to answer, so the bundle rested on a
+  transitive dependency. The floor is `2026.1.4`, the first release of
+  the current year, and not an older one: certifi is a trust store
+  rather than an API, so an old release is an old set of roots, and a
+  resolver free to pick one hands the child process a bundle that
+  rejects perfectly good certificates, which reads as keyfence's fault
+  rather than as a root that expired. `certifi.where()` has pointed at
+  the bundled `cacert.pem` since 0.0.4, so the call was never the
+  constraint; the roots were.
+
 - The declarative deny rules installed by `keyfence install-hooks
   claude-code` now include `NotebookEdit` rules alongside the existing
   `Read` rules, covering `.env` files, private keys, credentials and other
@@ -23,7 +42,70 @@
   (the latter covers the scheme-less remainder after word splitting), so
   `curl https://x.com/?credentials=1` and `curl 'https://x.com/?credentials=1'`
   are allowed while `cat .env*`, `rm .env*`, and `cat id_rsa*` are still
+<<<<<<< HEAD
   refused. A test pins the URL case.
+=======
+  refused. A test pins the URL case. A bracket glob is refused when the
+  class expands to a secret name, and every character of every class in the
+  word is tried, so `cat .[e]nv`, `cat .[ce]nv`, `cat .[abcde]nv`,
+  `cat ~/.ssh/id_[r]sa` and `cat id_rs[a]` are all refused. Where a word
+  carries more than one class, every combination of them is tried, because
+  `cat .[e]n[v]` and `cat i[d]_rs[a]` each reach a secret name only once
+  both classes are resolved at the same time. A class that expands to no
+  sensitive name stays allowed: a character class inside a `sed` expression
+  or a `grep` pattern is not a path, so `sed -i '' 's/[abc]/x/' file.txt`,
+  `grep '[0-9]' data.csv` and `cat notes[1].md` still pass, because the
+  expansion still has to match a sensitive name. The expansion is bounded at
+  10000 candidates per word, because the combinations multiply: a word
+  carrying six classes of ten characters is a million candidates, which took
+  the hook about eighteen seconds to decide and would have run into the hook
+  timeout. A word past that bound is refused outright rather than decided on
+  a partial expansion, so the guard fails closed instead of quietly allowing
+  a word it could not resolve.
+
+- `cat [c]redentials` stays allowed, because a word with no `/`, `.` or `_`
+  is never treated as a path. That predates this release and is the known
+  limit of the word filter, recorded here so the bracket claim above is not
+  read as complete.
+
+- `.github/PULL_REQUEST_TEMPLATE.md` carries the four sections every merged
+  pull request here already used — Problem, What changed, How to test and
+  Verification — as prompts under each heading instead of a form, so a
+  first-time contributor meets the convention instead of having it
+  explained in review. Verification asks for the commit SHA, the date and
+  the test counts from the run, because a body carrying those can be
+  checked against the diff while a body without them cannot be told from
+  a stale one. The code of conduct question and the review-turnaround
+  question that #108 raised are deliberately left unanswered here; neither
+  is the filer's to decide.
+
+- The private files keyfence writes are set private through the handle it
+  already had open, not through the path. The audit log, the proxy log, the
+  CA bundle, the vault and the file `keyfence exec --record` writes each went
+  through `os.chmod(path, ...)`, which resolves the path a second time: a
+  path swapped between the open and the chmod sent the mode change to
+  whatever now answered that name, which is how a file holding secrets in
+  clear text ends up with the mode of a file the caller never wrote. Each of
+  the five now calls `os.fchmod(handle.fileno(), ...)`, so the mode lands on
+  the file the descriptor already refers to. Two of them, the bundle and the
+  vault, chmod'd after closing the handle, so those calls moved inside the
+  block that holds it, and the record file, whose `touch` opened and closed
+  it, is now opened once and set private on that descriptor. The outcome is
+  the same mode as before; what changed is that it can no longer land
+  somewhere else.
+
+- Placeholder restoration in buffered JSON bodies decides the escaping level
+  from the key instead of the first character of the value, which is the rule
+  the streamed path already follows. A secret containing newlines, restored
+  into a value that merely starts with `{` or `[`, came back escaped one
+  level too deep: prose under `content` that quotes an object, such as
+  `{"content": "{\"example\": \"<<SECRET_1>>\"} explained above"}`, showed a
+  literal `\n` where the newline was, because the leading brace read as "this
+  string holds a nested JSON document". The key now decides that question, and
+  the value's first character only breaks the tie inside `partial_json` and
+  `arguments`, where both shapes genuinely occur, so a nested JSON document
+  still gets the second level while prose keeps its real newlines.
+>>>>>>> origin/main
 
 ## 0.8.1 (2026-09-28)
 
