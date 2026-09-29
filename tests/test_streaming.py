@@ -322,22 +322,15 @@ def test_text_delta_starting_with_brace_escapes_by_event_type_not_first_char():
     mapping = {"<<SECRET_1>>": PEM}
     r = SSERestorer(mapping)
 
-    # Text delta whose decoded value starts with `{` - should get raw level (escape=0)
     stream = anthropic_event('{"example": "<<SECRET_1>>"} explained above')
     out = r.feed(stream.encode()) + r.feed(b"")
 
-    # Extract the restored text
     result_texts = texts(out)
     assert len(result_texts) == 1
     result = result_texts[0]
 
-    # The PEM should have REAL newlines, not literal \n
     assert "\n" in result
-    # Verify no double-escaping (literal \n would appear as \\n in the string)
     assert "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest" in result
-    # The newlines in the PEM should be actual newlines in the JSON string value
-    # When parsed as JSON, they should be real newlines
-    # We can verify by checking the raw output contains actual newlines
     assert "BEGIN PRIVATE KEY-----\nMIIE" in result
 
 
@@ -346,41 +339,42 @@ def test_object_keys_get_same_escaping_as_values():
     body = json.dumps({"<<SECRET_1>>": "value"})
     restored = restore_json(body, mapping)
 
-    # Should parse as valid JSON
     parsed = json.loads(restored)
 
-    # The key should be the restored PEM (with JSON-escaped newlines)
     keys = list(parsed.keys())
     assert len(keys) == 1
     key = keys[0]
-    # The key should contain the PEM with newlines escaped as \n
     assert "BEGIN PRIVATE KEY-----\nMIIE" in key or "BEGIN PRIVATE KEY-----\\nMIIE" in key
-    # Verify the JSON round-trips correctly
     assert parsed[key] == "value"
 
 
-def test_restore_json_escape_level_comes_from_key_and_value_first_char():
+def test_json_like_value_in_arguments_gets_two_levels_of_escaping():
     mapping = {"<<SECRET_1>>": PEM}
-
-    # Test 1: JSON-like value (starts with {) gets extra=2
     nested = json.dumps({"key": "<<SECRET_1>>"})
-    body1 = json.dumps({"arguments": [nested]})
-    restored1 = restore_json(body1, mapping)
-    parsed1 = json.loads(restored1)
-    inner1 = json.loads(parsed1["arguments"][0])
-    assert inner1 == {"key": PEM}
+    body = json.dumps({"arguments": [nested]})
 
-    # Test 2: Plain string in arguments gets extra=1
-    body2 = json.dumps({"arguments": ["<<SECRET_1>>"]})
-    restored2 = restore_json(body2, mapping)
-    parsed2 = json.loads(restored2)
-    assert parsed2["arguments"][0] == PEM
+    parsed = json.loads(restore_json(body, mapping))
+    inner = json.loads(parsed["arguments"][0])
 
-    # Test 3: Regular field gets extra=1
-    body3 = json.dumps({"text": "<<SECRET_1>>"})
-    restored3 = restore_json(body3, mapping)
-    parsed3 = json.loads(restored3)
-    assert parsed3["text"] == PEM
+    assert inner == {"key": PEM}
+
+
+def test_plain_string_in_arguments_gets_one_level_of_escaping():
+    mapping = {"<<SECRET_1>>": PEM}
+    body = json.dumps({"arguments": ["<<SECRET_1>>"]})
+
+    parsed = json.loads(restore_json(body, mapping))
+
+    assert parsed["arguments"][0] == PEM
+
+
+def test_regular_field_gets_one_level_of_escaping():
+    mapping = {"<<SECRET_1>>": PEM}
+    body = json.dumps({"text": "<<SECRET_1>>"})
+
+    parsed = json.loads(restore_json(body, mapping))
+
+    assert parsed["text"] == PEM
 
 
 def test_restore_json_brace_starting_prose_in_plain_field_restores_real_newlines():
