@@ -147,6 +147,62 @@ def test_url_with_query_parameter_is_allowed(command):
 
 
 @pytest.mark.parametrize("command", [
+    "curl https://x.com/secrets.json",
+    "curl https://x.com/.env",
+    "wget http://host/id_rsa",
+    "curl -sS https://x.com/secrets.json",
+    "curl --url=https://x.com/.env",
+    "wget -O - http://host/id_rsa",
+    "curl https://x.com/a.b.c.d,.env",
+    "curl FTP://x.com/secrets.json",
+    "curl HtTpS://x.com/.env",
+    "curl wss://x.com/id_rsa",
+])
+def test_a_url_whose_path_names_a_secret_file_is_allowed(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("command", [
+    "curl file:///root/.ssh/id_rsa",
+    "curl file:///etc/.env",
+    "curl -o out file:///root/.aws/credentials",
+    "wget file://localhost/root/.ssh/id_rsa",
+    "FILE:///root/.ssh/id_rsa",
+    "curl shttp://x.com/.env",
+])
+def test_a_scheme_that_is_not_known_to_fetch_remotely_is_still_a_path(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+@pytest.mark.parametrize("command", [
+    "cat http //root/.ssh/id_rsa",
+    "cat https //root/.ssh/id_rsa",
+    "cat HTTP //root/.ssh/id_rsa",
+    "echo http //root/.ssh/id_rsa | base64",
+])
+def test_a_scheme_word_without_its_colons_does_not_buy_the_url_exception(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+@pytest.mark.parametrize("command", [
+    "curl https://x.com/a && cat .env",
+    "curl https://x.com/a;cat .env",
+    "curl https://x.com/a | cat .env",
+    "wget http://host/id_rsa && cat ~/.ssh/id_rsa",
+])
+def test_a_url_does_not_hide_a_path_that_follows_it(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+def test_the_scheme_in_the_raw_command_keeps_a_url_out_of_the_paths_and_keeps_the_one_next_to_it():
+    assert hooks.paths_in_command("curl https://x.com/secrets.json && cat .env") == [".env"]
+
+
+def test_a_scheme_less_remainder_with_a_query_is_kept_whole_rather_than_unglobbed():
+    assert hooks.paths_in_command("cat //x.com/?credentials=1") == ["//x.com/?credentials"]
+
+
+@pytest.mark.parametrize("command", [
     "cat .env[.]local",
     "cat ~/.aws/credential[s]",
     "cp .env[.]local /tmp/x",
@@ -213,6 +269,10 @@ def test_past_the_expansion_limit_is_refused_rather_than_expanded():
     "cat //my.dir/id_rsa*",
     "ls //.ssh/id_rsa*",
     "rm //.env*",
+    "cat //evil.com/../.env",
+    "cat //host/.env",
+    "cat //my.dir/.env",
+    "cat //.env",
 ])
 def test_filesystem_path_with_leading_double_slash_is_still_refused(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})

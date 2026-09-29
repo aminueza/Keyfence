@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- A URL in a command is no longer read as a local path, so
+  `curl https://x.com/secrets.json`, `curl https://x.com/.env` and
+  `wget http://host/id_rsa` are allowed. The word splitter breaks on `:`, so
+  what used to reach the sensitive-name check was the remainder
+  `//x.com/secrets.json`, whose basename matches the `secrets.*` rule, even
+  though nothing on this machine is named that and the command only fetches
+  it. The guard now finds the spans in the raw command that carry a scheme
+  and drops those exact characters before the words are split, so the split
+  never sees them. Only the schemes that fetch something remote are masked,
+  `http`, `https`, `ftp`, `ftps`, `ws` and `wss`, matched without regard to
+  case; anything else falls through to the path check, because the mask
+  that fixes a false positive must not become the way to read a key.
+  `curl file:///root/.ssh/id_rsa` and `FILE:///root/.ssh/id_rsa` read a local
+  file through the scheme, so they stay refused, and so does the next
+  scheme nobody has heard of that turns out to read local files, which an
+  allowlist refuses by default and a denylist would have allowed. A span runs
+  from `scheme://` to the end of the shell word, which stops at whitespace
+  and at the shell metacharacters, so a path typed after one is still
+  decided: `curl https://x.com/a && cat .env` and
+  `wget http://host/id_rsa;cat .env` stay refused. The scheme has to come
+  from the raw text because the split erases it: `wget http://host/id_rsa`
+  and `cat http //root/.ssh/id_rsa` come out of the splitter with the same
+  words in the same order, and a rule that recovered the scheme from the
+  previous word would let the second one through, which is one line of
+  command away from someone's private key. A word that starts with `//` is
+  a filesystem path and nothing else, so `cat //evil.com/../.env`,
+  `cat //host/.env` and `cat //my.dir/.env` stay refused, and so does
+  `cat http //root/.ssh/id_rsa`, which carries no scheme at all.
+
 - `docs/configuration.md` now says that `hosts` and `extra_hosts` are
   read when the proxy starts, so under `keyfence exec` editing either takes
   effect on the next session and not during a running one. `keyfence run`
