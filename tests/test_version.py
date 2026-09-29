@@ -44,6 +44,25 @@ def test_certifi_is_declared_as_a_project_dependency():
     assert "certifi" in names
 
 
+def certifi_floors() -> dict[str, list[str]]:
+    dependencies = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
+    required = (ROOT / "requirements.txt").read_text().splitlines()
+    return {
+        "pyproject.toml": [re.match(r"certifi>=(\S+)", d).group(1) for d in dependencies if d.lower().startswith("certifi>=")],
+        "requirements.txt": [re.match(r"certifi>=(\S+)", l).group(1) for l in required if l.startswith("certifi>=")],
+    }
+
+
+def test_the_certifi_floor_is_a_current_year_trust_store():
+    for floors in certifi_floors().values():
+        assert floors == ["2026.1.4"]
+
+
+def test_pyproject_and_requirements_declare_the_same_certifi_floor():
+    floors = certifi_floors()
+    assert floors["pyproject.toml"] == floors["requirements.txt"]
+
+
 def test_plugin_manifest_carries_the_released_version():
     manifest = json.loads((ROOT / "plugin" / ".claude-plugin" / "plugin.json").read_text())
     released = [h for h in changelog_headings() if RELEASE.match(h)]
