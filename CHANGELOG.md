@@ -1,23 +1,7 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 (2026-09-29)
 
-- `keyfence install-hooks claude-code` now prints the Claude Code versions its
-  deny rules need, next to the count of rules it wrote and also when the hook
-  was already in place. `Read` deny rules cover `Edit` only from 2.1.208 and
-  `Write` only from 2.1.228, so on older versions the declarative layer misses
-  those two tools and only the Python hook refuses them. `--remove` does not
-  print it. The two versions have one definition in `keyfence/cli.py` and a test
-  checks `docs/setup.md` names the same two.
-- The last docstrings and comments under `tests/` are gone. The branch
-  that introduced them ended with a commit called "Remove docstrings and
-  comments per convention" and missed the three streaming tests, so they
-  were an oversight rather than a deliberate exception. `test_blocker1_...`
-  and `test_blocker3_...` were renamed because their docstrings carried
-  information the names did not, `test_blocker2_...` was renamed only to
-  drop the `blocker2` prefix, and `test_blocker3_...` was split into three
-  named tests so that the case labels its comments carried live in the names.
-  No behaviour changed.
 - A URL in a command is no longer read as a local path, so
   `curl https://x.com/secrets.json`, `curl https://x.com/.env` and
   `wget http://host/id_rsa` are allowed. The word splitter breaks on `:`, so
@@ -47,6 +31,13 @@
   `cat //host/.env` and `cat //my.dir/.env` stay refused, and so does
   `cat http //root/.ssh/id_rsa`, which carries no scheme at all.
 
+- `keyfence install-hooks claude-code` now prints the Claude Code versions its
+  deny rules need, next to the count of rules it wrote and also when the hook
+  was already in place. `Read` deny rules cover `Edit` only from 2.1.208 and
+  `Write` only from 2.1.228, so on older versions the declarative layer misses
+  those two tools and only the Python hook refuses them. `--remove` does not
+  print it. The two versions have one definition in `keyfence/cli.py` and a test
+  checks `docs/setup.md` names the same two.
 - `docs/configuration.md` now says that `hosts` and `extra_hosts` are
   read when the proxy starts, so under `keyfence exec` editing either takes
   effect on the next session and not during a running one. `keyfence run`
@@ -76,11 +67,6 @@
   versions those tools are not blocked by the declarative rules, though the
   Python hook still refuses them.
 
-- `keyfence_path()` is now defined in `keyfence.hooks` and re-exported by
-  `keyfence.pi`, removing the duplicate implementation. The hook guard
-  (`plugin/hooks/guard.py`) remains a byte-identical copy of `keyfence/hooks.py`
-  and runs standalone without importing the package.
-
 - A URL that contains a query parameter whose name matches a sensitive
   pattern is no longer refused. The unglob logic that strips `*` and `?`
   from words now skips words that start with `http://`, `https://`, or `//`
@@ -109,6 +95,46 @@
   is never treated as a path. That predates this release and is the known
   limit of the word filter, recorded here so the bracket claim above is not
   read as complete.
+
+- The private files keyfence writes are set private through the handle it
+  already had open, not through the path. The audit log, the proxy log, the
+  CA bundle, the vault and the file `keyfence exec --record` writes each went
+  through `os.chmod(path, ...)`, which resolves the path a second time: a
+  path swapped between the open and the chmod sent the mode change to
+  whatever now answered that name, which is how a file holding secrets in
+  clear text ends up with the mode of a file the caller never wrote. Each of
+  the five now calls `os.fchmod(handle.fileno(), ...)`, so the mode lands on
+  the file the descriptor already refers to. Two of them, the bundle and the
+  vault, chmod'd after closing the handle, so those calls moved inside the
+  block that holds it, and the record file, whose `touch` opened and closed
+  it, is now opened once and set private on that descriptor. The outcome is
+  the same mode as before; what changed is that it can no longer land
+  somewhere else.
+
+- Placeholder restoration in buffered JSON bodies decides the escaping level
+  from the key instead of the first character of the value, which is the rule
+  the streamed path already follows. A secret containing newlines, restored
+  into a value that merely starts with `{` or `[`, came back escaped one
+  level too deep: prose under `content` that quotes an object, such as
+  `{"content": "{\"example\": \"<<SECRET_1>>\"} explained above"}`, showed a
+  literal `\n` where the newline was, because the leading brace read as "this
+  string holds a nested JSON document". The key now decides that question, and
+  the value's first character only breaks the tie inside `partial_json` and
+  `arguments`, where both shapes genuinely occur, so a nested JSON document
+  still gets the second level while prose keeps its real newlines.
+- The last docstrings and comments under `tests/` are gone. The branch
+  that introduced them ended with a commit called "Remove docstrings and
+  comments per convention" and missed the three streaming tests, so they
+  were an oversight rather than a deliberate exception. `test_blocker1_...`
+  and `test_blocker3_...` were renamed because their docstrings carried
+  information the names did not, `test_blocker2_...` was renamed only to
+  drop the `blocker2` prefix, and `test_blocker3_...` was split into three
+  named tests so that the case labels its comments carried live in the names.
+  No behaviour changed.
+- `keyfence_path()` is now defined in `keyfence.hooks` and re-exported by
+  `keyfence.pi`, removing the duplicate implementation. The hook guard
+  (`plugin/hooks/guard.py`) remains a byte-identical copy of `keyfence/hooks.py`
+  and runs standalone without importing the package.
 
 - The release gate waits for the CI run to finish instead of reading it once.
   A tag pushed while the `main` run for the release commit was still going
@@ -141,33 +167,6 @@
   a stale one. The code of conduct question and the review-turnaround
   question that #108 raised are deliberately left unanswered here; neither
   is the filer's to decide.
-
-- The private files keyfence writes are set private through the handle it
-  already had open, not through the path. The audit log, the proxy log, the
-  CA bundle, the vault and the file `keyfence exec --record` writes each went
-  through `os.chmod(path, ...)`, which resolves the path a second time: a
-  path swapped between the open and the chmod sent the mode change to
-  whatever now answered that name, which is how a file holding secrets in
-  clear text ends up with the mode of a file the caller never wrote. Each of
-  the five now calls `os.fchmod(handle.fileno(), ...)`, so the mode lands on
-  the file the descriptor already refers to. Two of them, the bundle and the
-  vault, chmod'd after closing the handle, so those calls moved inside the
-  block that holds it, and the record file, whose `touch` opened and closed
-  it, is now opened once and set private on that descriptor. The outcome is
-  the same mode as before; what changed is that it can no longer land
-  somewhere else.
-
-- Placeholder restoration in buffered JSON bodies decides the escaping level
-  from the key instead of the first character of the value, which is the rule
-  the streamed path already follows. A secret containing newlines, restored
-  into a value that merely starts with `{` or `[`, came back escaped one
-  level too deep: prose under `content` that quotes an object, such as
-  `{"content": "{\"example\": \"<<SECRET_1>>\"} explained above"}`, showed a
-  literal `\n` where the newline was, because the leading brace read as "this
-  string holds a nested JSON document". The key now decides that question, and
-  the value's first character only breaks the tie inside `partial_json` and
-  `arguments`, where both shapes genuinely occur, so a nested JSON document
-  still gets the second level while prose keeps its real newlines.
 
 ## 0.8.1 (2026-09-28)
 
