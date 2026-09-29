@@ -289,6 +289,43 @@ def test_run_creates_the_proxy_log_private_from_the_first_moment_it_exists(home,
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_proxy_log_mode_goes_on_the_open_handle_and_never_on_the_path(home, monkeypatch, tmp_path):
+    log = home / "proxy.log"
+    log.write_text("")
+    log.chmod(0o644)
+    seen = []
+    fchmod = os.fchmod
+    chmod = os.chmod
+
+    def watching_fchmod(fd, mode, *args, **kwargs):
+        seen.append((os.fstat(fd).st_ino, mode))
+        return fchmod(fd, mode, *args, **kwargs)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        if Path(path) == log:
+            raise AssertionError(f"the proxy log mode went on the path {path}, not on the handle")
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fchmod", watching_fchmod)
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert [(ino, mode) for ino, mode in seen if ino == log.stat().st_ino] == [(log.stat().st_ino, 0o600)]
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_run_still_sets_every_mode_it_owns_on_a_python_without_fchmod(home, monkeypatch, tmp_path):
+    monkeypatch.delattr(os, "fchmod")
+    record = tmp_path / "rec" / "s.flows"
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert stat.S_IMODE((home / "proxy.log").stat().st_mode) == 0o600
+    assert stat.S_IMODE(record.stat().st_mode) == 0o600
+    assert stat.S_IMODE((home / runner.BUNDLE_NAME).stat().st_mode) == runner.BUNDLE_MODE
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
 def test_run_tightens_a_proxy_log_left_world_readable_by_an_older_version(home, monkeypatch, tmp_path):
     log = home / "proxy.log"
     log.write_text("")
@@ -299,23 +336,48 @@ def test_run_tightens_a_proxy_log_left_world_readable_by_an_older_version(home, 
 
 
 def test_run_says_on_stderr_when_the_proxy_log_stays_readable(home, monkeypatch, tmp_path, capsys):
-    chmod = os.chmod
+    log = home / "proxy.log"
+    fchmod = os.fchmod
 
-    def refusing_chmod(path, mode, *args, **kwargs):
-        # Scope the refusal to proxy.log. A blanket refusal also catches the
-        # CA bundle's own chmod in ensure_bundle, which makes run() fail for a
-        # reason this test is not about.
-        if Path(path) == home / "proxy.log":
+    def refusing_only_the_proxy_log_fchmod(fd, mode, *args, **kwargs):
+        if log.exists() and os.fstat(fd).st_ino == log.stat().st_ino:
             raise OSError(1, "Operation not permitted")
-        return chmod(path, mode, *args, **kwargs)
+        return fchmod(fd, mode, *args, **kwargs)
 
-    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    monkeypatch.setattr(os, "fchmod", refusing_only_the_proxy_log_fchmod)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
     assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
     err = capsys.readouterr().err
     assert "could not make" in err
     assert "proxy.log" in err
-    assert (home / "proxy.log").exists()
+    assert log.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_record_mode_goes_on_the_open_handle_and_never_on_the_path(home, monkeypatch, tmp_path):
+    record = tmp_path / "rec" / "s.flows"
+    record.parent.mkdir(parents=True)
+    record.write_text("")
+    record.chmod(0o644)
+    seen = []
+    fchmod = os.fchmod
+    chmod = os.chmod
+
+    def watching_fchmod(fd, mode, *args, **kwargs):
+        seen.append((os.fstat(fd).st_ino, mode))
+        return fchmod(fd, mode, *args, **kwargs)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        if Path(path) == record:
+            raise AssertionError(f"the record mode went on the path {path}, not on the handle")
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fchmod", watching_fchmod)
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert [(ino, mode) for ino, mode in seen if ino == record.stat().st_ino] == [(record.stat().st_ino, 0o600)]
+    assert stat.S_IMODE(record.stat().st_mode) == 0o600
 
 
 @pytest.mark.parametrize("mode", ["audit", "block"])
@@ -578,6 +640,31 @@ def test_bundle_is_not_world_writable_under_a_permissive_umask(home, tmp_path, o
     finally:
         os.umask(previous)
     assert stat.S_IMODE(path.stat().st_mode) == 0o644
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_bundle_mode_goes_on_the_open_handle_and_never_on_the_path(home, tmp_path, only_roots, monkeypatch):
+    only_roots(_roots(tmp_path))
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    seen = []
+    fchmod = os.fchmod
+    chmod = os.chmod
+
+    def watching_fchmod(fd, mode, *args, **kwargs):
+        seen.append((os.fstat(fd).st_ino, mode))
+        return fchmod(fd, mode, *args, **kwargs)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        if Path(path) == home / runner.BUNDLE_NAME:
+            raise AssertionError(f"the bundle mode went on the path {path}, not on the handle")
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fchmod", watching_fchmod)
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    path, _ = runner.ensure_bundle(ca)
+    assert seen == [(path.stat().st_ino, runner.BUNDLE_MODE)]
+    assert stat.S_IMODE(path.stat().st_mode) == runner.BUNDLE_MODE
 
 
 def test_bundle_left_world_writable_is_tightened_on_the_next_write(home, tmp_path, only_roots):
