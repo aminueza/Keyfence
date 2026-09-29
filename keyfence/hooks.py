@@ -27,7 +27,7 @@ GREP_TOOLS = {"grep"}
 SHELL_TOOLS = {"bash", "powershell"}
 PATH_KEYS = ("file_path", "notebook_path", "path")
 _WORD_SEPARATORS = re.compile(r"""[\s;&|()`<>"'=,:]+""")
-_URL_WITH_SCHEME = re.compile(r"""[A-Za-z][A-Za-z0-9+.-]+://[^\s;&|()<>"']*""")
+_URL_WITH_SCHEME = re.compile(r"""(?<![A-Za-z0-9+.-])(?:https?|ftps?|wss?)://[^\s;&|()<>"']*""", re.IGNORECASE)
 _GLOB = re.compile(r"[*?]+")
 _BRACKET_CLASS = re.compile(r"\[([^\]/]+)\]")
 _BRACKET_EXPANSION_LIMIT = 10000

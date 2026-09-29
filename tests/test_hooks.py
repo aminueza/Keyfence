@@ -154,9 +154,24 @@ def test_url_with_query_parameter_is_allowed(command):
     "curl --url=https://x.com/.env",
     "wget -O - http://host/id_rsa",
     "curl https://x.com/a.b.c.d,.env",
+    "curl FTP://x.com/secrets.json",
+    "curl HtTpS://x.com/.env",
+    "curl wss://x.com/id_rsa",
 ])
 def test_a_url_whose_path_names_a_secret_file_is_allowed(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("command", [
+    "curl file:///root/.ssh/id_rsa",
+    "curl file:///etc/.env",
+    "curl -o out file:///root/.aws/credentials",
+    "wget file://localhost/root/.ssh/id_rsa",
+    "FILE:///root/.ssh/id_rsa",
+    "curl shttp://x.com/.env",
+])
+def test_a_scheme_that_is_not_known_to_fetch_remotely_is_still_a_path(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
 
 
 @pytest.mark.parametrize("command", [
