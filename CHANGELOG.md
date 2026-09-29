@@ -21,6 +21,21 @@
   the bundled `cacert.pem` since 0.0.4, so the call was never the
   constraint; the roots were.
 
+- The declarative deny rules installed by `keyfence install-hooks
+  claude-code` now include `NotebookEdit` rules alongside the existing
+  `Read` rules, covering `.env` files, private keys, credentials and other
+  secret paths. Carve-outs for safe `.env` names (`.env.example`,
+  `.env.sample`, `.env.template`, `.env.dist`) are added for both `Read`
+  and `NotebookEdit`. A version note documents that `Read` deny rules only
+  cover `Edit` on Claude Code 2.1.208+ and `Write` on 2.1.228+; on older
+  versions those tools are not blocked by the declarative rules, though the
+  Python hook still refuses them.
+
+- `keyfence_path()` is now defined in `keyfence.hooks` and re-exported by
+  `keyfence.pi`, removing the duplicate implementation. The hook guard
+  (`plugin/hooks/guard.py`) remains a byte-identical copy of `keyfence/hooks.py`
+  and runs standalone without importing the package.
+
 - A URL that contains a query parameter whose name matches a sensitive
   pattern is no longer refused. The unglob logic that strips `*` and `?`
   from words now skips words that start with `http://`, `https://`, or `//`
