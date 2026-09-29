@@ -42,9 +42,6 @@
   (the latter covers the scheme-less remainder after word splitting), so
   `curl https://x.com/?credentials=1` and `curl 'https://x.com/?credentials=1'`
   are allowed while `cat .env*`, `rm .env*`, and `cat id_rsa*` are still
-<<<<<<< HEAD
-  refused. A test pins the URL case.
-=======
   refused. A test pins the URL case. A bracket glob is refused when the
   class expands to a secret name, and every character of every class in the
   word is tried, so `cat .[e]nv`, `cat .[ce]nv`, `cat .[abcde]nv`,
@@ -105,7 +102,6 @@
   the value's first character only breaks the tie inside `partial_json` and
   `arguments`, where both shapes genuinely occur, so a nested JSON document
   still gets the second level while prose keeps its real newlines.
->>>>>>> origin/main
 
 ## 0.8.1 (2026-09-28)
 
