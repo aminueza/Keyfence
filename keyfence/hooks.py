@@ -55,12 +55,15 @@ _SECRET_COMMANDS = re.compile(
     r")\b", re.IGNORECASE | re.MULTILINE)
 HOOK_COMMAND = "keyfence hook claude-code"
 HOOK_MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash"
-DENY_RULES = (
-    "Read(./.env)", "Read(./.env.*)", "Read(./**/.env)", "Read(./**/.env.*)", "Read(./**/*.pem)",
-    "Read(./**/*.key)", "Read(./**/credentials*)", "Read(./**/secrets.*)", "Read(./**/*.tfvars)",
-    "Read(~/.aws/credentials)", "Read(~/.ssh/**)", "Read(~/.netrc)", "Read(~/.npmrc)",
-    "Read(~/.pypirc)", "Read(~/.git-credentials)", "Read(~/.docker/config.json)", "Read(~/.kube/config)",
-) + tuple(f"Read(!{name})" for name in SAFE_ENV_NAMES)
+_DENY_BASE = (
+    "./.env", "./.env.*", "./**/.env", "./**/.env.*", "./**/*.pem",
+    "./**/*.key", "./**/credentials*", "./**/secrets.*", "./**/*.tfvars",
+    "~/.aws/credentials", "~/.ssh/**", "~/.netrc", "~/.npmrc",
+    "~/.pypirc", "~/.git-credentials", "~/.docker/config.json", "~/.kube/config",
+)
+DENY_RULES = tuple(f"Read({p})" for p in _DENY_BASE) + tuple(f"NotebookEdit({p})" for p in _DENY_BASE) + tuple(
+    f"Read(!{name})" for name in SAFE_ENV_NAMES
+) + tuple(f"NotebookEdit(!{name})" for name in SAFE_ENV_NAMES)
 
 
 def keyfence_path() -> str:
