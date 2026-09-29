@@ -187,6 +187,25 @@ def test_two_bracket_classes_are_expanded_together():
     assert hooks.paths_in_command("cat .[e]n[v]") == [".[e]n[v]", ".env"]
 
 
+def test_a_word_at_the_expansion_limit_is_still_decided():
+    word = "/tmp/" + "[abcdefghij]" * 4 + "/notes.md"
+    assert hooks._bracket_expansion_size(word) == hooks._BRACKET_EXPANSION_LIMIT
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word}"}}) is None
+
+
+def test_a_word_past_the_expansion_limit_is_refused():
+    word = "/tmp/" + "[abcdefghij]" * 5 + "/notes.md"
+    with pytest.raises(hooks._ExpansionTooLarge):
+        hooks._bracket_expansion_size(word)
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word}"}})
+    assert reason and word in reason and "character class" in reason
+
+
+def test_past_the_expansion_limit_is_refused_rather_than_expanded():
+    word = "/tmp/" + "[abcdefghij]" * 6 + "/.env"
+    assert hooks._refusal_for_too_many_bracket_classes(f"cat {word}") == word
+
+
 @pytest.mark.parametrize("command", [
     "cat //.env*",
     "cat //id_rsa*",

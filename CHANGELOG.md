@@ -18,7 +18,13 @@
   sensitive name stays allowed: a character class inside a `sed` expression
   or a `grep` pattern is not a path, so `sed -i '' 's/[abc]/x/' file.txt`,
   `grep '[0-9]' data.csv` and `cat notes[1].md` still pass, because the
-  expansion still has to match a sensitive name.
+  expansion still has to match a sensitive name. The expansion is bounded at
+  10000 candidates per word, because the combinations multiply: a word
+  carrying six classes of ten characters is a million candidates, which took
+  the hook about eighteen seconds to decide and would have run into the hook
+  timeout. A word past that bound is refused outright rather than decided on
+  a partial expansion, so the guard fails closed instead of quietly allowing
+  a word it could not resolve.
 
 - `cat [c]redentials` stays allowed, because a word with no `/`, `.` or `_`
   is never treated as a path. That predates this release and is the known
