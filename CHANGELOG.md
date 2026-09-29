@@ -11,12 +11,14 @@
   refused. A test pins the URL case. A bracket glob is refused when the
   class expands to a secret name, and every character of every class in the
   word is tried, so `cat .[e]nv`, `cat .[ce]nv`, `cat .[abcde]nv`,
-  `cat ~/.ssh/id_[r]sa` and `cat id_rs[a]` are all refused. A class that
-  expands to no sensitive name stays allowed: a character class inside a
-  `sed` expression or a `grep` pattern is not a path, so
-  `sed -i '' 's/[abc]/x/' file.txt`, `grep '[0-9]' data.csv` and
-  `cat notes[1].md` still pass, because the expansion still has to match a
-  sensitive name.
+  `cat ~/.ssh/id_[r]sa` and `cat id_rs[a]` are all refused. Where a word
+  carries more than one class, every combination of them is tried, because
+  `cat .[e]n[v]` and `cat i[d]_rs[a]` each reach a secret name only once
+  both classes are resolved at the same time. A class that expands to no
+  sensitive name stays allowed: a character class inside a `sed` expression
+  or a `grep` pattern is not a path, so `sed -i '' 's/[abc]/x/' file.txt`,
+  `grep '[0-9]' data.csv` and `cat notes[1].md` still pass, because the
+  expansion still has to match a sensitive name.
 
 - `cat [c]redentials` stays allowed, because a word with no `/`, `.` or `_`
   is never treated as a path. That predates this release and is the known

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import itertools
 import json
 import re
 import shutil
@@ -108,10 +109,19 @@ def _is_url_remainder(word: str) -> bool:
 
 
 def _expand_bracket_classes(word: str) -> list[str]:
+    classes = list(_BRACKET_CLASS.finditer(word))
+    if not classes:
+        return []
     expanded = []
-    for match in _BRACKET_CLASS.finditer(word):
-        for ch in match.group(1):
-            expanded.append(word[:match.start()] + ch + word[match.end():])
+    for combination in itertools.product(*(match.group(1) for match in classes)):
+        result = []
+        cursor = 0
+        for match, ch in zip(classes, combination):
+            result.append(word[cursor:match.start()])
+            result.append(ch)
+            cursor = match.end()
+        result.append(word[cursor:])
+        expanded.append("".join(result))
     return expanded
 
 

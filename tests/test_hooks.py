@@ -155,6 +155,9 @@ def test_url_with_query_parameter_is_allowed(command):
     "cat .[abcde]nv",
     "cat ~/.ssh/id_[r]sa",
     "cat id_rs[a]",
+    "cat .[e]n[v]",
+    "cat .[ce]n[vx]",
+    "cat i[d]_rs[a]",
     "cat /tmp/ab[cd]/.env[.local]",
 ])
 def test_bracket_glob_expands_to_secret_name_is_refused(command):
@@ -170,12 +173,18 @@ def test_a_bracket_class_that_expands_to_no_sensitive_name_is_still_allowed(comm
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
 
 
-def test_every_character_of_every_bracket_class_is_expanded():
+def test_every_combination_of_every_bracket_class_is_expanded():
     assert hooks.paths_in_command("cat /tmp/ab[cd]/.env[.local]") == [
-        "/tmp/ab[cd]/.env[.local]", "/tmp/abc/.env[.local]", "/tmp/abd/.env[.local]",
-        "/tmp/ab[cd]/.env.", "/tmp/ab[cd]/.envl", "/tmp/ab[cd]/.envo",
-        "/tmp/ab[cd]/.envc", "/tmp/ab[cd]/.enva", "/tmp/ab[cd]/.envl",
+        "/tmp/ab[cd]/.env[.local]",
+        "/tmp/abc/.env.", "/tmp/abc/.envl", "/tmp/abc/.envo",
+        "/tmp/abc/.envc", "/tmp/abc/.enva", "/tmp/abc/.envl",
+        "/tmp/abd/.env.", "/tmp/abd/.envl", "/tmp/abd/.envo",
+        "/tmp/abd/.envc", "/tmp/abd/.enva", "/tmp/abd/.envl",
     ]
+
+
+def test_two_bracket_classes_are_expanded_together():
+    assert hooks.paths_in_command("cat .[e]n[v]") == [".[e]n[v]", ".env"]
 
 
 @pytest.mark.parametrize("command", [
