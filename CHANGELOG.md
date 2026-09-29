@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `docs/configuration.md` now says that `hosts` and `extra_hosts` are
+  read when the proxy starts, so under `keyfence exec` editing either takes
+  effect on the next session and not during a running one. `keyfence run`
+  intercepts every host, so the addon reloads a new entry without a restart.
+  The behaviour shipped in 0.8.0 and the caveat was never written down.
+
 - `certifi` is now declared in `pyproject.toml`. `keyfence/runner.py`
   imports it as the first source of system roots for the CA bundle, but
   it was only present because mitmproxy depends on it; on Windows the
