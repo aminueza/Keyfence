@@ -10,9 +10,17 @@
   though nothing on this machine is named that and the command only fetches
   it. The guard now finds the spans in the raw command that carry a scheme
   and drops those exact characters before the words are split, so the split
-  never sees them. A span runs from `scheme://` to the end of the shell word,
-  which stops at whitespace and at the shell metacharacters, so a path typed
-  after one is still decided: `curl https://x.com/a && cat .env` and
+  never sees them. Only the schemes that fetch something remote are masked,
+  `http`, `https`, `ftp`, `ftps`, `ws` and `wss`, matched without regard to
+  case; anything else falls through to the path check, because the mask
+  that fixes a false positive must not become the way to read a key.
+  `curl file:///root/.ssh/id_rsa` and `FILE:///root/.ssh/id_rsa` read a local
+  file through the scheme, so they stay refused, and so does the next
+  scheme nobody has heard of that turns out to read local files, which an
+  allowlist refuses by default and a denylist would have allowed. A span runs
+  from `scheme://` to the end of the shell word, which stops at whitespace
+  and at the shell metacharacters, so a path typed after one is still
+  decided: `curl https://x.com/a && cat .env` and
   `wget http://host/id_rsa;cat .env` stay refused. The scheme has to come
   from the raw text because the split erases it: `wget http://host/id_rsa`
   and `cat http //root/.ssh/id_rsa` come out of the splitter with the same
