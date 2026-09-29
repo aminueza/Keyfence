@@ -15,6 +15,44 @@
   the bundled `cacert.pem` since 0.0.4, so the call was never the
   constraint; the roots were.
 
+- `.github/PULL_REQUEST_TEMPLATE.md` carries the four sections every merged
+  pull request here already used — Problem, What changed, How to test and
+  Verification — as prompts under each heading instead of a form, so a
+  first-time contributor meets the convention instead of having it
+  explained in review. Verification asks for the commit SHA, the date and
+  the test counts from the run, because a body carrying those can be
+  checked against the diff while a body without them cannot be told from
+  a stale one. The code of conduct question and the review-turnaround
+  question that #108 raised are deliberately left unanswered here; neither
+  is the filer's to decide.
+
+- The private files keyfence writes are set private through the handle it
+  already had open, not through the path. The audit log, the proxy log, the
+  CA bundle, the vault and the file `keyfence exec --record` writes each went
+  through `os.chmod(path, ...)`, which resolves the path a second time: a
+  path swapped between the open and the chmod sent the mode change to
+  whatever now answered that name, which is how a file holding secrets in
+  clear text ends up with the mode of a file the caller never wrote. Each of
+  the five now calls `os.fchmod(handle.fileno(), ...)`, so the mode lands on
+  the file the descriptor already refers to. Two of them, the bundle and the
+  vault, chmod'd after closing the handle, so those calls moved inside the
+  block that holds it, and the record file, whose `touch` opened and closed
+  it, is now opened once and set private on that descriptor. The outcome is
+  the same mode as before; what changed is that it can no longer land
+  somewhere else.
+
+- Placeholder restoration in buffered JSON bodies decides the escaping level
+  from the key instead of the first character of the value, which is the rule
+  the streamed path already follows. A secret containing newlines, restored
+  into a value that merely starts with `{` or `[`, came back escaped one
+  level too deep: prose under `content` that quotes an object, such as
+  `{"content": "{\"example\": \"<<SECRET_1>>\"} explained above"}`, showed a
+  literal `\n` where the newline was, because the leading brace read as "this
+  string holds a nested JSON document". The key now decides that question, and
+  the value's first character only breaks the tie inside `partial_json` and
+  `arguments`, where both shapes genuinely occur, so a nested JSON document
+  still gets the second level while prose keeps its real newlines.
+
 ## 0.8.1 (2026-09-28)
 
 - A path written with a trailing glob is refused again. `cat .env*` is how
