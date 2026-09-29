@@ -21,6 +21,35 @@
   the bundled `cacert.pem` since 0.0.4, so the call was never the
   constraint; the roots were.
 
+- A URL that contains a query parameter whose name matches a sensitive
+  pattern is no longer refused. The unglob logic that strips `*` and `?`
+  from words now skips words that start with `http://`, `https://`, or `//`
+  (the latter covers the scheme-less remainder after word splitting), so
+  `curl https://x.com/?credentials=1` and `curl 'https://x.com/?credentials=1'`
+  are allowed while `cat .env*`, `rm .env*`, and `cat id_rsa*` are still
+  refused. A test pins the URL case. A bracket glob is refused when the
+  class expands to a secret name, and every character of every class in the
+  word is tried, so `cat .[e]nv`, `cat .[ce]nv`, `cat .[abcde]nv`,
+  `cat ~/.ssh/id_[r]sa` and `cat id_rs[a]` are all refused. Where a word
+  carries more than one class, every combination of them is tried, because
+  `cat .[e]n[v]` and `cat i[d]_rs[a]` each reach a secret name only once
+  both classes are resolved at the same time. A class that expands to no
+  sensitive name stays allowed: a character class inside a `sed` expression
+  or a `grep` pattern is not a path, so `sed -i '' 's/[abc]/x/' file.txt`,
+  `grep '[0-9]' data.csv` and `cat notes[1].md` still pass, because the
+  expansion still has to match a sensitive name. The expansion is bounded at
+  10000 candidates per word, because the combinations multiply: a word
+  carrying six classes of ten characters is a million candidates, which took
+  the hook about eighteen seconds to decide and would have run into the hook
+  timeout. A word past that bound is refused outright rather than decided on
+  a partial expansion, so the guard fails closed instead of quietly allowing
+  a word it could not resolve.
+
+- `cat [c]redentials` stays allowed, because a word with no `/`, `.` or `_`
+  is never treated as a path. That predates this release and is the known
+  limit of the word filter, recorded here so the bracket claim above is not
+  read as complete.
+
 - `.github/PULL_REQUEST_TEMPLATE.md` carries the four sections every merged
   pull request here already used — Problem, What changed, How to test and
   Verification — as prompts under each heading instead of a form, so a
