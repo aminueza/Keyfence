@@ -318,12 +318,7 @@ PEM = ("-----BEGIN PRIVATE KEY-----\n"
        "-----END PRIVATE KEY-----")
 
 
-def test_blocker1_text_delta_starting_with_brace_gets_raw_level():
-    """
-    Blocker 1: A visible text delta that happens to start with `{` gets an extra
-    level of escaping. The fix: escape level comes from event/field type, not
-    from the first character of the value.
-    """
+def test_text_delta_starting_with_brace_escapes_by_event_type_not_first_char():
     mapping = {"<<SECRET_1>>": PEM}
     r = SSERestorer(mapping)
 
@@ -346,11 +341,7 @@ def test_blocker1_text_delta_starting_with_brace_gets_raw_level():
     assert "BEGIN PRIVATE KEY-----\nMIIE" in result
 
 
-def test_blocker2_object_keys_get_same_escaping_as_values():
-    """
-    Blocker 2: Object keys are restored with no escaping at all.
-    The fix: keys get the same escape level as values (extra=1 for JSON strings).
-    """
+def test_object_keys_get_same_escaping_as_values():
     mapping = {"<<SECRET_1>>": PEM}
     body = json.dumps({"<<SECRET_1>>": "value"})
     restored = restore_json(body, mapping)
@@ -368,12 +359,7 @@ def test_blocker2_object_keys_get_same_escaping_as_values():
     assert parsed[key] == "value"
 
 
-def test_blocker3_no_dead_branch_in_restore_json():
-    """
-    Blocker 3: Dead branch in restore_json where elif key in NESTED_JSON_FIELDS
-    and else both did extra=1. The fix: the key decides the level, and the
-    value's first character breaks the tie inside partial_json and arguments.
-    """
+def test_restore_json_escape_level_comes_from_key_and_value_first_char():
     mapping = {"<<SECRET_1>>": PEM}
 
     # Test 1: JSON-like value (starts with {) gets extra=2
