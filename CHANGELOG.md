@@ -28,6 +28,18 @@
   the same mode as before; what changed is that it can no longer land
   somewhere else.
 
+- Placeholder restoration in buffered JSON bodies decides the escaping level
+  from the key instead of the first character of the value, which is the rule
+  the streamed path already follows. A secret containing newlines, restored
+  into a value that merely starts with `{` or `[`, came back escaped one
+  level too deep: prose under `content` that quotes an object, such as
+  `{"content": "{\"example\": \"<<SECRET_1>>\"} explained above"}`, showed a
+  literal `\n` where the newline was, because the leading brace read as "this
+  string holds a nested JSON document". The key now decides that question, and
+  the value's first character only breaks the tie inside `partial_json` and
+  `arguments`, where both shapes genuinely occur, so a nested JSON document
+  still gets the second level while prose keeps its real newlines.
+
 ## 0.8.1 (2026-09-28)
 
 - A path written with a trailing glob is refused again. `cat .env*` is how
