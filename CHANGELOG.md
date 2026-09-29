@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code` now prints the Claude Code versions its
+  deny rules need, next to the count of rules it wrote and also when the hook
+  was already in place. `Read` deny rules cover `Edit` only from 2.1.208 and
+  `Write` only from 2.1.228, so on older versions the declarative layer misses
+  those two tools and only the Python hook refuses them. `--remove` does not
+  print it. The two versions have one definition in `keyfence/cli.py` and a test
+  checks `docs/setup.md` names the same two.
 - The last docstrings and comments under `tests/` are gone. The branch
   that introduced them ended with a commit called "Remove docstrings and
   comments per convention" and missed the three streaming tests, so they

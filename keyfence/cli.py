@@ -17,6 +17,7 @@ from .importer import default_paths, env_values, import_files, looks_secret
 from .vault import DEFAULT_DIR, Vault, VaultError
 
 AGENTS = ("claude-code", "pi")
+DENY_RULE_MIN_CLAUDE_CODE = {"Edit": "2.1.208", "Write": "2.1.228"}
 
 
 def cmd_add_secret(_args) -> int:
@@ -199,6 +200,12 @@ def _list_hooks() -> int:
     return 0
 
 
+def _print_deny_rule_versions() -> None:
+    versions = DENY_RULE_MIN_CLAUDE_CODE
+    print(f"Those rules also cover Edit on Claude Code {versions['Edit']}+ and Write on {versions['Write']}+, so on "
+          "older versions only the Python hook refuses them.")
+
+
 def cmd_install_hooks(args) -> int:
     if args.pi_command and (args.list or args.remove or args.agent != "pi"):
         print("error: --command only applies to `install-hooks pi`", file=sys.stderr)
@@ -226,10 +233,12 @@ def cmd_install_hooks(args) -> int:
         print(f"Hook installed in {path} for {scope}.")
         print(f"That file also holds a permissions.deny block: keyfence's {len(hooks.DENY_RULES)} rules make "
               "Claude Code refuse to read .env files, private keys and credential files.")
+        _print_deny_rule_versions()
         print(f"The rules keyfence added are listed in {hooks.added_rules_path(path)}, which is the record "
               "--remove reads back.")
     else:
         print(f"Hook already present in {path}.")
+        _print_deny_rule_versions()
     return 0
 
 

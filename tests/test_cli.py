@@ -1,6 +1,7 @@
 import io
 import json
 import runpy
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +9,7 @@ from keyfence import cli
 from keyfence.vault import Vault
 
 KEY = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_scan_text_reports_findings(home, capsys):
@@ -453,6 +455,40 @@ def test_install_hooks_names_the_hook_the_deny_block_and_the_record_it_writes(ho
     out = capsys.readouterr().out
     assert str(settings) in out and "permissions.deny" in out and str(record) in out
     assert json.loads(record.read_text()) == sorted(cli.hooks.DENY_RULES)
+
+
+def test_install_hooks_prints_the_claude_code_versions_the_deny_rules_need_below_the_rule_count(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    after_count = lines[lines.index(next(line for line in lines if "permissions.deny block" in line)) + 1]
+    assert "Edit" in after_count and "Write" in after_count
+    assert all(version in after_count for version in cli.DENY_RULE_MIN_CLAUDE_CODE.values())
+
+
+def test_install_hooks_prints_the_claude_code_versions_when_the_hook_is_already_there(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    capsys.readouterr()
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    out = capsys.readouterr().out
+    assert "Hook already present" in out
+    assert all(version in out for version in cli.DENY_RULE_MIN_CLAUDE_CODE.values())
+
+
+def test_install_hooks_remove_does_not_print_the_claude_code_versions(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    capsys.readouterr()
+    assert cli.main(["install-hooks", "claude-code", "--project", "--remove"]) == 0
+    out = capsys.readouterr().out
+    assert "Hook removed" in out
+    assert not any(version in out for version in cli.DENY_RULE_MIN_CLAUDE_CODE.values())
+
+
+def test_setup_md_names_the_same_claude_code_versions_the_deny_rules_need():
+    setup = (ROOT / "docs" / "setup.md").read_text()
+    assert all(version in setup for version in cli.DENY_RULE_MIN_CLAUDE_CODE.values())
 
 
 def test_install_hooks_remove_without_record_keeps_user_rules_until_forced(home, tmp_path, monkeypatch, capsys):
