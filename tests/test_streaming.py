@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from keyfence.streaming import Event, SSERestorer, partial_suffix, restore, restore_json
 
 KEY = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
@@ -369,8 +371,8 @@ def test_blocker2_object_keys_get_same_escaping_as_values():
 def test_blocker3_no_dead_branch_in_restore_json():
     """
     Blocker 3: Dead branch in restore_json where elif key in NESTED_JSON_FIELDS
-    and else both did extra=1. The fix: value-based logic, NESTED_JSON_FIELDS
-    no longer used in restore_json.
+    and else both did extra=1. The fix: the key decides the level, and the
+    value's first character breaks the tie inside partial_json and arguments.
     """
     mapping = {"<<SECRET_1>>": PEM}
 
@@ -394,6 +396,31 @@ def test_blocker3_no_dead_branch_in_restore_json():
     parsed3 = json.loads(restored3)
     assert parsed3["text"] == PEM
 
-    # The key point: NESTED_JSON_FIELDS is not used in restore_json anymore
-    # (the elif/else dead branch is removed)
-    # This is verified by the tests above passing with value-based logic
+
+def test_restore_json_brace_starting_prose_in_plain_field_restores_real_newlines():
+    mapping = {"<<SECRET_1>>": PEM}
+    body = '{"content": "{\\"example\\": \\"<<SECRET_1>>\\"} explained above"}'
+    restored = restore_json(body, mapping)
+    parsed = json.loads(restored)
+    assert parsed["content"] == '{"example": "' + PEM + '"} explained above'
+    assert "\\n" not in parsed["content"]
+
+
+def test_restore_json_partial_json_starting_with_brace_keeps_two_levels():
+    mapping = {"<<SECRET_1>>": PEM}
+    nested = json.dumps({"key": "<<SECRET_1>>"})
+    body = json.dumps({"partial_json": nested})
+    restored = restore_json(body, mapping)
+    inner = json.loads(json.loads(restored)["partial_json"])
+    assert inner == {"key": PEM}
+
+
+def test_restore_json_stringified_document_under_content_parses_outer_body_only():
+    mapping = {"<<SECRET_1>>": PEM}
+    nested = json.dumps({"key": "<<SECRET_1>>"})
+    body = json.dumps({"content": nested})
+    restored = restore_json(body, mapping)
+    parsed = json.loads(restored)
+    assert "\nMIIE" in parsed["content"]
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(parsed["content"])

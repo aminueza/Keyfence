@@ -248,7 +248,10 @@ def ensure_bundle(ca_cert: Path, home: Path | None = None) -> tuple[Path, str]:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, BUNDLE_MODE)
     with os.fdopen(fd, "w") as handle:
         handle.write(content)
-    os.chmod(path, BUNDLE_MODE)
+        if hasattr(os, "fchmod"):
+            os.fchmod(handle.fileno(), BUNDLE_MODE)
+        else:
+            os.chmod(path, BUNDLE_MODE)
     return path, f"{roots} ({kind}) plus {ca_cert}"
 
 
@@ -339,7 +342,10 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
     proxy_fd = os.open(proxy_log_path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
     proxy_log = os.fdopen(proxy_fd, "a")
     try:
-        os.chmod(proxy_log_path, 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(proxy_log.fileno(), 0o600)
+        else:
+            os.chmod(proxy_log_path, 0o600)
     except OSError as exc:
         print(f"keyfence: could not make {proxy_log_path} private: {exc}", file=sys.stderr, flush=True)
     if local == "":
@@ -350,9 +356,15 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         if notice:
             print(notice, file=sys.stderr, flush=True)
         record.parent.mkdir(parents=True, exist_ok=True)
-        record.touch(mode=0o600)
-        with contextlib.suppress(OSError):
-            os.chmod(record, 0o600)
+        record_fd = os.open(record, os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            with contextlib.suppress(OSError):
+                if hasattr(os, "fchmod"):
+                    os.fchmod(record_fd, 0o600)
+                else:
+                    os.chmod(record, 0o600)
+        finally:
+            os.close(record_fd)
         extra += ["-w", str(record)]
     try:
         proxy = start_proxy(port, proxy_env, proxy_log, timeout, ca_cert, local, extra)
