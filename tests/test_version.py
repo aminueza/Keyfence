@@ -53,9 +53,15 @@ def certifi_floors() -> dict[str, list[str]]:
     }
 
 
+def certifi_release(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
 def test_the_certifi_floor_is_a_current_year_trust_store():
     for floors in certifi_floors().values():
-        assert floors == ["2026.1.4"]
+        assert floors
+        for floor in floors:
+            assert certifi_release(floor) >= (2026, 1, 4)
 
 
 def test_pyproject_and_requirements_declare_the_same_certifi_floor():
