@@ -3,9 +3,10 @@
 ## Unreleased
 
 - `docs/configuration.md` now says that `hosts` and `extra_hosts` are
-  read when the proxy starts, so editing either takes effect on the next
-  `keyfence exec` and not during a running session. The behaviour shipped
-  in 0.8.0 and the caveat was never written down.
+  read when the proxy starts, so under `keyfence exec` editing either takes
+  effect on the next session and not during a running one. `keyfence run`
+  intercepts every host, so the addon reloads a new entry without a restart.
+  The behaviour shipped in 0.8.0 and the caveat was never written down.
 
 - `.github/PULL_REQUEST_TEMPLATE.md` carries the four sections every merged
   pull request here already used — Problem, What changed, How to test and

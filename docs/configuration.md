@@ -6,8 +6,8 @@ optional.
 | key | default | description |
 |---|---|---|
 | `mode` | `redact` | `audit` (log only, change nothing), `redact`, `placeholder` or `block` |
-| `hosts` | 20 AI provider hosts | hosts to monitor; wildcards allowed; a change takes effect on the next `keyfence exec`, not during a running session |
-| `extra_hosts` | `[]` | hosts to add to the default list; same restart rule as `hosts` |
+| `hosts` | 20 AI provider hosts | hosts to monitor; wildcards allowed; under `keyfence exec` a change takes effect on the next session, not during a running one; `keyfence run` intercepts every host, so it picks a new entry up without a restart |
+| `extra_hosts` | `[]` | hosts to add to the default list; same rule as `hosts` |
 | `intercept_all_hosts` | `false` | scan every host, not only AI providers |
 | `notice` | `true` | add the system prompt notice when a request body was changed; WebSocket frames never get it |
 | `scan.patterns` | `true` | built-in pattern rules |
