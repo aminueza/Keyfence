@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `.github/PULL_REQUEST_TEMPLATE.md` carries the four sections every merged
+  pull request here already used — Problem, What changed, How to test and
+  Verification — as prompts under each heading instead of a form, so a
+  first-time contributor meets the convention instead of having it
+  explained in review. Verification asks for the commit SHA, the date and
+  the test counts from the run, because a body carrying those can be
+  checked against the diff while a body without them cannot be told from
+  a stale one. The code of conduct question and the review-turnaround
+  question that #108 raised are deliberately left unanswered here; neither
+  is the filer's to decide.
+
 - The private files keyfence writes are set private through the handle it
   already had open, not through the path. The audit log, the proxy log, the
   CA bundle, the vault and the file `keyfence exec --record` writes each went
