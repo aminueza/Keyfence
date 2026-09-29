@@ -1,5 +1,6 @@
 import json
 import re
+import tomllib
 from pathlib import Path
 
 from keyfence import __version__, doctor, runner
@@ -35,6 +36,37 @@ def test_dev_version_is_ahead_of_the_last_release():
     last = tuple(int(p) for p in released[0].split("."))
     current = tuple(int(p) for p in __version__.split(".dev")[0].split("."))
     assert current > last
+
+
+def test_certifi_is_declared_as_a_project_dependency():
+    dependencies = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
+    names = {re.match(r"[A-Za-z0-9_.-]+", requirement).group().lower() for requirement in dependencies}
+    assert "certifi" in names
+
+
+def certifi_floors() -> dict[str, list[str]]:
+    dependencies = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
+    required = (ROOT / "requirements.txt").read_text().splitlines()
+    return {
+        "pyproject.toml": [re.match(r"certifi>=(\S+)", d).group(1) for d in dependencies if d.lower().startswith("certifi>=")],
+        "requirements.txt": [re.match(r"certifi>=(\S+)", l).group(1) for l in required if l.startswith("certifi>=")],
+    }
+
+
+def certifi_release(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def test_the_certifi_floor_is_a_current_year_trust_store():
+    for floors in certifi_floors().values():
+        assert floors
+        for floor in floors:
+            assert certifi_release(floor) >= (2026, 1, 4)
+
+
+def test_pyproject_and_requirements_declare_the_same_certifi_floor():
+    floors = certifi_floors()
+    assert floors["pyproject.toml"] == floors["requirements.txt"]
 
 
 def test_plugin_manifest_carries_the_released_version():

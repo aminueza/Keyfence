@@ -12,6 +12,7 @@ license-files = ["LICENSE", "keyfence/rules/GITLEAKS-LICENSE"]
 authors = [{ name = "Amanda Souza" }]
 requires-python = ">=3.12"
 dependencies = [
+    "certifi>=2026.1.4",
     "mitmproxy>=10.0",
     "PyYAML>=6.0",
 ]

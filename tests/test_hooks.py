@@ -133,6 +133,91 @@ def test_commands_mentioning_no_secret_file_pass(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
 
 
+@pytest.mark.parametrize("command", [
+    "curl https://x.com/?credentials=1",
+    "curl http://x.com/?credentials=1",
+    "curl HTTPS://x.com/?credentials=1",
+    "curl 'https://x.com/?credentials=1'",
+    "curl \"https://x.com/?credentials=1\"",
+    "wget https://example.com/?token=secret",
+    "curl https://api.example.com/v1/users?api_key=abc123",
+])
+def test_url_with_query_parameter_is_allowed(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("command", [
+    "cat .env[.]local",
+    "cat ~/.aws/credential[s]",
+    "cp .env[.]local /tmp/x",
+    "grep KEY .env[.]local",
+    "cat .[ce]nv",
+    "cat .[abcde]nv",
+    "cat ~/.ssh/id_[r]sa",
+    "cat id_rs[a]",
+    "cat .[e]n[v]",
+    "cat .[ce]n[vx]",
+    "cat i[d]_rs[a]",
+    "cat /tmp/ab[cd]/.env[.local]",
+])
+def test_bracket_glob_expands_to_secret_name_is_refused(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+@pytest.mark.parametrize("command", [
+    "sed -i '' 's/[abc]/x/' file.txt",
+    "grep '[0-9]' data.csv",
+    "cat notes[1].md",
+])
+def test_a_bracket_class_that_expands_to_no_sensitive_name_is_still_allowed(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+def test_every_combination_of_every_bracket_class_is_expanded():
+    assert hooks.paths_in_command("cat /tmp/ab[cd]/.env[.local]") == [
+        "/tmp/ab[cd]/.env[.local]",
+        "/tmp/abc/.env.", "/tmp/abc/.envl", "/tmp/abc/.envo",
+        "/tmp/abc/.envc", "/tmp/abc/.enva", "/tmp/abc/.envl",
+        "/tmp/abd/.env.", "/tmp/abd/.envl", "/tmp/abd/.envo",
+        "/tmp/abd/.envc", "/tmp/abd/.enva", "/tmp/abd/.envl",
+    ]
+
+
+def test_two_bracket_classes_are_expanded_together():
+    assert hooks.paths_in_command("cat .[e]n[v]") == [".[e]n[v]", ".env"]
+
+
+def test_a_word_at_the_expansion_limit_is_still_decided():
+    word = "/tmp/" + "[abcdefghij]" * 4 + "/notes.md"
+    assert hooks._bracket_expansion_size(word) == hooks._BRACKET_EXPANSION_LIMIT
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word}"}}) is None
+
+
+def test_a_word_past_the_expansion_limit_is_refused():
+    word = "/tmp/" + "[abcdefghij]" * 5 + "/notes.md"
+    with pytest.raises(hooks._ExpansionTooLarge):
+        hooks._bracket_expansion_size(word)
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word}"}})
+    assert reason and word in reason and "character class" in reason
+
+
+def test_past_the_expansion_limit_is_refused_rather_than_expanded():
+    word = "/tmp/" + "[abcdefghij]" * 6 + "/.env"
+    assert hooks._refusal_for_too_many_bracket_classes(f"cat {word}") == word
+
+
+@pytest.mark.parametrize("command", [
+    "cat //.env*",
+    "cat //id_rsa*",
+    "cat //etc.local/.env*",
+    "cat //my.dir/id_rsa*",
+    "ls //.ssh/id_rsa*",
+    "rm //.env*",
+])
+def test_filesystem_path_with_leading_double_slash_is_still_refused(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
 @pytest.mark.parametrize("path", [".ssh/known_hosts", ".kube/config", ".docker/config.json", ".gnupg/pubring.kbx"])
 def test_relative_paths_under_secret_directories_are_sensitive(path):
     assert hooks.is_sensitive(path)
