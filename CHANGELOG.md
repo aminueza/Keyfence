@@ -8,6 +8,19 @@
   intercepts every host, so the addon reloads a new entry without a restart.
   The behaviour shipped in 0.8.0 and the caveat was never written down.
 
+- `certifi` is now declared in `pyproject.toml`. `keyfence/runner.py`
+  imports it as the first source of system roots for the CA bundle, but
+  it was only present because mitmproxy depends on it; on Windows the
+  other fallbacks are unlikely to answer, so the bundle rested on a
+  transitive dependency. The floor is `2026.1.4`, the first release of
+  the current year, and not an older one: certifi is a trust store
+  rather than an API, so an old release is an old set of roots, and a
+  resolver free to pick one hands the child process a bundle that
+  rejects perfectly good certificates, which reads as keyfence's fault
+  rather than as a root that expired. `certifi.where()` has pointed at
+  the bundled `cacert.pem` since 0.0.4, so the call was never the
+  constraint; the roots were.
+
 - `.github/PULL_REQUEST_TEMPLATE.md` carries the four sections every merged
   pull request here already used — Problem, What changed, How to test and
   Verification — as prompts under each heading instead of a form, so a
