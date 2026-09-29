@@ -2,13 +2,15 @@
 
 ## Unreleased
 
-- The last three docstrings under `tests/` are gone. The branch that
-  introduced them ended with a commit called "Remove docstrings and
-  comments per convention" and missed them, so they were an oversight
-  rather than a deliberate exception. `test_blocker1_...` and
-  `test_blocker3_...` were renamed because their docstrings carried
+- The last docstrings and comments under `tests/` are gone. The branch
+  that introduced them ended with a commit called "Remove docstrings and
+  comments per convention" and missed the three streaming tests, so they
+  were an oversight rather than a deliberate exception. `test_blocker1_...`
+  and `test_blocker3_...` were renamed because their docstrings carried
   information the names did not, `test_blocker2_...` was renamed only to
-  drop the `blocker2` prefix. No behaviour changed.
+  drop the `blocker2` prefix, and `test_blocker3_...` was split into three
+  named tests so that the case labels its comments carried live in the names.
+  No behaviour changed.
 - A URL in a command is no longer read as a local path, so
   `curl https://x.com/secrets.json`, `curl https://x.com/.env` and
   `wget http://host/id_rsa` are allowed. The word splitter breaks on `:`, so
