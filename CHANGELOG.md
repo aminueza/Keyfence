@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.9.0 (2026-09-29)
 
 - A URL in a command is no longer read as a local path, so
