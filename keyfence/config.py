@@ -52,6 +52,7 @@ class Config:
     mode: str = "redact"
     hosts: list[str] = field(default_factory=lambda: list(DEFAULT_AI_HOSTS))
     intercept_all_hosts: bool = False
+    proxy_tcp_timeout: int = 3600
     notice: bool = True
     scan: ScanConfig = field(default_factory=ScanConfig)
     audit_log: Path = field(default_factory=lambda: DEFAULT_DIR / "audit.log")
@@ -78,6 +79,13 @@ class Config:
                 cfg.hosts.extend(data["extra_hosts"])
             cfg.intercept_all_hosts = bool(
                 data.get("intercept_all_hosts", cfg.intercept_all_hosts))
+            raw_timeout = data.get("proxy_tcp_timeout")
+            if raw_timeout is not None:
+                if (isinstance(raw_timeout, bool) or not isinstance(raw_timeout, int)
+                        or raw_timeout <= 0):
+                    raise ValueError(
+                        f"proxy_tcp_timeout must be a positive integer, got {raw_timeout!r}")
+                cfg.proxy_tcp_timeout = raw_timeout
             cfg.notice = bool(data.get("notice", cfg.notice))
             scan = data.get("scan") or {}
             cfg.scan = ScanConfig(
