@@ -116,6 +116,7 @@ def cmd_scan(args) -> int:
 
 
 def cmd_run(args) -> int:
+    config = Config.load()
     if runner.port_open(args.port):
         print(f"Port {args.port} is already in use. Pick another one with -p.")
         return 1
@@ -129,7 +130,8 @@ def cmd_run(args) -> int:
     print(f"  export HTTP_PROXY=http://127.0.0.1:{args.port}")
     print("or run them through it directly: keyfence exec -- <command>")
     print("(Ctrl+C to stop)\n", flush=True)
-    command = runner.proxy_command(args.port, local=args.local)
+    command = runner.proxy_command(args.port, local=args.local,
+                                   extra=runner.tcp_timeout_args(config))
     try:
         os.execvp(command[0], command)
     except FileNotFoundError:
@@ -286,6 +288,7 @@ def cmd_status(_args) -> int:
     print(f"Mode:            {cfg.mode}")
     print(f"Hosts:           {len(cfg.hosts)} monitored"
           + (" (intercepting ALL hosts)" if cfg.intercept_all_hosts else ""))
+    print(f"TCP timeout:     {cfg.proxy_tcp_timeout} s")
     print(f"Vault:           {vault.count()} secret(s), {vault.canary_count()} canary(ies) in {vault.path}")
     print(f"Rules:           {len(cfg.scan.rules)} gitleaks rules"
           + ("" if cfg.scan.gitleaks else " (disabled)"))
@@ -408,6 +411,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _dispatch(args)
     except VaultError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

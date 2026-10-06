@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- `keyfence exec` and `keyfence run` now configure mitmproxy's `tcp_timeout`
+  from a new `proxy_tcp_timeout` key in `~/.keyfence/config.yaml`, which
+  defaults to 3600 seconds. mitmproxy closes a TCP connection across which
+  no data has moved for longer than `tcp_timeout`, and its built-in default
+  of 600 seconds silently kills long LLM requests: a model that takes more
+  than ten minutes to produce the first token, or a non-streaming request
+  whose reasoning sends nothing until it is done, sees the request fail from
+  the client side with no sign in the audit log that the proxy was the one
+  that dropped it. Both entry points
+  now pass `--set tcp_timeout=<value>` to mitmdump, so the value in the
+  config file is honoured by `keyfence exec` (which builds its own mitmdump
+  command) and by `keyfence run` (which replaces the current process with
+  mitmdump and previously started the proxy with no timeout override at
+  all). The key is read like the other top-level keys and validated when the
+  file is loaded: a value that is not an integer, or that is zero or
+  negative, is an error that names the key and the offending value instead of
+  falling back to the default, so a typo cannot quietly re-enable the
+  600-second cutoff. `keyfence selftest` starts a proxy too, but its single
+  request completes in seconds, so it keeps mitmproxy's own default and is
+  unchanged. Review of the change widened who reports a bad config and who
+  shows the timeout: a config file that fails to load now makes every
+  command print one `error: <message>` line on stderr and exit 1 instead of
+  a traceback, because `keyfence main` catches `ValueError` beside the
+  existing `VaultError` handler, so `status`, `scan`, `import`, `export`,
+  `doctor` and `selftest` report the same one-line error `exec` and `run`
+  already did, and `keyfence status` prints the configured timeout in its
+  summary (`TCP timeout:     3600 s`), so a session that drops long requests
+  can be diagnosed by reading one command's output.
+
 - `keyfence exec` puts `localhost`, `127.0.0.1` and `::1` in `NO_PROXY` and
   `no_proxy` for the command it starts: set when the variable is empty,
   appended without repeating an entry the exported list already holds, and

@@ -216,6 +216,21 @@ def test_run_tells_mitmdump_to_tunnel_the_hosts_it_does_not_monitor(home, write_
     assert not _tunnels_with_argv(seen["cmd"], runner.PROBE_HOST)
 
 
+def test_run_tells_mitmdump_the_tcp_timeout_from_the_config(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    write_config("proxy_tcp_timeout: 7200\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert ["--set", "tcp_timeout=7200"] in _pairs(seen["cmd"])
+
+
+def test_run_tells_mitmdump_the_default_tcp_timeout(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert ["--set", "tcp_timeout=3600"] in _pairs(seen["cmd"])
+
+
 def test_run_still_tunnels_the_hosts_it_does_not_monitor_while_recording(home, write_config, monkeypatch, tmp_path):
     seen = {}
     write_config("mode: audit\nhosts:\n  - api.openai.com\n")
