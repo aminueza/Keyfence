@@ -125,8 +125,10 @@ request for `http://keyfence.invalid/` sent through it (mitmdump listening
 is not enough: without the addon it would be a plain proxy), sets
 `HTTPS_PROXY`, `HTTP_PROXY` and the CA variables for the command, adds
 `localhost`, `127.0.0.1` and `::1` to `NO_PROXY` so requests to loopback
-addresses bypass the proxy unless a loopback host is in `hosts` or
-`intercept_all_hosts` is on, snapshots
+addresses bypass the proxy unless the config asks to scan them:
+`intercept_all_hosts` on, or a `hosts` pattern that matches a loopback
+name (`127.0.0.1`, `127.0.0.*`) or mentions one (`api.localhost`,
+`*.localhost`), snapshots
 environment variables with secret-like names into a temporary vault, runs
 the command, and stops the proxy when it exits. If the addon never answers,
 the command is not started and the reason is in `~/.keyfence/proxy.log`.

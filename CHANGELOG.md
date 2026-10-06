@@ -13,15 +13,18 @@
   in `ss -tnp` as a connection from `mitmdump` and hit long requests with
   the 600 s inactivity timeout of #135, and what made podman fail inside
   containers (with `--http-proxy=false` as the way out, now written down
-  in `docs/limitations.md`). The entries are left out when a loopback
-  host is in `hosts` or when `intercept_all_hosts` is on, so a config
-  that asks to scan every host still gets loopback scanned and nothing
-  silently skips it: `keyfence selftest` relies on the first, adding
-  `127.0.0.1` to `hosts`, and scanning a local service stays an explicit
-  choice. `keyfence doctor` now warns when the shell has a proxy set but
-  `NO_PROXY` leaves out the loopback entries, naming the export that adds
-  them, for the manual `keyfence run` setup where exec does not fill them
-  in for you.
+  in `docs/limitations.md`). The entries are left out when the config asks
+  to scan the loopback: `intercept_all_hosts` on, or a `hosts` pattern
+  that matches a loopback name the way the addon would (`127.0.0.1`,
+  `127.0.0.*`) or that merely mentions one as a suffix (`api.localhost`,
+  `*.localhost`, where `NO_PROXY=localhost` would bypass the match), so a
+  config that asks to scan loopback still gets loopback scanned and
+  nothing silently skips it: `keyfence selftest` relies on the first,
+  adding `127.0.0.1` to `hosts`, and scanning a local service stays an
+  explicit choice. `keyfence doctor` now warns when the shell has a proxy
+  set but `NO_PROXY` leaves out the loopback entries, naming the export
+  that adds them, for the manual `keyfence run` setup where exec does not
+  fill them in for you.
 
 ## 0.9.0 (2026-09-29)
 
