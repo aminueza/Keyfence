@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import http.client
 import json
 import os
@@ -264,9 +265,22 @@ def with_loopback(value: str) -> str:
     return ",".join(entries)
 
 
+def loopback_monitored(config: Config) -> bool:
+    if config.intercept_all_hosts:
+        return True
+    if any(config.host_matches(name) for name in LOOPBACK_BYPASS):
+        return True
+    spellings = (*LOOPBACK_BYPASS, "[::1]")
+    for pattern in config.hosts:
+        text = pattern.strip().lower()
+        if any(text == name or text.endswith("." + name) or fnmatch.fnmatch(name, text)
+               for name in spellings):
+            return True
+    return False
+
+
 def child_env(base: Mapping[str, str], port: int, ca_cert: Path, bundle: Path,
-              windows: bool = os.name == "nt", hosts: Sequence[str] = (),
-              intercept_all_hosts: bool = False) -> dict[str, str]:
+              windows: bool = os.name == "nt", bypass_loopback: bool = True) -> dict[str, str]:
     env = dict(base)
     proxy_url = f"http://127.0.0.1:{port}"
     for name in PROXY_ENV_VARS:
@@ -274,7 +288,7 @@ def child_env(base: Mapping[str, str], port: int, ca_cert: Path, bundle: Path,
     for name in BUNDLE_ENV_VARS:
         env[name] = str(bundle)
     env["NODE_EXTRA_CA_CERTS"] = str(ca_cert)
-    if not intercept_all_hosts and not any(host.strip().lower() in LOOPBACK_BYPASS for host in hosts):
+    if bypass_loopback:
         upper = (base.get("NO_PROXY") or "").strip()
         lower = (base.get("no_proxy") or "").strip()
         if upper and lower:
@@ -403,8 +417,7 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
             print(exc)
             return 1
         code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert, bundle,
-                                                            hosts=config.hosts,
-                                                            intercept_all_hosts=config.intercept_all_hosts))
+                                                            bypass_loopback=not loopback_monitored(config)))
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
             time.sleep(linger)
