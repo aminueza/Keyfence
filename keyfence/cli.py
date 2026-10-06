@@ -116,6 +116,11 @@ def cmd_scan(args) -> int:
 
 
 def cmd_run(args) -> int:
+    try:
+        config = Config.load()
+    except ValueError as exc:
+        print(f"keyfence: {exc}", file=sys.stderr)
+        return 1
     if runner.port_open(args.port):
         print(f"Port {args.port} is already in use. Pick another one with -p.")
         return 1
@@ -129,7 +134,8 @@ def cmd_run(args) -> int:
     print(f"  export HTTP_PROXY=http://127.0.0.1:{args.port}")
     print("or run them through it directly: keyfence exec -- <command>")
     print("(Ctrl+C to stop)\n", flush=True)
-    command = runner.proxy_command(args.port, local=args.local)
+    command = runner.proxy_command(args.port, local=args.local,
+                                   extra=runner.tcp_timeout_args(config))
     try:
         os.execvp(command[0], command)
     except FileNotFoundError:
