@@ -34,7 +34,8 @@ def live_proxy():
 
 
 def shell_env(proxy, ca, bundle):
-    return {"HTTPS_PROXY": proxy, "NODE_EXTRA_CA_CERTS": str(ca),
+    return {"HTTPS_PROXY": proxy, "NO_PROXY": "localhost,127.0.0.1,::1", "no_proxy": "localhost,127.0.0.1,::1",
+            "NODE_EXTRA_CA_CERTS": str(ca),
             **{name: str(bundle) for name in runner.BUNDLE_ENV_VARS}}
 
 
@@ -136,6 +137,35 @@ def test_the_shell_check_counts_cargo_among_the_ca_variables_it_reports(home, tm
     check = doctor.check_environment("127.0.0.1", live_proxy, good, ca, bundle, system="Linux")
     assert check.detail == f"HTTPS_PROXY and the 6 CA variables point at keyfence on 127.0.0.1:{live_proxy}"
     assert "CARGO_HTTP_CAINFO" in runner.CA_ENV_VARS
+
+
+def test_the_shell_check_warns_when_no_proxy_leaves_out_the_loopback(home, tmp_path, live_proxy):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    good = shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle)
+    bare = {name: value for name, value in good.items() if name not in runner.NO_PROXY_ENV_VARS}
+    check = doctor.check_environment("127.0.0.1", live_proxy, bare, ca, bundle, system="Linux")
+    assert check.status == doctor.WARN
+    assert "localhost, 127.0.0.1, ::1" in check.detail
+    assert "export NO_PROXY=localhost,127.0.0.1,::1" in check.detail
+    prefixed = "HTTPS_PROXY and the 6 CA variables point at keyfence on 127.0.0.1:"
+    assert check.detail.startswith(prefixed) and str(live_proxy) in check.detail
+    listed = {**good, "NO_PROXY": "internal.corp", "no_proxy": "internal.corp"}
+    check = doctor.check_environment("127.0.0.1", live_proxy, listed, ca, bundle, system="Linux")
+    assert check.status == doctor.WARN
+    assert "internal.corp" not in check.detail
+
+
+def test_the_shell_check_accepts_the_loopback_in_either_no_proxy_variable(home, tmp_path, live_proxy):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    good = shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle)
+    upper_only = {name: value for name, value in good.items() if name != "no_proxy"}
+    assert doctor.check_environment("127.0.0.1", live_proxy, upper_only, ca, bundle,
+                                    system="Linux").status == doctor.OK
+    lower_only = {name: value for name, value in good.items() if name != "NO_PROXY"}
+    assert doctor.check_environment("127.0.0.1", live_proxy, lower_only, ca, bundle,
+                                    system="Linux").status == doctor.OK
 
 
 def test_config_and_vault_checks(home, write_config):
