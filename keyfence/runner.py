@@ -76,6 +76,10 @@ def allow_hosts_args(config: Config) -> list[str]:
     return args
 
 
+def tcp_timeout_args(config: Config) -> list[str]:
+    return ["--set", f"tcp_timeout={config.proxy_tcp_timeout}"]
+
+
 def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = (),
                   local: str | None = None, confdir: Path | None = CONFDIR) -> list[str]:
     return [
@@ -350,7 +354,7 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         print(f"keyfence: could not make {proxy_log_path} private: {exc}", file=sys.stderr, flush=True)
     if local == "":
         local = Path(command[0]).name
-    extra = allow_hosts_args(config)
+    extra = allow_hosts_args(config) + tcp_timeout_args(config)
     if record:
         notice = record_notice(record)
         if notice:
