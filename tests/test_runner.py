@@ -5,6 +5,7 @@ import socket
 import stat
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -587,6 +588,100 @@ def test_child_env_tells_git_for_windows_to_use_the_ca(tmp_path):
     for broken in ("garbage", "-3"):
         env = runner.child_env({"GIT_CONFIG_COUNT": broken}, 8888, ca, bundle, windows=True)
         assert env["GIT_CONFIG_COUNT"] == "1" and env["GIT_CONFIG_KEY_0"] == "http.schannelUseSSLCAInfo"
+
+
+def test_child_env_bypasses_loopback_by_default(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({}, 8888, ca, bundle)
+    for name in runner.NO_PROXY_ENV_VARS:
+        assert env[name] == "localhost,127.0.0.1,::1"
+
+
+def test_child_env_adds_loopback_to_the_no_proxy_list_the_user_exported(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({"NO_PROXY": "internal.corp,127.0.0.1"}, 8888, ca, bundle)
+    assert env["NO_PROXY"] == "internal.corp,127.0.0.1,localhost,::1"
+    assert env["NO_PROXY"].split(",").count("127.0.0.1") == 1
+
+
+def test_child_env_keeps_the_two_no_proxy_variables_apart_when_the_user_set_both(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({"NO_PROXY": "upper.corp", "no_proxy": "lower.corp"}, 8888, ca, bundle)
+    assert env["NO_PROXY"] == "upper.corp,localhost,127.0.0.1,::1"
+    assert env["no_proxy"] == "lower.corp,localhost,127.0.0.1,::1"
+
+
+def test_child_env_gives_the_unset_no_proxy_variable_the_same_list_as_the_set_one(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({"NO_PROXY": "internal.corp"}, 8888, ca, bundle)
+    assert env["no_proxy"] == env["NO_PROXY"] == "internal.corp,localhost,127.0.0.1,::1"
+
+
+def test_child_env_leaves_loopback_proxied_when_bypass_is_off(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    plain = runner.child_env({}, 8888, ca, bundle, bypass_loopback=False)
+    assert "NO_PROXY" not in plain and "no_proxy" not in plain
+    kept = runner.child_env({"NO_PROXY": "internal.corp"}, 8888, ca, bundle, bypass_loopback=False)
+    assert kept["NO_PROXY"] == "internal.corp"
+    assert "no_proxy" not in kept
+
+
+def test_child_env_default_env_makes_urllib_bypass_the_loopback(tmp_path, monkeypatch):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({}, 8888, ca, bundle)
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert urllib.request.proxy_bypass("localhost") is True
+    assert urllib.request.proxy_bypass("127.0.0.1") is True
+
+
+def _child_env_for_config(write_config, monkeypatch, tmp_path, config_text):
+    seen = {}
+    write_config(config_text)
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: seen.update(env=env) or 0)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    return seen["env"]
+
+
+def test_run_hands_the_child_the_loopback_bypass_by_default(write_config, monkeypatch, tmp_path):
+    env = _child_env_for_config(write_config, monkeypatch, tmp_path, "mode: audit\n")
+    assert env["NO_PROXY"] == env["no_proxy"] == "localhost,127.0.0.1,::1"
+
+
+def test_run_drops_the_bypass_when_a_loopback_pattern_is_in_extra_hosts(write_config, monkeypatch, tmp_path):
+    env = _child_env_for_config(write_config, monkeypatch, tmp_path,
+                                'mode: audit\nextra_hosts: ["127.0.0.*"]\n')
+    assert "NO_PROXY" not in env and "no_proxy" not in env
+
+
+def test_run_drops_the_bypass_when_a_pattern_ends_in_a_loopback_name(write_config, monkeypatch, tmp_path):
+    env = _child_env_for_config(write_config, monkeypatch, tmp_path,
+                                'mode: audit\nextra_hosts: ["*.localhost"]\n')
+    assert "NO_PROXY" not in env and "no_proxy" not in env
+
+
+def test_run_drops_the_bypass_when_intercept_all_hosts_is_on(write_config, monkeypatch, tmp_path):
+    env = _child_env_for_config(write_config, monkeypatch, tmp_path,
+                                "mode: audit\nintercept_all_hosts: true\n")
+    assert "NO_PROXY" not in env and "no_proxy" not in env
+
+
+def test_run_drops_the_bypass_when_a_loopback_address_is_listed(write_config, monkeypatch, tmp_path):
+    for extra in ('["127.0.0.1"]', '["[::1]"]'):
+        env = _child_env_for_config(write_config, monkeypatch, tmp_path,
+                                    f"mode: audit\nextra_hosts: {extra}\n")
+        assert "NO_PROXY" not in env and "no_proxy" not in env, extra
 
 
 def _roots(tmp_path, name="roots.pem", text=CA_PEM):

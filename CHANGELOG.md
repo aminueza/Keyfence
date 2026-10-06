@@ -31,6 +31,30 @@
   summary (`TCP timeout:     3600 s`), so a session that drops long requests
   can be diagnosed by reading one command's output.
 
+- `keyfence exec` puts `localhost`, `127.0.0.1` and `::1` in `NO_PROXY` and
+  `no_proxy` for the command it starts: set when the variable is empty,
+  appended without repeating an entry the exported list already holds, and
+  each variable keeps its own entries when you exported both. Loopback
+  requests therefore bypass the proxy by default instead of paying a hop
+  through mitmdump that did nothing, because the default config does not
+  put those hosts in `hosts` and `intercept_all_hosts` is off, so the
+  addon never scanned them. This is what made a local model server show up
+  in `ss -tnp` as a connection from `mitmdump` and hit long requests with
+  the 600 s inactivity timeout of #135, and what made podman fail inside
+  containers (with `--http-proxy=false` as the way out, now written down
+  in `docs/limitations.md`). The entries are left out when the config asks
+  to scan the loopback: `intercept_all_hosts` on, or a `hosts` pattern
+  that matches a loopback name the way the addon would (`127.0.0.1`,
+  `127.0.0.*`) or that merely mentions one as a suffix (`api.localhost`,
+  `*.localhost`, where `NO_PROXY=localhost` would bypass the match), so a
+  config that asks to scan loopback still gets loopback scanned and
+  nothing silently skips it: `keyfence selftest` relies on the first,
+  adding `127.0.0.1` to `hosts`, and scanning a local service stays an
+  explicit choice. `keyfence doctor` now warns when the shell has a proxy
+  set but `NO_PROXY` leaves out the loopback entries, naming the export
+  that adds them, for the manual `keyfence run` setup where exec does not
+  fill them in for you.
+
 ## 0.9.0 (2026-09-29)
 
 - A URL in a command is no longer read as a local path, so

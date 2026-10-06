@@ -13,8 +13,20 @@ real incidents. Out of scope:
   `HTTPS_PROXY` or the system proxy bypasses keyfence unless you use
   `--local`, which needs mitmproxy's redirector approved in the operating
   system and works on macOS and Windows only.
-- **Local models.** Ollama and similar do not go through the proxy. Their
-  traffic also does not leave the machine.
+- **Local models.** Ollama and similar listen on loopback, and
+  `keyfence exec` puts `localhost`, `127.0.0.1` and `::1` in `NO_PROXY`,
+  so they are never reached through the proxy. Their traffic also does
+  not leave the machine. Put a loopback host in `hosts` if you want
+  their requests scanned like any other.
+- **Podman copies the proxy into containers.** With `--http-proxy=true`,
+  the default, podman gives every container the host's proxy variables,
+  and inside a container `127.0.0.1:8888` is the container itself, so
+  anything that honors them fails to connect: `apt-get update` stops at
+  "Unable to connect to 127.0.0.1:8888" and `podman build` fails the
+  same way, with an error that does not mention the proxy. A `NO_PROXY`
+  full of loopback entries does not fix it, because the container still
+  gets `http_proxy=http://127.0.0.1:8888` for every host that is not
+  loopback. Run with `--http-proxy=false` to keep the variables out.
 - **Only bodies and text frames are scanned.** A request body and a text
   WebSocket frame go through the detectors. Headers and the URL query string
   are passed through untouched, in every mode, and the audit log records
