@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 (2026-10-06)
 
 - `keyfence exec` and `keyfence run` now configure mitmproxy's `tcp_timeout`
   from a new `proxy_tcp_timeout` key in `~/.keyfence/config.yaml`, which
