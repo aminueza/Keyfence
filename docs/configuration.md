@@ -9,6 +9,7 @@ optional.
 | `hosts` | 20 AI provider hosts | hosts to monitor; wildcards allowed; under `keyfence exec` a change takes effect on the next session, not during a running one; `keyfence run` intercepts every host, so it picks a new entry up without a restart |
 | `extra_hosts` | `[]` | hosts to add to the default list; same rule as `hosts` |
 | `intercept_all_hosts` | `false` | scan every host, not only AI providers |
+| `proxy_tcp_timeout` | `3600` | seconds of inactivity before mitmproxy closes a TCP connection; raise it for long LLM requests that send nothing for a while |
 | `notice` | `true` | add the system prompt notice when a request body was changed; WebSocket frames never get it |
 | `scan.patterns` | `true` | built-in pattern rules |
 | `scan.gitleaks` | `true` | bundled gitleaks rules |

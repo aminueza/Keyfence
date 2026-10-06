@@ -74,6 +74,36 @@ def test_invalid_mode_raises(write_config):
         Config.load()
 
 
+def test_proxy_tcp_timeout_defaults_to_one_hour(home):
+    assert Config.load().proxy_tcp_timeout == 3600
+
+
+def test_proxy_tcp_timeout_reads_the_configured_value(write_config):
+    write_config("proxy_tcp_timeout: 7200\n")
+    assert Config.load().proxy_tcp_timeout == 7200
+
+
+@pytest.mark.parametrize("text", [
+    "proxy_tcp_timeout: 600.5\n",
+    "proxy_tcp_timeout: '600'\n",
+    "proxy_tcp_timeout: true\n",
+])
+def test_proxy_tcp_timeout_rejects_non_integer_values(write_config, text):
+    write_config(text)
+    with pytest.raises(ValueError, match="proxy_tcp_timeout"):
+        Config.load()
+
+
+@pytest.mark.parametrize("text", [
+    "proxy_tcp_timeout: 0\n",
+    "proxy_tcp_timeout: -1\n",
+])
+def test_proxy_tcp_timeout_rejects_non_positive_values(write_config, text):
+    write_config(text)
+    with pytest.raises(ValueError, match="proxy_tcp_timeout"):
+        Config.load()
+
+
 def test_audit_mode_is_valid(write_config):
     write_config("mode: audit\n")
     assert Config.load().mode == "audit"

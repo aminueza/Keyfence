@@ -296,6 +296,22 @@ def test_status_without_audit_log(home, capsys):
     assert "Recent detections" not in capsys.readouterr().out
 
 
+def test_status_exits_1_on_a_bad_tcp_timeout_without_a_traceback(home, write_config, capsys):
+    write_config("proxy_tcp_timeout: 0\n")
+    assert cli.main(["status"]) == 1
+    err = capsys.readouterr().err
+    assert "proxy_tcp_timeout" in err and "Traceback" not in err
+
+
+def test_status_shows_the_tcp_timeout(home, write_config, capsys):
+    write_config("mode: block\n")
+    assert cli.main(["status"]) == 0
+    assert "TCP timeout:     3600 s" in capsys.readouterr().out
+    write_config("proxy_tcp_timeout: 7200\n")
+    assert cli.main(["status"]) == 0
+    assert "TCP timeout:     7200 s" in capsys.readouterr().out
+
+
 def test_corrupted_vault_gives_one_line_error(home, capsys):
     (home / "vault.json").write_text("x")
     assert cli.main(["status"]) == 1
@@ -344,6 +360,28 @@ def test_run_replaces_the_process_with_mitmdump(home, monkeypatch, capsys):
         cli.main(["run", "-p", "9001"])
     assert seen["program"].lower().rstrip(".exe").endswith("mitmdump") and "9001" in seen["argv"]
     assert "keyfence exec" in capsys.readouterr().out
+
+
+def test_run_tells_mitmdump_the_tcp_timeout_from_the_config(home, write_config, monkeypatch, capsys):
+    seen = {}
+    write_config("proxy_tcp_timeout: 7200\n")
+
+    def fake_exec(program, argv):
+        seen.update(program=program, argv=argv)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(cli.runner, "port_open", lambda port: False)
+    monkeypatch.setattr(cli.os, "execvp", fake_exec)
+    with pytest.raises(SystemExit):
+        cli.main(["run", "-p", "9001"])
+    assert ["--set", "tcp_timeout=7200"] in [seen["argv"][i:i + 2] for i in range(len(seen["argv"]) - 1)]
+
+
+def test_run_rejects_an_invalid_tcp_timeout(home, write_config, monkeypatch, capsys):
+    write_config("proxy_tcp_timeout: 0\n")
+    monkeypatch.setattr(cli.os, "execvp", lambda *a: pytest.fail("must not exec"))
+    assert cli.main(["run", "-p", "9001"]) == 1
+    assert "proxy_tcp_timeout" in capsys.readouterr().err
 
 
 def test_run_without_mitmdump(home, monkeypatch, capsys):
