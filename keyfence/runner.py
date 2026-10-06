@@ -27,6 +27,8 @@ CONFDIR = Path(os.environ["MITMPROXY_CONFDIR"]) if os.environ.get("MITMPROXY_CON
 CA_CERT = (CONFDIR or Path.home() / ".mitmproxy") / "mitmproxy-ca-cert.pem"
 ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
 PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
+NO_PROXY_ENV_VARS = ("NO_PROXY", "no_proxy")
+LOOPBACK_BYPASS = ("localhost", "127.0.0.1", "::1")
 BUNDLE_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO", "CARGO_HTTP_CAINFO")
 CA_ENV_VARS = ("NODE_EXTRA_CA_CERTS", *BUNDLE_ENV_VARS)
 BUNDLE_NAME = "ca-bundle.pem"
@@ -255,8 +257,15 @@ def ensure_bundle(ca_cert: Path, home: Path | None = None) -> tuple[Path, str]:
     return path, f"{roots} ({kind}) plus {ca_cert}"
 
 
+def with_loopback(value: str) -> str:
+    entries = [entry.strip() for entry in value.split(",") if entry.strip()]
+    listed = {entry.lower() for entry in entries}
+    entries += [name for name in LOOPBACK_BYPASS if name not in listed]
+    return ",".join(entries)
+
+
 def child_env(base: Mapping[str, str], port: int, ca_cert: Path, bundle: Path,
-              windows: bool = os.name == "nt") -> dict[str, str]:
+              windows: bool = os.name == "nt", hosts: Sequence[str] = ()) -> dict[str, str]:
     env = dict(base)
     proxy_url = f"http://127.0.0.1:{port}"
     for name in PROXY_ENV_VARS:
@@ -264,6 +273,16 @@ def child_env(base: Mapping[str, str], port: int, ca_cert: Path, bundle: Path,
     for name in BUNDLE_ENV_VARS:
         env[name] = str(bundle)
     env["NODE_EXTRA_CA_CERTS"] = str(ca_cert)
+    if not any(host.strip().lower() in LOOPBACK_BYPASS for host in hosts):
+        upper = (base.get("NO_PROXY") or "").strip()
+        lower = (base.get("no_proxy") or "").strip()
+        if upper and lower:
+            env["NO_PROXY"] = with_loopback(upper)
+            env["no_proxy"] = with_loopback(lower)
+        else:
+            merged = with_loopback(upper or lower)
+            env["NO_PROXY"] = merged
+            env["no_proxy"] = merged
     if windows:
         with_git_config(env, GIT_SCHANNEL_KEY, "true")
     return env
@@ -382,7 +401,7 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         except BundleError as exc:
             print(exc)
             return 1
-        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert, bundle))
+        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert, bundle, hosts=config.hosts))
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
             time.sleep(linger)
