@@ -346,6 +346,28 @@ def test_run_replaces_the_process_with_mitmdump(home, monkeypatch, capsys):
     assert "keyfence exec" in capsys.readouterr().out
 
 
+def test_run_tells_mitmdump_the_tcp_timeout_from_the_config(home, write_config, monkeypatch, capsys):
+    seen = {}
+    write_config("proxy_tcp_timeout: 7200\n")
+
+    def fake_exec(program, argv):
+        seen.update(program=program, argv=argv)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(cli.runner, "port_open", lambda port: False)
+    monkeypatch.setattr(cli.os, "execvp", fake_exec)
+    with pytest.raises(SystemExit):
+        cli.main(["run", "-p", "9001"])
+    assert ["--set", "tcp_timeout=7200"] in [seen["argv"][i:i + 2] for i in range(len(seen["argv"]) - 1)]
+
+
+def test_run_rejects_an_invalid_tcp_timeout(home, write_config, monkeypatch, capsys):
+    write_config("proxy_tcp_timeout: 0\n")
+    monkeypatch.setattr(cli.os, "execvp", lambda *a: pytest.fail("must not exec"))
+    assert cli.main(["run", "-p", "9001"]) == 1
+    assert "proxy_tcp_timeout" in capsys.readouterr().err
+
+
 def test_run_without_mitmdump(home, monkeypatch, capsys):
     def missing(_program, _argv):
         raise FileNotFoundError
