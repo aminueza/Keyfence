@@ -616,6 +616,16 @@ def test_child_env_leaves_loopback_proxied_when_a_loopback_host_is_in_hosts(tmp_
     assert "no_proxy" not in kept
 
 
+def test_child_env_leaves_loopback_proxied_when_intercept_all_hosts_is_on(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    plain = runner.child_env({}, 8888, ca, bundle, intercept_all_hosts=True)
+    assert "NO_PROXY" not in plain and "no_proxy" not in plain
+    kept = runner.child_env({"NO_PROXY": "internal.corp"}, 8888, ca, bundle, intercept_all_hosts=True)
+    assert kept["NO_PROXY"] == "internal.corp"
+    assert "no_proxy" not in kept
+
+
 def test_child_env_default_env_makes_urllib_bypass_the_loopback(tmp_path, monkeypatch):
     ca = tmp_path / "ca.pem"
     bundle = tmp_path / "ca-bundle.pem"

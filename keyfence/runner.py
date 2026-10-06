@@ -265,7 +265,8 @@ def with_loopback(value: str) -> str:
 
 
 def child_env(base: Mapping[str, str], port: int, ca_cert: Path, bundle: Path,
-              windows: bool = os.name == "nt", hosts: Sequence[str] = ()) -> dict[str, str]:
+              windows: bool = os.name == "nt", hosts: Sequence[str] = (),
+              intercept_all_hosts: bool = False) -> dict[str, str]:
     env = dict(base)
     proxy_url = f"http://127.0.0.1:{port}"
     for name in PROXY_ENV_VARS:
@@ -273,7 +274,7 @@ def child_env(base: Mapping[str, str], port: int, ca_cert: Path, bundle: Path,
     for name in BUNDLE_ENV_VARS:
         env[name] = str(bundle)
     env["NODE_EXTRA_CA_CERTS"] = str(ca_cert)
-    if not any(host.strip().lower() in LOOPBACK_BYPASS for host in hosts):
+    if not intercept_all_hosts and not any(host.strip().lower() in LOOPBACK_BYPASS for host in hosts):
         upper = (base.get("NO_PROXY") or "").strip()
         lower = (base.get("no_proxy") or "").strip()
         if upper and lower:
@@ -401,7 +402,9 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         except BundleError as exc:
             print(exc)
             return 1
-        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert, bundle, hosts=config.hosts))
+        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert, bundle,
+                                                            hosts=config.hosts,
+                                                            intercept_all_hosts=config.intercept_all_hosts))
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
             time.sleep(linger)

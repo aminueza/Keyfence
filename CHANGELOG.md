@@ -14,8 +14,10 @@
   the 600 s inactivity timeout of #135, and what made podman fail inside
   containers (with `--http-proxy=false` as the way out, now written down
   in `docs/limitations.md`). The entries are left out when a loopback
-  host is in `hosts`, which is how `keyfence selftest` keeps
-  `127.0.0.1` scanned, so scanning a local service stays an explicit
+  host is in `hosts` or when `intercept_all_hosts` is on, so a config
+  that asks to scan every host still gets loopback scanned and nothing
+  silently skips it: `keyfence selftest` relies on the first, adding
+  `127.0.0.1` to `hosts`, and scanning a local service stays an explicit
   choice. `keyfence doctor` now warns when the shell has a proxy set but
   `NO_PROXY` leaves out the loopback entries, naming the export that adds
   them, for the manual `keyfence run` setup where exec does not fill them
