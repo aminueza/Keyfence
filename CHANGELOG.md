@@ -21,7 +21,15 @@
   falling back to the default, so a typo cannot quietly re-enable the
   600-second cutoff. `keyfence selftest` starts a proxy too, but its single
   request completes in seconds, so it keeps mitmproxy's own default and is
-  unchanged.
+  unchanged. Review of the change widened who reports a bad config and who
+  shows the timeout: a config file that fails to load now makes every
+  command print one `error: <message>` line on stderr and exit 1 instead of
+  a traceback, because `keyfence main` catches `ValueError` beside the
+  existing `VaultError` handler, so `status`, `scan`, `import`, `export`,
+  `doctor` and `selftest` report the same one-line error `exec` and `run`
+  already did, and `keyfence status` prints the configured timeout in its
+  summary (`TCP timeout:     3600 s`), so a session that drops long requests
+  can be diagnosed by reading one command's output.
 
 ## 0.9.0 (2026-09-29)
 
