@@ -288,6 +288,7 @@ def cmd_status(_args) -> int:
     print(f"Mode:            {cfg.mode}")
     print(f"Hosts:           {len(cfg.hosts)} monitored"
           + (" (intercepting ALL hosts)" if cfg.intercept_all_hosts else ""))
+    print(f"TCP timeout:     {cfg.proxy_tcp_timeout} s")
     print(f"Vault:           {vault.count()} secret(s), {vault.canary_count()} canary(ies) in {vault.path}")
     print(f"Rules:           {len(cfg.scan.rules)} gitleaks rules"
           + ("" if cfg.scan.gitleaks else " (disabled)"))

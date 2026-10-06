@@ -303,6 +303,15 @@ def test_status_exits_1_on_a_bad_tcp_timeout_without_a_traceback(home, write_con
     assert "proxy_tcp_timeout" in err and "Traceback" not in err
 
 
+def test_status_shows_the_tcp_timeout(home, write_config, capsys):
+    write_config("mode: block\n")
+    assert cli.main(["status"]) == 0
+    assert "TCP timeout:     3600 s" in capsys.readouterr().out
+    write_config("proxy_tcp_timeout: 7200\n")
+    assert cli.main(["status"]) == 0
+    assert "TCP timeout:     7200 s" in capsys.readouterr().out
+
+
 def test_corrupted_vault_gives_one_line_error(home, capsys):
     (home / "vault.json").write_text("x")
     assert cli.main(["status"]) == 1
