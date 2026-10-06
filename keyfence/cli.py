@@ -116,11 +116,7 @@ def cmd_scan(args) -> int:
 
 
 def cmd_run(args) -> int:
-    try:
-        config = Config.load()
-    except ValueError as exc:
-        print(f"keyfence: {exc}", file=sys.stderr)
-        return 1
+    config = Config.load()
     if runner.port_open(args.port):
         print(f"Port {args.port} is already in use. Pick another one with -p.")
         return 1
@@ -414,6 +410,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _dispatch(args)
     except VaultError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

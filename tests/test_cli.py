@@ -296,6 +296,13 @@ def test_status_without_audit_log(home, capsys):
     assert "Recent detections" not in capsys.readouterr().out
 
 
+def test_status_exits_1_on_a_bad_tcp_timeout_without_a_traceback(home, write_config, capsys):
+    write_config("proxy_tcp_timeout: 0\n")
+    assert cli.main(["status"]) == 1
+    err = capsys.readouterr().err
+    assert "proxy_tcp_timeout" in err and "Traceback" not in err
+
+
 def test_corrupted_vault_gives_one_line_error(home, capsys):
     (home / "vault.json").write_text("x")
     assert cli.main(["status"]) == 1
