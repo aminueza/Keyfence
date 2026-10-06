@@ -123,7 +123,10 @@ session (it says so on stderr: `keyfence: port 8888 is busy, using 51234`;
 until the keyfence addon answers a
 request for `http://keyfence.invalid/` sent through it (mitmdump listening
 is not enough: without the addon it would be a plain proxy), sets
-`HTTPS_PROXY`, `HTTP_PROXY` and the CA variables for the command, snapshots
+`HTTPS_PROXY`, `HTTP_PROXY` and the CA variables for the command, adds
+`localhost`, `127.0.0.1` and `::1` to `NO_PROXY` so requests to loopback
+addresses bypass the proxy unless a loopback host is in `hosts`,
+snapshots
 environment variables with secret-like names into a temporary vault, runs
 the command, and stops the proxy when it exits. If the addon never answers,
 the command is not started and the reason is in `~/.keyfence/proxy.log`.
@@ -364,6 +367,7 @@ cat "$SYSTEM_ROOTS" ~/.mitmproxy/mitmproxy-ca-cert.pem > ~/.keyfence/ca-bundle.p
 
 export HTTPS_PROXY=http://127.0.0.1:8888
 export HTTP_PROXY=http://127.0.0.1:8888
+export NO_PROXY=localhost,127.0.0.1,::1                         # loopback stays direct
 export NODE_EXTRA_CA_CERTS=~/.mitmproxy/mitmproxy-ca-cert.pem   # Node tools, e.g. Claude Code
 export SSL_CERT_FILE=~/.keyfence/ca-bundle.pem                  # Python tools
 export REQUESTS_CA_BUNDLE=~/.keyfence/ca-bundle.pem
