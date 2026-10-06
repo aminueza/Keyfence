@@ -156,7 +156,7 @@ def test_the_shell_check_warns_when_no_proxy_leaves_out_the_loopback(home, tmp_p
     assert "internal.corp" not in check.detail
 
 
-def test_the_shell_check_accepts_the_loopback_in_either_no_proxy_variable(home, tmp_path, live_proxy):
+def test_the_shell_check_reads_the_no_proxy_that_curl_and_urllib_read(home, tmp_path, live_proxy):
     ca = tmp_path / "ca.pem"
     bundle = tmp_path / "ca-bundle.pem"
     good = shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle)
@@ -165,6 +165,14 @@ def test_the_shell_check_accepts_the_loopback_in_either_no_proxy_variable(home, 
                                     system="Linux").status == doctor.OK
     lower_only = {name: value for name, value in good.items() if name != "NO_PROXY"}
     assert doctor.check_environment("127.0.0.1", live_proxy, lower_only, ca, bundle,
+                                    system="Linux").status == doctor.OK
+    disagreeing = {**good, "NO_PROXY": "localhost,127.0.0.1,::1", "no_proxy": "example.com"}
+    check = doctor.check_environment("127.0.0.1", live_proxy, disagreeing, ca, bundle, system="Linux")
+    assert check.status == doctor.WARN
+    assert "no_proxy does not list localhost, 127.0.0.1, ::1" in check.detail
+    assert "export no_proxy=localhost,127.0.0.1,::1" in check.detail
+    shadowed = {**good, "NO_PROXY": "example.com", "no_proxy": "localhost,127.0.0.1,::1"}
+    assert doctor.check_environment("127.0.0.1", live_proxy, shadowed, ca, bundle,
                                     system="Linux").status == doctor.OK
 
 
