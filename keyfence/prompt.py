@@ -96,8 +96,10 @@ def run(stdin=None, stderr=None) -> int:
         if not findings:
             return 0
 
+        # the proxy logs findings in every mode; a blocked prompt leaves the
+        # same trace, so a canary pasted into a prompt is visible in status
+        _write_audit_entry(cfg, vault, findings, report.suppressed, stderr)
         if cfg.mode == "audit":
-            _write_audit_entry(cfg, vault, findings, report.suppressed, stderr)
             return 0
 
         return _block(_block_reason(findings))

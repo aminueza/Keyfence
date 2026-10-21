@@ -563,6 +563,22 @@ def test_prompt_audit_mode_logs(home, write_config, capsys):
     assert _secret() not in lines[0]
 
 
+def test_prompt_block_mode_also_logs(home, write_config, capsys):
+    from keyfence import prompt
+    write_config("mode: block\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    lines = (home / "audit.log").read_text().strip().splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["mode"] == "block"
+    assert entry["count"] == 1
+    assert _secret() not in lines[0]
+
+
 def test_prompt_audit_mode_logs_suppressed(home, write_config, capsys):
     from keyfence import prompt
     write_config(f"mode: audit\nignore_values: [{_secret()}]\n")

@@ -295,9 +295,10 @@ If the prompt contains a secret (a registered vault secret, a pattern like
 an API key, or a high-entropy value), the hook blocks the prompt and tells
 Claude Code not to send it. The prompt text stays on disk in the transcript
 and prompt history, so the secret should be rotated immediately. In `audit`
-mode the prompt goes through and the finding is logged; in `redact`,
-`placeholder` and `block` modes the prompt is refused with a JSON reply on
-stdout. The hook requires Claude Code v2.1.295+ for the `onFailure: block`
+mode the prompt goes through; in `redact`, `placeholder` and `block` modes
+it is refused with a JSON reply on stdout. Either way the finding lands in
+the audit log, as it does for the proxy in every mode. The hook requires
+Claude Code v2.1.295+ for the `onFailure: block`
 field; without it a hook that crashes or times out would let the prompt
 through.
 
