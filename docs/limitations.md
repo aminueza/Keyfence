@@ -80,9 +80,9 @@ real incidents. Out of scope:
 - **Credentials the agent uses without reading them.** keyfence controls
   what reaches the model, not what the agent does with the access the
   machine already has. `ssh prod`, `aws s3 ls` and `git push` use a key or
-  a token on disk without printing it, so the hook allows them and the
-  proxy sees no secret, and the agent can reach a server, change cloud
-  resources or push code as you. A command that names a key file, such as
+  a token on disk without printing it. The hook allows them, the secret
+  never appears in a request to the model, and the agent can reach a
+  server, change cloud resources or push code as you. A command that names a key file, such as
   `ssh -i ~/.ssh/deploy_key`, is refused; one that names only the host is
   not. Give the agent its own scoped or test credentials, and keep
   production access out of the environment it runs in.
