@@ -82,10 +82,12 @@ real incidents. Out of scope:
   machine already has. `ssh prod`, `aws s3 ls` and `git push` use a key or
   a token on disk without printing it. The hook allows them, the secret
   never appears in a request to the model, and the agent can reach a
-  server, change cloud resources or push code as you. A command that names a key file, such as
-  `ssh -i ~/.ssh/deploy_key`, is refused; one that names only the host is
-  not. Give the agent its own scoped or test credentials, and keep
-  production access out of the environment it runs in.
+  server, change cloud resources or push code as you. A command that
+  names a key file, such as `ssh -i ~/.ssh/deploy_key`, is refused; one
+  that names only the host is not, unless the host name itself matches a
+  secret file pattern, as `secrets.example.com` does. Give the agent its
+  own scoped or test credentials, and keep production access out of the
+  environment it runs in.
 - **Sessions that run in the cloud.** keyfence protects the machine it
   runs on. A Claude Code session on the web, a cloud agent or a CI job
   sends its requests from a remote environment, so the proxy and the hook
