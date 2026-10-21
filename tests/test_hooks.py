@@ -732,7 +732,7 @@ def test_prompt_audit_mode_logs(home, write_config, capsys):
     assert audit_log.exists()
     if os.name != "nt":  # Windows chmod only toggles the write bit
         assert stat.S_IMODE(audit_log.stat().st_mode) == 0o600
-    lines = audit_log.read_text().strip().splitlines()
+    lines = audit_log.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
     entry = json.loads(lines[0])
     assert entry["host"] == "claude-code:prompt"
@@ -753,7 +753,7 @@ def test_prompt_block_mode_also_logs(home, write_config, capsys):
     assert prompt.run(io.StringIO(payload), err) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["decision"] == "block"
-    lines = (home / "audit.log").read_text().strip().splitlines()
+    lines = (home / "audit.log").read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 1
     entry = json.loads(lines[0])
     assert entry["mode"] == "block"
@@ -781,7 +781,7 @@ def test_prompt_audit_mode_logs_suppressed(home, write_config, capsys):
     payload = json.dumps({"hook_event_name": "UserPromptSubmit",
                           "prompt": f"token: {_secret()} and sk-proj-Zz9Yy8Xx7Ww6Vv5Uu4Tt3Ss2Rr1Qq0Pp"})
     assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    entry = json.loads((home / "audit.log").read_text().strip())
+    entry = json.loads((home / "audit.log").read_text(encoding="utf-8").strip())
     assert entry["count"] >= 1
     assert entry["suppressed"] == 1
 
@@ -795,7 +795,7 @@ def test_prompt_audit_mode_canary_label(home, write_config, capsys):
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {canary}"})
     assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
     audit_log = home / "audit.log"
-    lines = audit_log.read_text().strip().splitlines()
+    lines = audit_log.read_text(encoding="utf-8").strip().splitlines()
     entry = json.loads(lines[0])
     assert entry["findings"][0]["kind"] == "canary"
     assert entry["findings"][0]["label"] == "test-label"
