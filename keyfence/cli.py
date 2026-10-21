@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import doctor, export, hooks, pi, runner, sources
 from .config import Config
-from .detectors import scan_report
+from .detectors import scan_report, Finding
 from .importer import default_paths, env_values, import_files, looks_secret
 from .vault import DEFAULT_DIR, Vault, VaultError
 
@@ -92,26 +92,104 @@ def cmd_canary(args) -> int:
     return 0
 
 
+def _scan_file(path: Path, vault: Vault, config, ignore) -> tuple[list[Finding], int, list[str]]:
+    try:
+        text = path.read_text(errors="replace")
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return [], 1, []
+    report = scan_report(text, vault=vault, config=config, ignore=ignore)
+    findings = report.findings
+    lines = []
+    for f in findings:
+        where = f" in \"{f.key}\"" if f.key else ""
+        lines.append(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
+    return findings, report.suppressed, lines
+
+
+def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[list[Finding], int, list[str]]:
+    all_findings: list[Finding] = []
+    total_suppressed = 0
+    lines: list[str] = []
+
+    def walk_error(exc: OSError):
+        print(f"skipped: {exc.filename} ({exc})", file=sys.stderr)
+
+    for root, dirs, files in os.walk(path, onerror=walk_error):
+        dirs.sort()
+        files.sort()
+        for fname in files:
+            fpath = Path(root) / fname
+            try:
+                with fpath.open("rb") as bf:
+                    head = bf.read(8192)
+                    if b"\x00" in head:
+                        continue
+            except OSError as exc:
+                print(f"skipped: {fpath} ({exc})", file=sys.stderr)
+                continue
+            try:
+                with fpath.open("r", errors="replace") as tf:
+                    for lineno, line in enumerate(tf, 1):
+                        report = scan_report(line, vault=vault, config=config, ignore=ignore)
+                        if report.suppressed:
+                            total_suppressed += report.suppressed
+                        for f in report.findings:
+                            kind_suffix = " (registered secret)" if f.kind in ("vault", "canary") else ""
+                            where = f" in \"{f.key}\"" if f.key else ""
+                            lines.append(f"  - {fpath}:{lineno}: [{f.kind}] {f.masked}{kind_suffix}{where}")
+                            all_findings.append(f)
+            except OSError as exc:
+                print(f"skipped: {fpath} ({exc})", file=sys.stderr)
+                continue
+    return all_findings, total_suppressed, lines
+
+
 def cmd_scan(args) -> int:
-    if args.file:
-        text = Path(args.file).read_text(errors="replace")
-    elif args.text:
-        text = args.text
-    else:
-        text = sys.stdin.read()
     cfg = Config.load()
     vault = Vault()
-    report = scan_report(text, vault=vault, config=cfg.scan, ignore=cfg.ignore_list(vault))
-    if report.suppressed:
-        print(f"{report.suppressed} finding(s) ignored by the ignore lists in {Config.path()}")
-    if not report.findings:
+    ignore = cfg.ignore_list(vault)
+
+    if args.file:
+        path = Path(args.file)
+        try:
+            if not path.exists():
+                raise FileNotFoundError(f"path does not exist: {path}")
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if path.is_dir():
+            findings, suppressed, lines = _scan_directory(path, vault, cfg.scan, ignore)
+        else:
+            findings, suppressed, lines = _scan_file(path, vault, cfg.scan, ignore)
+    elif args.text:
+        text = args.text
+        report = scan_report(text, vault=vault, config=cfg.scan, ignore=ignore)
+        findings = report.findings
+        suppressed = report.suppressed
+        lines = []
+        for f in findings:
+            where = f" in \"{f.key}\"" if f.key else ""
+            lines.append(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
+    else:
+        text = sys.stdin.read()
+        report = scan_report(text, vault=vault, config=cfg.scan, ignore=ignore)
+        findings = report.findings
+        suppressed = report.suppressed
+        lines = []
+        for f in findings:
+            where = f" in \"{f.key}\"" if f.key else ""
+            lines.append(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
+
+    if suppressed:
+        print(f"{suppressed} finding(s) ignored by the ignore lists in {Config.path()}")
+    if not findings:
         print("No secrets detected.")
         return 0
-    print(f"{len(report.findings)} secret(s) detected:")
-    for f in report.findings:
-        where = f" in \"{f.key}\"" if f.key else ""
-        print(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
-    return 2
+    print(f"{len(findings)} secret(s) detected:")
+    for line in lines:
+        print(line)
+    return 2 if findings else 0
 
 
 def cmd_run(args) -> int:
@@ -327,9 +405,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_canary.add_argument("file", nargs="?", default=".env", help="file to append to (default: .env)")
     p_canary.add_argument("--name", default="INTERNAL_API_TOKEN", help="variable name to use")
 
-    p_scan = sub.add_parser("scan", help="test detection on text, a file or stdin")
+    p_scan = sub.add_parser("scan", help="test detection on text, a file, a directory or stdin")
     p_scan.add_argument("text", nargs="?", help="text to scan")
-    p_scan.add_argument("-f", "--file", help="file to scan")
+    p_scan.add_argument("-f", "--file", help="file or directory to scan")
 
     p_run = sub.add_parser("run", help="start the proxy")
     p_run.add_argument("-p", "--port", type=int, default=8888,

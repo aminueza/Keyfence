@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `keyfence scan -f <dir>` now walks a directory recursively, scanning each
+  file line by line in bounded memory. Files are visited in sorted order for
+  deterministic output. The first 8 KiB of each file are checked for a NUL
+  byte; binary files are skipped silently. Unreadable files and
+  subdirectories are reported on stderr as `skipped: <path> (<reason>)` and
+  the walk continues. Each finding prints `<file>:<line>: [kind] masked` and
+  findings that match a registered secret are labelled `(registered secret)`.
+  The ignore-list summary prints once at the end. Single-file, text and stdin
+  modes keep their exact previous behavior and output format.
+
 ## 0.8.0 (2026-09-28)
 
 - Placeholder restoration in streamed and buffered responses now decides the
