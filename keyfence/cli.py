@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import sys
 from collections import Counter
 from pathlib import Path
@@ -92,19 +93,14 @@ def cmd_canary(args) -> int:
     return 0
 
 
-def _scan_file(path: Path, vault: Vault, config, ignore) -> tuple[list[Finding], int, list[str]]:
-    try:
-        text = path.read_text(errors="replace")
-    except OSError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return [], 1, []
+def _finding_line(f: Finding) -> str:
+    where = f" in \"{f.key}\"" if f.key else ""
+    return f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})"
+
+
+def _scan_text(text: str, vault: Vault, config, ignore) -> tuple[list[Finding], int, list[str]]:
     report = scan_report(text, vault=vault, config=config, ignore=ignore)
-    findings = report.findings
-    lines = []
-    for f in findings:
-        where = f" in \"{f.key}\"" if f.key else ""
-        lines.append(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
-    return findings, report.suppressed, lines
+    return report.findings, report.suppressed, [_finding_line(f) for f in report.findings]
 
 
 def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[list[Finding], int, list[str]]:
@@ -120,13 +116,17 @@ def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[list[Find
         files.sort()
         for fname in files:
             fpath = Path(root) / fname
+            display = os.fsencode(fpath).decode("utf-8", "backslashreplace")
             try:
+                if not stat.S_ISREG(fpath.stat().st_mode):
+                    print(f"skipped: {display} (not a regular file)", file=sys.stderr)
+                    continue
                 with fpath.open("rb") as bf:
                     head = bf.read(8192)
                     if b"\x00" in head:
                         continue
             except OSError as exc:
-                print(f"skipped: {fpath} ({exc})", file=sys.stderr)
+                print(f"skipped: {display} ({exc})", file=sys.stderr)
                 continue
             try:
                 with fpath.open("r", errors="replace") as tf:
@@ -137,10 +137,10 @@ def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[list[Find
                         for f in report.findings:
                             kind_suffix = " (registered secret)" if f.kind in ("vault", "canary") else ""
                             where = f" in \"{f.key}\"" if f.key else ""
-                            lines.append(f"  - {fpath}:{lineno}: [{f.kind}] {f.masked}{kind_suffix}{where}")
+                            lines.append(f"  - {display}:{lineno}: [{f.kind}] {f.masked}{kind_suffix}{where}")
                             all_findings.append(f)
             except OSError as exc:
-                print(f"skipped: {fpath} ({exc})", file=sys.stderr)
+                print(f"skipped: {display} ({exc})", file=sys.stderr)
                 continue
     return all_findings, total_suppressed, lines
 
@@ -161,25 +161,15 @@ def cmd_scan(args) -> int:
         if path.is_dir():
             findings, suppressed, lines = _scan_directory(path, vault, cfg.scan, ignore)
         else:
-            findings, suppressed, lines = _scan_file(path, vault, cfg.scan, ignore)
+            try:
+                findings, suppressed, lines = _scan_text(path.read_text(errors="replace"), vault, cfg.scan, ignore)
+            except OSError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
     elif args.text:
-        text = args.text
-        report = scan_report(text, vault=vault, config=cfg.scan, ignore=ignore)
-        findings = report.findings
-        suppressed = report.suppressed
-        lines = []
-        for f in findings:
-            where = f" in \"{f.key}\"" if f.key else ""
-            lines.append(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
+        findings, suppressed, lines = _scan_text(args.text, vault, cfg.scan, ignore)
     else:
-        text = sys.stdin.read()
-        report = scan_report(text, vault=vault, config=cfg.scan, ignore=ignore)
-        findings = report.findings
-        suppressed = report.suppressed
-        lines = []
-        for f in findings:
-            where = f" in \"{f.key}\"" if f.key else ""
-            lines.append(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
+        findings, suppressed, lines = _scan_text(sys.stdin.read(), vault, cfg.scan, ignore)
 
     if suppressed:
         print(f"{suppressed} finding(s) ignored by the ignore lists in {Config.path()}")
@@ -189,7 +179,7 @@ def cmd_scan(args) -> int:
     print(f"{len(findings)} secret(s) detected:")
     for line in lines:
         print(line)
-    return 2 if findings else 0
+    return 2
 
 
 def cmd_run(args) -> int:

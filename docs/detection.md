@@ -125,16 +125,19 @@ and never an ignored value either.
 ## Directory mode
 
 `keyfence scan -f <dir>` walks the directory recursively in sorted order,
-scanning each file line by line in bounded memory — it never loads a whole
-file. The first 8 KiB of each file are checked for a NUL byte; files that
-contain one are treated as binary and skipped silently. Files or
-subdirectories that cannot be read (permission errors, etc.) are reported on
-stderr as `skipped: <path> (<reason>)` and the walk continues.
+scanning each file line by line — it never loads a whole file, so memory
+stays bounded by the longest line. The first 8 KiB of each file are checked
+for a NUL byte; files that contain one are treated as binary and skipped
+silently. Anything that is not a regular file (a FIFO, a socket) is reported
+on stderr as `skipped: <path> (not a regular file)`. Files or subdirectories
+that cannot be read (permission errors, etc.) are reported on stderr as
+`skipped: <path> (<reason>)` and the walk continues.
 
 This is designed for Claude Code transcript directories:
 `~/.claude/projects/<project>/<session>.jsonl`, `~/.claude/history.jsonl`,
 and `~/.claude/paste-cache/`. Each `.jsonl` line is one complete message,
-so line-by-line scanning catches every secret in the transcript.
+so a secret inside a message sits on that line and is scanned like typed
+text.
 
 Typical workflow:
 1. `keyfence scan -f ~/.claude/projects/my-project` — list every leaked secret

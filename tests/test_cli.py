@@ -551,14 +551,16 @@ def test_scan_directory_finds_secrets(home, tmp_path, capsys):
     nested.mkdir()
     (nested / "found.jsonl").write_text(f'key={secret}\n')
     assert cli.main(["scan", "-f", str(tmp_path)]) == 2
-    out = capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    out = captured.out
+    assert "2 secret(s) detected:" in out
     assert "transcript.jsonl:1:" in out
     assert "nested/found.jsonl:1:" in out or "nested\\found.jsonl:1:" in out
     assert "openai-api-key" in out
     assert "clean.txt" not in out
     assert "binary.bin" not in out
-    err = capsys.readouterr().err
-    assert err == ""
+    assert secret not in out
 
 
 def test_scan_directory_clean(home, tmp_path, capsys):
@@ -594,16 +596,21 @@ def test_scan_directory_vault_registered_secret(home, tmp_path, capsys):
     assert cli.main(["scan", "-f", str(tmp_path)]) == 2
     out = capsys.readouterr().out
     assert "(registered secret)" in out
+    assert secret not in out
 
 
 def test_scan_directory_ignore_list(home, write_config, tmp_path, capsys):
     secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
     write_config(f"ignore_values: [{secret}]\n")
-    (tmp_path / "file.txt").write_text(f"token: {secret}\n")
-    assert cli.main(["scan", "-f", str(tmp_path)]) == 0
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "one.txt").write_text(f"token: {secret}\n")
+    (sub / "two.txt").write_text(f"key={secret}\n")
+    assert cli.main(["scan", "-f", str(sub)]) == 0
     out = capsys.readouterr().out
-    # The line matches both openai-api-key rule and entropy, so 2 findings ignored
+    assert out.count("finding(s) ignored") == 1
     assert "2 finding(s) ignored by the ignore lists in" in out
+    assert "No secrets detected." in out
 
 
 def test_scan_directory_unreadable_file(home, tmp_path, capsys, monkeypatch):
@@ -661,3 +668,56 @@ def test_scan_single_file_pem_multiline(home, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "pem-private-key" in out
     assert "offset" in out
+
+
+def test_scan_single_file_unreadable_is_an_error(home, tmp_path, capsys, monkeypatch):
+    path = tmp_path / "secret.txt"
+    path.write_text("token: sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv\n")
+    path_str = str(path.resolve())
+    original_open = Path.open
+
+    def patched_open(self, *args, **kwargs):
+        if str(self.resolve()) == path_str:
+            raise PermissionError(13, "Permission denied", str(path))
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", patched_open)
+    assert cli.main(["scan", "-f", str(path)]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert "No secrets detected." not in captured.out
+    assert "ignored" not in captured.out
+
+
+def test_scan_directory_non_regular_file_skipped(home, tmp_path, capsys):
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("mkfifo is not available on this platform")
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    (tmp_path / "readable.txt").write_text(f"token: {secret}\n")
+    os.mkfifo(tmp_path / "pipe")
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    captured = capsys.readouterr()
+    assert "skipped:" in captured.err and "pipe" in captured.err
+    assert "readable.txt:1:" in captured.out
+
+
+def test_scan_directory_sorted_order(home, tmp_path, capsys):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (tmp_path / "b.txt").write_text(f"token: {secret}\n")
+    (tmp_path / "a.txt").write_text(f"token: {secret}\n")
+    (sub / "c.txt").write_text(f"token: {secret}\n")
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    out = capsys.readouterr().out
+    positions = [out.index(name) for name in ("a.txt", "b.txt", os.path.join("sub", "c.txt"))]
+    assert positions == sorted(positions)
+
+
+def test_scan_directory_binary_check_reads_at_most_8k(home, tmp_path, capsys):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    payload = f"token: {secret}\n" + "x" * 9000 + "\x00"
+    (tmp_path / "big.txt").write_text(payload)
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    out = capsys.readouterr().out
+    assert "big.txt:1:" in out
