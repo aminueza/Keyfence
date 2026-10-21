@@ -238,6 +238,10 @@ def cmd_install_hooks(args) -> int:
               "--remove reads back.")
         print(f"The prompt hook requires Claude Code v{hooks.PROMPT_HOOK_MIN_CLAUDE_CODE}+ (adds UserPromptSubmit "
               "with timeout 10 and onFailure=block).")
+        if args.project:
+            print("Note: ./.claude/settings.json is a file teams often commit. The hook calls the keyfence "
+                  "path above, and onFailure=block refuses every prompt when that path is missing, so "
+                  "teammates without keyfence at that path would be blocked.")
     else:
         print(f"Hook already present in {path}.")
     return 0

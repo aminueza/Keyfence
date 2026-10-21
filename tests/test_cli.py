@@ -1,6 +1,7 @@
 import io
 import json
 import runpy
+import sys
 
 import pytest
 
@@ -493,6 +494,18 @@ def test_install_hooks_list_reports_each_agent_and_scope(home, tmp_path, monkeyp
     assert "not installed" in lines[8] and lines[9].startswith("  project  installed ")
 
 
+def test_install_hooks_list_shows_a_prompt_hook_missing_on_an_old_install(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    settings = tmp_path / "home" / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Read", "hooks": [{"type": "command", "command": "keyfence hook claude-code"}]}]}}))
+    assert cli.main(["install-hooks", "--list"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1] == "  tool-call hook" and "installed" in lines[2]
+    assert lines[4] == "  prompt hook" and "not installed" in lines[5]
+
+
 def test_install_hooks_list_rejects_an_agent_and_the_other_flags(home, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     for argv in (["install-hooks", "--list", "pi"], ["install-hooks", "--list", "--project"],
@@ -575,8 +588,38 @@ def test_entry_dispatch_tool_call_still_uses_hooks(home, monkeypatch, capsys):
     assert "keyfence blocked" in capsys.readouterr().err
 
 
-def test_entry_hook_pi_unaffected(home, monkeypatch, capsys):
+def test_entry_hook_pi_unaffected(home, write_config, monkeypatch, capsys):
     from keyfence import entry
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})))
+    write_config("mode: redact\n")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(
+        {"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})))
     assert entry.main(["hook", "pi"]) == 0
-    assert capsys.readouterr().out == ""
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
+
+
+@pytest.mark.parametrize("raw", ["", "not json", "[]", "[" * 100000])
+def test_entry_unreadable_or_odd_input_still_exits_2(home, monkeypatch, capsys, raw):
+    from keyfence import entry
+    monkeypatch.setattr("sys.stdin", io.StringIO(raw))
+    assert entry.main(["hook", "claude-code"]) == 2
+    assert "keyfence blocked" in capsys.readouterr().err
+
+
+def test_entry_unreadable_stdin_bytes_exits_2(home, monkeypatch, capsys):
+    from keyfence import entry
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"\xff\xfe"), encoding="utf-8"))
+    assert entry.main(["hook", "claude-code"]) == 2
+    assert "keyfence blocked" in capsys.readouterr().err
+
+
+def test_entry_prompt_import_failure_blocks(home, write_config, monkeypatch, capsys):
+    from keyfence import entry
+    write_config("mode: redact\n")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(
+        {"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})))
+    monkeypatch.setitem(sys.modules, "keyfence.prompt", None)
+    assert entry.main(["hook", "claude-code"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert "guard crashed" in data["reason"]

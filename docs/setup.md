@@ -76,7 +76,7 @@ Linux and Windows: see the
 | `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
 | `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through its own proxy on port 8888, or a free port when that one is taken |
 | `keyfence run [-p PORT] [--local [NAMES]]` | run the proxy in the foreground on port 8888 |
-| `keyfence install-hooks claude-code\|pi [--project] [--remove [--force]] [--command PATH]` | stop the agent from reading secret files at all |
+| `keyfence install-hooks claude-code\|pi [--project] [--remove [--force]] [--command PATH]` | stop the agent from reading secret files, and refuse a prompt that carries a secret (claude-code) |
 | `keyfence install-hooks --list` | show the supported agents and whether the hook is installed for each, globally and in this project |
 | `keyfence hook claude-code\|pi` | the hook itself; the agent runs it, you do not |
 | `keyfence export [--since TS] [--otlp URL] [--header K=V] [--all]` | print the audit log as JSONL or send it to a collector |
@@ -301,6 +301,15 @@ stdout. The hook requires Claude Code v2.1.295+ for the `onFailure: block`
 field; without it a hook that crashes or times out would let the prompt
 through.
 
+Detection is the proxy's: the prompt hook only catches secrets that are
+registered in the vault, match a known secret pattern (API keys, tokens,
+private keys, etc.), or have high entropy. A password that is not registered
+and does not look like a secret (a short, low-entropy phrase) still passes.
+With `--project`, the hook lands in `./.claude/settings.json`, a file teams
+often commit: it calls the keyfence path printed at install time, and
+`onFailure: block` refuses every prompt when that path is missing, so
+teammates without keyfence at that path would be blocked.
+
 Installations made with 0.4.0 have no such list. There `--remove` takes
 out the hook, leaves every deny rule in place, prints the ones that match
 keyfence's and says that there is no way to tell who added them.
@@ -446,12 +455,3 @@ keyfence exec -- claude          # or: keyfence exec -- pi
 Ask the agent to read `.env` and show the values. It sees
 `[REDACTED:vault]` instead. `keyfence status` lists the detections. With
 the hook installed as well, it does not get to read the file at all.
-
-### Detection caveat
-
-The prompt hook (like the proxy) only catches secrets that are registered
-in the vault, match a known secret pattern (API keys, tokens, private keys,
-etc.), or have high entropy. A password that is not registered and does not
-look like a secret — e.g. a short, low-entropy phrase like `hunter2` — will
-still pass. The same detection logic applies to both the proxy and the
-prompt hook.

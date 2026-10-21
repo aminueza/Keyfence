@@ -58,7 +58,9 @@ Claude Code gives the hook 10 seconds; the pi extension has no timeout of
 its own. A decision takes a few milliseconds once Python is up, and the
 `hook` subcommand is served by `keyfence/entry.py` before the rest of the
 package (mitmproxy included) is imported, so the cost is one interpreter
-start.
+start. A `UserPromptSubmit` call costs more than a tool-call one: it runs
+the vault and the detectors over the prompt text, which is fine once per
+prompt (the prompt path imports the config and the detectors on purpose).
 
 ## What the rules look at
 

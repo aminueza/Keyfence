@@ -476,61 +476,80 @@ def _secret() -> str:
 def test_prompt_clean(home, capsys):
     from keyfence import prompt
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello world"})
-    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    assert capsys.readouterr().out == ""
-    assert capsys.readouterr().err == ""
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "" and err.getvalue() == ""
 
 
 def test_prompt_redact_mode_blocks(home, write_config, capsys):
     from keyfence import prompt
     write_config("mode: redact\n")
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
-    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    out = capsys.readouterr().out
-    data = json.loads(out)
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
     assert data["decision"] == "block"
     assert data["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
     assert data["hookSpecificOutput"]["suppressOriginalPrompt"] is True
     assert "openai-api-key" in data["reason"]
-    assert _secret() not in data["reason"]
+    assert "sk…Uv" in data["reason"]
     assert "prompt was not sent" in data["reason"]
     assert "transcript" in data["reason"]
     assert "rotated" in data["reason"]
-    assert _secret() not in capsys.readouterr().err
+    assert _secret() not in captured.out + captured.err + err.getvalue()
 
 
 def test_prompt_placeholder_mode_blocks(home, write_config, capsys):
     from keyfence import prompt
     write_config("mode: placeholder\n")
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
-    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    out = capsys.readouterr().out
-    data = json.loads(out)
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
     assert data["decision"] == "block"
     assert "openai-api-key" in data["reason"]
-    assert _secret() not in data["reason"]
+    assert _secret() not in captured.out + captured.err + err.getvalue()
 
 
 def test_prompt_block_mode_blocks(home, write_config, capsys):
     from keyfence import prompt
     write_config("mode: block\n")
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
-    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    out = capsys.readouterr().out
-    data = json.loads(out)
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
     assert data["decision"] == "block"
     assert "openai-api-key" in data["reason"]
-    assert _secret() not in data["reason"]
+    assert _secret() not in captured.out + captured.err + err.getvalue()
+
+
+def test_prompt_many_findings_are_capped_in_the_reason(home, write_config, capsys):
+    from keyfence import prompt
+    write_config("mode: redact\n")
+    keys = "\n".join(f"key{i}: sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St{i:02d}" for i in range(6))
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": keys})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert "and 1 more" in data["reason"]
 
 
 def test_prompt_audit_mode_logs(home, write_config, capsys):
+    import stat
     from keyfence import prompt
     write_config("mode: audit\n")
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
-    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    assert capsys.readouterr().out == ""
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and err.getvalue() == ""
     audit_log = home / "audit.log"
     assert audit_log.exists()
+    assert stat.S_IMODE(audit_log.stat().st_mode) == 0o600
     lines = audit_log.read_text().strip().splitlines()
     assert len(lines) == 1
     entry = json.loads(lines[0])
@@ -542,6 +561,17 @@ def test_prompt_audit_mode_logs(home, write_config, capsys):
     assert entry["findings"][0]["preview"] == _secret()[:2] + "…" + _secret()[-2:] + f" ({len(_secret())} chars)"
     assert entry["findings"][0]["key"] is None
     assert _secret() not in lines[0]
+
+
+def test_prompt_audit_mode_logs_suppressed(home, write_config, capsys):
+    from keyfence import prompt
+    write_config(f"mode: audit\nignore_values: [{_secret()}]\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit",
+                          "prompt": f"token: {_secret()} and sk-proj-Zz9Yy8Xx7Ww6Vv5Uu4Tt3Ss2Rr1Qq0Pp"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    entry = json.loads((home / "audit.log").read_text().strip())
+    assert entry["count"] >= 1
+    assert entry["suppressed"] >= 1
 
 
 def test_prompt_audit_mode_canary_label(home, write_config, capsys):
@@ -565,21 +595,41 @@ def test_prompt_broken_config_blocks(home, capsys):
     (home / "config.yaml").write_text("mode: bogus\n")
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
     assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    out = capsys.readouterr().out
-    data = json.loads(out)
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert data["hookSpecificOutput"]["suppressOriginalPrompt"] is True
+    assert "configuration failed to load" in data["reason"]
+    assert "invalid mode" in data["reason"]
+
+
+def test_prompt_invalid_yaml_config_blocks(home, capsys):
+    from keyfence import prompt
+    (home / "config.yaml").write_text("mode: [unclosed\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
     assert data["decision"] == "block"
     assert "configuration failed to load" in data["reason"]
+
+
+def test_prompt_broken_vault_blocks(home, capsys):
+    from keyfence import prompt
+    from keyfence.vault import DEFAULT_DIR
+    (DEFAULT_DIR / "vault.json").write_text("not a vault")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
 
 
 def test_prompt_pasted_block_scanned(home, write_config, capsys):
     from keyfence import prompt
     write_config("mode: redact\n")
     secret = _secret()
-    prompt_text = f"<pasted_content>\ntoken: {secret}\n</pasted_content>"
+    prompt_text = f'<pasted_content id="a1b2c3">\ntoken: {secret}\n</pasted_content>'
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt_text})
     assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    out = capsys.readouterr().out
-    data = json.loads(out)
+    data = json.loads(capsys.readouterr().out)
     assert data["decision"] == "block"
     assert "openai-api-key" in data["reason"]
     assert secret not in data["reason"]
@@ -591,20 +641,25 @@ def test_prompt_unreadable_input(home, capsys):
     err = io.StringIO()
     assert prompt.run(io.StringIO(payload), err) == 2
     assert "could not read the input" in err.getvalue()
+    assert capsys.readouterr().out == ""
 
 
 def test_prompt_missing_prompt_field(home, capsys):
     from keyfence import prompt
     payload = json.dumps({"hook_event_name": "UserPromptSubmit"})
-    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    assert capsys.readouterr().out == ""
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and err.getvalue() == ""
 
 
 def test_prompt_empty_prompt_field(home, capsys):
     from keyfence import prompt
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": ""})
-    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    assert capsys.readouterr().out == ""
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and err.getvalue() == ""
 
 
 def test_prompt_crash_blocks(home, monkeypatch, capsys):
@@ -614,8 +669,8 @@ def test_prompt_crash_blocks(home, monkeypatch, capsys):
     monkeypatch.setattr(prompt, "scan_report", crash)
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
     assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
-    out = capsys.readouterr().out
-    data = json.loads(out)
+    data = json.loads(capsys.readouterr().out)
     assert data["decision"] == "block"
+    assert data["hookSpecificOutput"]["suppressOriginalPrompt"] is True
     assert "guard crashed" in data["reason"]
     assert "RuntimeError" in data["reason"]

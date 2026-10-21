@@ -42,7 +42,7 @@ been caught.
 Two more layers, both optional:
 
 ```bash
-keyfence install-hooks claude-code   # Claude Code refuses to read secret files at all
+keyfence install-hooks claude-code   # Claude Code refuses to read secret files, and refuses a prompt that carries a secret
 keyfence install-hooks pi            # same for pi, as a pi extension
 keyfence canary .env                 # plant a fake secret; if a tool ever sends it, you will know
 ```
