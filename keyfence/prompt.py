@@ -47,7 +47,7 @@ def _write_audit_entry(config: Config, vault: Vault, findings: list[Finding],
         if suppressed:
             entry["suppressed"] = suppressed
         fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
-        with os.fdopen(fd, "a") as fh:
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
             os.chmod(path, 0o600)
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except OSError as exc:

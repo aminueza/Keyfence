@@ -579,6 +579,20 @@ def test_prompt_block_mode_also_logs(home, write_config, capsys):
     assert _secret() not in lines[0]
 
 
+def test_prompt_block_mode_survives_an_unwritable_audit_log(home, write_config, capsys):
+    from keyfence import prompt
+    (home / "blocker").write_text("")  # a file where the audit dir should be: mkdir fails even as root
+    write_config(f"mode: block\naudit_log: {home / 'blocker' / 'audit.log'}\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert data["hookSpecificOutput"]["suppressOriginalPrompt"] is True
+    assert "could not write audit log" in err.getvalue()
+    assert _secret() not in err.getvalue()
+
+
 def test_prompt_audit_mode_logs_suppressed(home, write_config, capsys):
     from keyfence import prompt
     write_config(f"mode: audit\nignore_values: [{_secret()}]\n")
@@ -587,7 +601,7 @@ def test_prompt_audit_mode_logs_suppressed(home, write_config, capsys):
     assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
     entry = json.loads((home / "audit.log").read_text().strip())
     assert entry["count"] >= 1
-    assert entry["suppressed"] >= 1
+    assert entry["suppressed"] == 1
 
 
 def test_prompt_audit_mode_canary_label(home, write_config, capsys):
@@ -626,6 +640,7 @@ def test_prompt_invalid_yaml_config_blocks(home, capsys):
     data = json.loads(capsys.readouterr().out)
     assert data["decision"] == "block"
     assert "configuration failed to load" in data["reason"]
+    assert "while parsing" in data["reason"]  # the YAML error itself, not just the prefix
 
 
 def test_prompt_broken_vault_blocks(home, capsys):
@@ -636,13 +651,14 @@ def test_prompt_broken_vault_blocks(home, capsys):
     assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["decision"] == "block"
+    assert "not a valid keyfence vault" in data["reason"]
 
 
 def test_prompt_pasted_block_scanned(home, write_config, capsys):
     from keyfence import prompt
     write_config("mode: redact\n")
     secret = _secret()
-    prompt_text = f'<pasted_content id="a1b2c3">\ntoken: {secret}\n</pasted_content>'
+    prompt_text = f'<pasted_content id="a1b2c3">\ntoken: {secret}\n</pasted_content id="a1b2c3">'
     payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt_text})
     assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
     data = json.loads(capsys.readouterr().out)

@@ -502,7 +502,7 @@ def test_install_hooks_list_shows_a_prompt_hook_missing_on_an_old_install(home, 
         {"matcher": "Read", "hooks": [{"type": "command", "command": "keyfence hook claude-code"}]}]}}))
     assert cli.main(["install-hooks", "--list"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert lines[1] == "  tool-call hook" and "installed" in lines[2]
+    assert lines[1] == "  tool-call hook" and lines[2].startswith("    global   installed ")
     assert lines[4] == "  prompt hook" and "not installed" in lines[5]
 
 
@@ -622,4 +622,6 @@ def test_entry_prompt_import_failure_blocks(home, write_config, monkeypatch, cap
     assert entry.main(["hook", "claude-code"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["decision"] == "block"
+    assert data["hookSpecificOutput"] == {"hookEventName": "UserPromptSubmit",
+                                          "suppressOriginalPrompt": True}
     assert "guard crashed" in data["reason"]

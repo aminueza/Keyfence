@@ -147,7 +147,10 @@ The Claude Code plugin in `plugin/` attaches the same rules through
 `plugin/hooks/hooks.json`, running `plugin/hooks/guard.py` with `python3`.
 That file is a byte-for-byte copy of `keyfence/hooks.py` (a test checks
 this) so the plugin works before keyfence is installed. The plugin does not
-run the prompt hook (it needs the package); a follow-up will add that.
+run the prompt hook (it needs the package); a follow-up will add that. The
+plugin's `/keyfence:setup` skill does run `keyfence install-hooks
+claude-code` once keyfence is installed, and that installs the prompt hook
+too.
 
 pi has no declarative rules, so `keyfence install-hooks pi` writes an
 extension (`~/.pi/agent/extensions/keyfence.ts`, or

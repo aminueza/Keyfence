@@ -297,8 +297,13 @@ Claude Code not to send it. The prompt text stays on disk in the transcript
 and prompt history, so the secret should be rotated immediately. In `audit`
 mode the prompt goes through; in `redact`, `placeholder` and `block` modes
 it is refused with a JSON reply on stdout. Either way the finding lands in
-the audit log, as it does for the proxy in every mode. The hook requires
-Claude Code v2.1.295+ for the `onFailure: block`
+the audit log, as it does for the proxy in every mode; `keyfence status`
+shows the mode each entry was written under, so a blocked prompt reads
+`(redact)` or `(block)`. The block is a JSON reply with exit `0`, per
+Claude Code's hook contract; the known limit is that anything else
+written to the hook's stdout (a line a shell profile echoes, say) stops
+Claude Code from reading the reply as JSON, and the prompt goes through.
+The hook requires Claude Code v2.1.295+ for the `onFailure: block`
 field; without it a hook that crashes or times out would let the prompt
 through.
 
@@ -307,9 +312,10 @@ registered in the vault, match a known secret pattern (API keys, tokens,
 private keys, etc.), or have high entropy. A password that is not registered
 and does not look like a secret (a short, low-entropy phrase) still passes.
 With `--project`, the hook lands in `./.claude/settings.json`, a file teams
-often commit: it calls the keyfence path printed at install time, and
-`onFailure: block` refuses every prompt when that path is missing, so
-teammates without keyfence at that path would be blocked.
+often commit: it calls the absolute keyfence path of the machine that
+installed it (the install note prints it), and `onFailure: block` refuses
+every prompt when that path is missing, so teammates without keyfence at
+that path would be blocked.
 
 Installations made with 0.4.0 have no such list. There `--remove` takes
 out the hook, leaves every deny rule in place, prints the ones that match

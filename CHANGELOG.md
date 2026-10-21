@@ -8,10 +8,11 @@
   the prompt with a JSON reply on stdout (`decision: block`,
   `suppressOriginalPrompt: true`) and says the prompt was not sent and the
   text is still on disk in the transcript and prompt history, so the secret
-  should be rotated. In `audit` mode the prompt goes through and the finding
-  is logged to the audit log with `host: claude-code:prompt`, an empty
+  should be rotated. The finding is logged to the audit log in every mode,
+  as the proxy does, with `host: claude-code:prompt`, an empty
   `path`, and findings with `kind`, `preview` (masked) and `key`, plus
-  `label` for a canary. The hook needs Claude Code v2.1.295+ for the
+  `label` for a canary; in `audit` mode the prompt itself goes through.
+  The hook needs Claude Code v2.1.295+ for the
   `onFailure: block` field. `keyfence doctor` reports whether the prompt
   hook is installed, and `install-hooks --list` shows it under a prompt
   hook heading.
