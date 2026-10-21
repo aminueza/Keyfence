@@ -77,6 +77,20 @@ real incidents. Out of scope:
 - **Model behaviour.** keyfence controls what the model receives, not what
   it says. The system prompt notice reduces false alarms about redaction,
   but the model can still misread other parts of its context.
+- **Credentials the agent uses without reading them.** keyfence controls
+  what reaches the model, not what the agent does with the access the
+  machine already has. `ssh prod`, `aws s3 ls` and `git push` use a key or
+  a token on disk without printing it, so the hook allows them and the
+  proxy sees no secret, and the agent can reach a server, change cloud
+  resources or push code as you. A command that names a key file, such as
+  `ssh -i ~/.ssh/deploy_key`, is refused; one that names only the host is
+  not. Give the agent its own scoped or test credentials, and keep
+  production access out of the environment it runs in.
+- **Sessions that run in the cloud.** keyfence protects the machine it
+  runs on. A Claude Code session on the web, a cloud agent or a CI job
+  sends its requests from a remote environment, so the proxy and the hook
+  on your machine never see them. A secret given to such a session needs
+  its own limits: a short lifetime and the smallest scope that works.
 
 ## Other measures
 

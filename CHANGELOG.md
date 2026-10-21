@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `docs/limitations.md` now names two cases keyfence does not cover. An
+  agent can use a credential on disk without reading it (`ssh prod`,
+  `aws s3 ls`, `git push`), so neither the hook nor the proxy sees it. A
+  session that runs in the cloud, such as Claude Code on the web, sends its
+  requests from a remote environment that the local proxy and hook never
+  see.
+
 ## 0.10.0 (2026-10-06)
 
 - `keyfence exec` and `keyfence run` now configure mitmproxy's `tcp_timeout`
