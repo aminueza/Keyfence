@@ -53,6 +53,7 @@ _SECRET_COMMANDS = re.compile(
     r")\b", re.IGNORECASE | re.MULTILINE)
 HOOK_COMMAND = "keyfence hook claude-code"
 HOOK_MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash"
+PROMPT_HOOK_MIN_CLAUDE_CODE = "2.1.295"
 DENY_RULES = (
     "Read(./.env)", "Read(./.env.*)", "Read(./**/.env)", "Read(./**/.env.*)", "Read(./**/*.pem)",
     "Read(./**/*.key)", "Read(./**/credentials*)", "Read(./**/secrets.*)", "Read(./**/*.tfvars)",
@@ -198,12 +199,18 @@ def install(path: Path, command: str | None = None) -> bool:
         command = f"{command} hook claude-code"
     data = json.loads(path.read_text()) if path.exists() else {}
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
+    prompt = data.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
     deny = data.setdefault("permissions", {}).setdefault("deny", [])
     changed = False
     if not any(_is_ours(e) for e in pre):
         pre.append({
             "matcher": HOOK_MATCHER,
             "hooks": [{"type": "command", "command": command, "timeout": 10}],
+        })
+        changed = True
+    if not any(_is_ours(e) for e in prompt):
+        prompt.append({
+            "hooks": [{"type": "command", "command": command, "timeout": 10, "onFailure": "block"}],
         })
         changed = True
     missing = [rule for rule in DENY_RULES if rule not in deny]
@@ -225,7 +232,9 @@ def uninstall(path: Path, force: bool = False) -> Removal:
         return Removal(False, 0, [])
     data = json.loads(path.read_text())
     pre = data.get("hooks", {}).get("PreToolUse", [])
-    kept = [e for e in pre if not _is_ours(e)]
+    prompt = data.get("hooks", {}).get("UserPromptSubmit", [])
+    kept_pre = [e for e in pre if not _is_ours(e)]
+    kept_prompt = [e for e in prompt if not _is_ours(e)]
     deny = data.get("permissions", {}).get("deny", [])
     recorded = _added_rules(path)
     ours = set(recorded or ())
@@ -237,13 +246,20 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     kept_deny = [rule for rule in deny if rule not in ours]
     if force or recorded is not None:
         added_rules_path(path).unlink(missing_ok=True)
-    result = Removal(len(kept) < len(pre), len(deny) - len(kept_deny), unrecorded)
+    result = Removal(
+        (len(kept_pre) < len(pre)) or (len(kept_prompt) < len(prompt)),
+        len(deny) - len(kept_deny),
+        unrecorded
+    )
     if not result.changed:
         return result
     if "hooks" in data:
-        data["hooks"]["PreToolUse"] = kept
-        if not kept:
+        data["hooks"]["PreToolUse"] = kept_pre
+        if not kept_pre:
             del data["hooks"]["PreToolUse"]
+        data["hooks"]["UserPromptSubmit"] = kept_prompt
+        if not kept_prompt:
+            del data["hooks"]["UserPromptSubmit"]
         if not data["hooks"]:
             del data["hooks"]
     if "permissions" in data:

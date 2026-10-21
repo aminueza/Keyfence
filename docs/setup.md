@@ -289,6 +289,18 @@ subdirectory. Existing hooks and rules in the settings file are kept, and
 in `keyfence-deny-rules.json` next to the settings file, and rules that
 were already there stay, even when they are identical to keyfence's.
 
+`keyfence install-hooks claude-code` also adds a `UserPromptSubmit` hook.
+This hook scans every prompt the user submits before it reaches the model.
+If the prompt contains a secret (a registered vault secret, a pattern like
+an API key, or a high-entropy value), the hook blocks the prompt and tells
+Claude Code not to send it. The prompt text stays on disk in the transcript
+and prompt history, so the secret should be rotated immediately. In `audit`
+mode the prompt goes through and the finding is logged; in `redact`,
+`placeholder` and `block` modes the prompt is refused with a JSON reply on
+stdout. The hook requires Claude Code v2.1.295+ for the `onFailure: block`
+field; without it a hook that crashes or times out would let the prompt
+through.
+
 Installations made with 0.4.0 have no such list. There `--remove` takes
 out the hook, leaves every deny rule in place, prints the ones that match
 keyfence's and says that there is no way to tell who added them.
@@ -434,3 +446,12 @@ keyfence exec -- claude          # or: keyfence exec -- pi
 Ask the agent to read `.env` and show the values. It sees
 `[REDACTED:vault]` instead. `keyfence status` lists the detections. With
 the hook installed as well, it does not get to read the file at all.
+
+### Detection caveat
+
+The prompt hook (like the proxy) only catches secrets that are registered
+in the vault, match a known secret pattern (API keys, tokens, private keys,
+etc.), or have high entropy. A password that is not registered and does not
+look like a secret — e.g. a short, low-entropy phrase like `hunter2` — will
+still pass. The same detection logic applies to both the proxy and the
+prompt hook.

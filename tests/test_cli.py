@@ -466,19 +466,31 @@ def test_install_hooks_list_reports_each_agent_and_scope(home, tmp_path, monkeyp
     monkeypatch.chdir(project)
     assert cli.main(["install-hooks", "--list"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0] == "claude-code" and lines[3] == "pi" and len(lines) == 6
-    assert all("not installed" in line for line in lines[1:3] + lines[4:6])
-    assert str(tmp_path / "home" / ".claude" / "settings.json") in lines[1]
-    assert str(project / ".claude" / "settings.json") in lines[2]
-    assert str(tmp_path / "home" / ".pi" / "agent" / "extensions" / "keyfence.ts") in lines[4]
-    assert str(project / ".pi" / "extensions" / "keyfence.ts") in lines[5]
+    # claude-code: agent name, tool-call hook (2 scopes), prompt hook (2 scopes), pi: agent name, 2 scopes
+    assert lines[0] == "claude-code"
+    assert lines[1] == "  tool-call hook"
+    assert all("not installed" in line for line in lines[2:4])
+    assert lines[4] == "  prompt hook"
+    assert all("not installed" in line for line in lines[5:7])
+    assert lines[7] == "pi"
+    assert all("not installed" in line for line in lines[8:10])
+    assert len(lines) == 10
+    assert str(tmp_path / "home" / ".claude" / "settings.json") in lines[2]
+    assert str(project / ".claude" / "settings.json") in lines[3]
+    assert str(tmp_path / "home" / ".claude" / "settings.json") in lines[5]
+    assert str(project / ".claude" / "settings.json") in lines[6]
+    assert str(tmp_path / "home" / ".pi" / "agent" / "extensions" / "keyfence.ts") in lines[8]
+    assert str(project / ".pi" / "extensions" / "keyfence.ts") in lines[9]
     assert cli.main(["install-hooks", "claude-code"]) == 0
     assert cli.main(["install-hooks", "pi", "--project"]) == 0
     capsys.readouterr()
     assert cli.main(["install-hooks", "--list"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert lines[1].startswith("  global   installed ") and "not installed" in lines[2]
-    assert "not installed" in lines[4] and lines[5].startswith("  project  installed ")
+    assert lines[1].startswith("  tool-call hook")
+    assert lines[2].startswith("    global   installed ") and "not installed" in lines[3]
+    assert lines[4].startswith("  prompt hook")
+    assert lines[5].startswith("    global   installed ") and "not installed" in lines[6]
+    assert "not installed" in lines[8] and lines[9].startswith("  project  installed ")
 
 
 def test_install_hooks_list_rejects_an_agent_and_the_other_flags(home, tmp_path, monkeypatch, capsys):
@@ -537,3 +549,34 @@ def test_module_entrypoint(home, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("keyfence", run_name="__main__")
     assert exc.value.code == 0
+
+
+def _secret() -> str:
+    return "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+
+
+def test_entry_dispatch_prompt_hook_blocks(home, write_config, capsys, monkeypatch):
+    from keyfence import entry
+    write_config("mode: redact\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
+    monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+    assert entry.main(["hook", "claude-code"]) == 0
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert data["decision"] == "block"
+    assert "openai-api-key" in data["reason"]
+    assert _secret() not in data["reason"]
+
+
+def test_entry_dispatch_tool_call_still_uses_hooks(home, monkeypatch, capsys):
+    from keyfence import entry
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_name": "Read", "tool_input": {"file_path": "/w/.env"}})))
+    assert entry.main(["hook", "claude-code"]) == 2
+    assert "keyfence blocked" in capsys.readouterr().err
+
+
+def test_entry_hook_pi_unaffected(home, monkeypatch, capsys):
+    from keyfence import entry
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})))
+    assert entry.main(["hook", "pi"]) == 0
+    assert capsys.readouterr().out == ""

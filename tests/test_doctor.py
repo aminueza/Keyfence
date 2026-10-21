@@ -47,7 +47,7 @@ def test_run_checks_produces_every_check(home, monkeypatch):
     checks = doctor.run_checks(8888, cwd=home)
     labels = [c.label for c in checks]
     assert labels[:4] == ["keyfence", "mitmdump", "CA certificate", "CA bundle"]
-    assert "Claude Code hook" in labels and "audit log" in labels
+    assert "Claude Code hook" in labels and "Claude Code prompt hook" in labels and "audit log" in labels
     assert "pi extension" in labels
     assert all(c.status in (doctor.OK, doctor.INFO, doctor.WARN, doctor.FAIL) for c in checks)
 
@@ -293,6 +293,27 @@ def test_hook_check(home, tmp_path, monkeypatch):
     assert check.status == doctor.OK and "project" in check.detail
     (project / "settings.json").write_text("not json")
     assert doctor.check_hook(tmp_path / "proj").status == doctor.INFO
+
+
+def test_prompt_hook_check(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.INFO
+    assert "needs Claude Code v2.1.295+" in doctor.check_prompt_hook(tmp_path / "proj").detail
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
+        {"hooks": [{"type": "command", "command": f"{binary} hook claude-code", "timeout": 10, "onFailure": "block"}]}]}}))
+    check = doctor.check_prompt_hook(tmp_path / "proj")
+    assert check.status == doctor.OK and "project" in check.detail
+    (project / "settings.json").write_text("not json")
+    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.INFO
+    (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
+        {"hooks": [{"type": "command", "command": "/nonexistent keyfence hook claude-code"}]}]}}))
+    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.FAIL
 
 
 def test_audit_check(home, write_config):

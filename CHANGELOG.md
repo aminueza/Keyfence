@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code` now installs a second Claude Code
+  hook, `UserPromptSubmit`, that scans every submitted prompt for secrets
+  before the prompt reaches the model (issue #145). On a finding it blocks
+  the prompt with a JSON reply on stdout (`decision: block`,
+  `suppressOriginalPrompt: true`) and says the prompt was not sent and the
+  text is still on disk in the transcript and prompt history, so the secret
+  should be rotated. In `audit` mode the prompt goes through and the finding
+  is logged to the audit log with `host: claude-code:prompt`, an empty
+  `path`, and findings with `kind`, `preview` (masked) and `key`, plus
+  `label` for a canary. The hook needs Claude Code v2.1.295+ for the
+  `onFailure: block` field. `keyfence doctor` reports whether the prompt
+  hook is installed, and `install-hooks --list` shows it under a prompt
+  hook heading.
+- The prompt check lives in a new module, `keyfence/prompt.py`, with the
+  same vault and detectors as the proxy and audit entries in the same shape
+  as the addon's, without importing it. `keyfence hook claude-code`
+  dispatches on `hook_event_name`, so tool calls keep the fast path that
+  loads neither yaml nor the config.
+
 ## 0.8.0 (2026-09-28)
 
 - Placeholder restoration in streamed and buffered responses now decides the

@@ -194,8 +194,16 @@ def _remove_claude_code(path: Path, force: bool) -> int:
 def _list_hooks() -> int:
     for agent in AGENTS:
         print(agent)
-        for scope, path, installed in doctor.installed_scopes(agent):
-            print(f"  {scope:<8} {'installed' if installed else 'not installed':<14} {path}")
+        if agent == "claude-code":
+            print("  tool-call hook")
+            for scope, path, installed in doctor.installed_scopes(agent):
+                print(f"    {scope:<8} {'installed' if installed else 'not installed':<14} {path}")
+            print("  prompt hook")
+            for scope, path, installed in doctor.prompt_hook_scopes(agent):
+                print(f"    {scope:<8} {'installed' if installed else 'not installed':<14} {path}")
+        else:
+            for scope, path, installed in doctor.installed_scopes(agent):
+                print(f"  {scope:<8} {'installed' if installed else 'not installed':<14} {path}")
     return 0
 
 
@@ -228,6 +236,8 @@ def cmd_install_hooks(args) -> int:
               "Claude Code refuse to read .env files, private keys and credential files.")
         print(f"The rules keyfence added are listed in {hooks.added_rules_path(path)}, which is the record "
               "--remove reads back.")
+        print(f"The prompt hook requires Claude Code v{hooks.PROMPT_HOOK_MIN_CLAUDE_CODE}+ (adds UserPromptSubmit "
+              "with timeout 10 and onFailure=block).")
     else:
         print(f"Hook already present in {path}.")
     return 0

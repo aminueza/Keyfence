@@ -202,6 +202,14 @@ def hook_installed(path: Path) -> bool:
     return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("PreToolUse", []))
 
 
+def prompt_hook_installed(path: Path) -> bool:
+    try:
+        data = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        return False
+    return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("UserPromptSubmit", []))
+
+
 def hook_command(path: Path) -> str | None:
     try:
         data = json.loads(path.read_text()) if path.exists() else {}
@@ -216,10 +224,31 @@ def hook_command(path: Path) -> str | None:
     return None
 
 
+def prompt_hook_command(path: Path) -> str | None:
+    try:
+        data = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        return None
+    for entry in data.get("hooks", {}).get("UserPromptSubmit", []):
+        if hooks._is_ours(entry):
+            for hook in entry.get("hooks", []):
+                cmd = hook.get("command", "")
+                if cmd:
+                    return cmd
+    return None
+
+
 def installed_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, Path, bool]]:
     locate, installed = (pi.extension_path, pi.is_ours) if agent == "pi" else (hooks.settings_path, hook_installed)
     return [(scope, path, installed(path))
             for scope, path in (("global", locate(False)), ("project", locate(True, cwd)))]
+
+
+def prompt_hook_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, Path, bool]]:
+    if agent != "claude-code":
+        return []
+    return [(scope, path, prompt_hook_installed(path))
+            for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd)))]
 
 
 def check_hook(cwd: Path | None = None) -> Check:
@@ -242,6 +271,29 @@ def check_hook(cwd: Path | None = None) -> Check:
     if scopes:
         return Check(OK, "Claude Code hook", "installed (" + ", ".join(scopes) + ")")
     return Check(INFO, "Claude Code hook", "not installed; keyfence install-hooks claude-code stops Claude Code from reading secret files")
+
+
+def check_prompt_hook(cwd: Path | None = None) -> Check:
+    scopes = []
+    for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
+        if not prompt_hook_installed(path):
+            continue
+        command = prompt_hook_command(path)
+        if command is None:
+            return Check(FAIL, "Claude Code prompt hook",
+                         f"installed ({scope}) but {path} holds no keyfence command; every submitted prompt is refused "
+                         "until keyfence install-hooks claude-code runs again")
+        executable = command.split()[0]
+        problem = command_problem(executable)
+        if problem:
+            return Check(FAIL, "Claude Code prompt hook",
+                         f"installed ({scope}) but the {scope} hook calls {command}, whose executable {executable} {problem}; every submitted prompt "
+                         "is refused until keyfence install-hooks claude-code runs again")
+        scopes.append(scope)
+    if scopes:
+        return Check(OK, "Claude Code prompt hook", "installed (" + ", ".join(scopes) + ")")
+    return Check(INFO, "Claude Code prompt hook",
+                 f"not installed; keyfence install-hooks claude-code adds it (needs Claude Code v{hooks.PROMPT_HOOK_MIN_CLAUDE_CODE}+)")
 
 
 def check_pi_extension(cwd: Path | None = None) -> Check:
@@ -292,6 +344,7 @@ def run_checks(port: int, cwd: Path | None = None) -> list[Check]:
         check_environment(host, target),
         check_local_mode(),
         check_hook(cwd),
+        check_prompt_hook(cwd),
         check_pi_extension(cwd),
         check_audit(),
     ]
