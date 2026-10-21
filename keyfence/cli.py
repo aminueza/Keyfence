@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import doctor, export, hooks, pi, runner, sources
 from .config import Config
-from .detectors import scan_report, Finding
+from .detectors import Finding, scan_report
 from .importer import default_paths, env_values, import_files, looks_secret
 from .vault import DEFAULT_DIR, Vault, VaultError
 
@@ -98,17 +98,19 @@ def _finding_line(f: Finding) -> str:
     return f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})"
 
 
-def _scan_text(text: str, vault: Vault, config, ignore) -> tuple[list[Finding], int, list[str]]:
+def _scan_text(text: str, vault: Vault, config, ignore) -> tuple[int, int, list[str]]:
     report = scan_report(text, vault=vault, config=config, ignore=ignore)
-    return report.findings, report.suppressed, [_finding_line(f) for f in report.findings]
+    return len(report.findings), report.suppressed, [_finding_line(f) for f in report.findings]
 
 
-def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[list[Finding], int, list[str]]:
-    all_findings: list[Finding] = []
+def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[int, int, list[str]]:
+    count = 0
     total_suppressed = 0
     lines: list[str] = []
 
     def walk_error(exc: OSError):
+        if os.path.normpath(str(exc.filename)) == os.path.normpath(os.fspath(path)):
+            raise exc  # the root itself is unreadable, so nothing was scanned
         print(f"skipped: {exc.filename} ({exc})", file=sys.stderr)
 
     for root, dirs, files in os.walk(path, onerror=walk_error):
@@ -138,11 +140,11 @@ def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[list[Find
                             kind_suffix = " (registered secret)" if f.kind in ("vault", "canary") else ""
                             where = f" in \"{f.key}\"" if f.key else ""
                             lines.append(f"  - {display}:{lineno}: [{f.kind}] {f.masked}{kind_suffix}{where}")
-                            all_findings.append(f)
+                            count += 1
             except OSError as exc:
                 print(f"skipped: {display} ({exc})", file=sys.stderr)
                 continue
-    return all_findings, total_suppressed, lines
+    return count, total_suppressed, lines
 
 
 def cmd_scan(args) -> int:
@@ -159,24 +161,28 @@ def cmd_scan(args) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
         if path.is_dir():
-            findings, suppressed, lines = _scan_directory(path, vault, cfg.scan, ignore)
+            try:
+                count, suppressed, lines = _scan_directory(path, vault, cfg.scan, ignore)
+            except OSError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
         else:
             try:
-                findings, suppressed, lines = _scan_text(path.read_text(errors="replace"), vault, cfg.scan, ignore)
+                count, suppressed, lines = _scan_text(path.read_text(errors="replace"), vault, cfg.scan, ignore)
             except OSError as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1
     elif args.text:
-        findings, suppressed, lines = _scan_text(args.text, vault, cfg.scan, ignore)
+        count, suppressed, lines = _scan_text(args.text, vault, cfg.scan, ignore)
     else:
-        findings, suppressed, lines = _scan_text(sys.stdin.read(), vault, cfg.scan, ignore)
+        count, suppressed, lines = _scan_text(sys.stdin.read(), vault, cfg.scan, ignore)
 
     if suppressed:
         print(f"{suppressed} finding(s) ignored by the ignore lists in {Config.path()}")
-    if not findings:
+    if not count:
         print("No secrets detected.")
         return 0
-    print(f"{len(findings)} secret(s) detected:")
+    print(f"{count} secret(s) detected:")
     for line in lines:
         print(line)
     return 2
