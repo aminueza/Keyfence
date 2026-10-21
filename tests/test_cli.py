@@ -33,6 +33,8 @@ def test_scan_file_and_stdin(home, tmp_path, capsys, monkeypatch):
     path = tmp_path / "in.txt"
     path.write_text(f"x={KEY}")
     assert cli.main(["scan", "-f", str(path)]) == 2
+    out = capsys.readouterr().out
+    assert "  - [github-token] gh…89 (40 chars) (offset 2-42)\n" in out
     monkeypatch.setattr("sys.stdin", io.StringIO(f"y={KEY}"))
     assert cli.main(["scan"]) == 2
 
@@ -632,6 +634,26 @@ def test_scan_directory_unreadable_file(home, tmp_path, capsys, monkeypatch):
     captured = capsys.readouterr()
     assert f"skipped: {unreadable}" in captured.err
     assert "readable.txt:1:" in captured.out
+
+
+def test_scan_directory_text_open_failure(home, tmp_path, capsys, monkeypatch):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    (tmp_path / "race.txt").write_text(f"token: {secret}\n")
+    race_str = str((tmp_path / "race.txt").resolve())
+    original_open = Path.open
+
+    def patched_open(self, mode="r", *args, **kwargs):
+        # the binary pre-check passes; the text open afterwards fails, as a
+        # file that loses its read permission between the two opens would
+        if str(self.resolve()) == race_str and mode == "r":
+            raise PermissionError(13, "Permission denied", str(self))
+        return original_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", patched_open)
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 0
+    captured = capsys.readouterr()
+    assert "skipped:" in captured.err and "race.txt" in captured.err
+    assert "No secrets detected." in captured.out
 
 
 def test_scan_directory_unreadable_subdirectory(home, tmp_path, capsys, monkeypatch):
