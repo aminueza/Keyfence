@@ -11,6 +11,7 @@ from keyfence import cli
 from keyfence.vault import Vault
 
 KEY = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_scan_text_reports_findings(home, capsys):
@@ -146,6 +147,42 @@ def test_entry_hook_fast_path_loads_only_hooks(home, monkeypatch, capsys):
     assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "0 False"
 
 
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_hook_help_prints_usage_instead_of_reading_the_flag_as_an_agent(capsys, flag):
+    from keyfence import entry
+
+    with pytest.raises(SystemExit) as exc:
+        entry.main(["hook", flag])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert out.startswith("usage: keyfence hook") and "claude-code" in out
+
+
+def test_hook_help_after_the_agent_also_reaches_the_parser(capsys):
+    from keyfence import entry
+
+    with pytest.raises(SystemExit) as exc:
+        entry.main(["hook", "claude-code", "--help"])
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.startswith("usage: keyfence hook")
+
+
+def test_an_agent_named_like_a_flag_is_still_refused(capsys):
+    from keyfence import entry
+
+    assert entry.main(["hook", "--agent"]) == 1
+    assert "unknown agent: --agent" in capsys.readouterr().err
+
+
+def test_the_fast_path_still_skips_the_cli_when_a_hook_runs():
+    import subprocess, sys
+
+    code = ("import sys, json, io; sys.stdin = io.StringIO(json.dumps({'tool_name':'Read','tool_input':{'file_path':'a.py'}}));"
+            "import keyfence.entry as e; rc = e.main(['hook','claude-code']);"
+            "print(rc, any(m in sys.modules for m in ('argparse','keyfence.cli','mitmproxy')))")
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "0 False"
+
+
 def test_import_all_flag(home, tmp_path):
     env = tmp_path / ".env"
     env.write_text("NODE_ENV=production\n")
@@ -264,6 +301,22 @@ def test_status_without_audit_log(home, capsys):
     assert "Recent detections" not in capsys.readouterr().out
 
 
+def test_status_exits_1_on_a_bad_tcp_timeout_without_a_traceback(home, write_config, capsys):
+    write_config("proxy_tcp_timeout: 0\n")
+    assert cli.main(["status"]) == 1
+    err = capsys.readouterr().err
+    assert "proxy_tcp_timeout" in err and "Traceback" not in err
+
+
+def test_status_shows_the_tcp_timeout(home, write_config, capsys):
+    write_config("mode: block\n")
+    assert cli.main(["status"]) == 0
+    assert "TCP timeout:     3600 s" in capsys.readouterr().out
+    write_config("proxy_tcp_timeout: 7200\n")
+    assert cli.main(["status"]) == 0
+    assert "TCP timeout:     7200 s" in capsys.readouterr().out
+
+
 def test_corrupted_vault_gives_one_line_error(home, capsys):
     (home / "vault.json").write_text("x")
     assert cli.main(["status"]) == 1
@@ -312,6 +365,28 @@ def test_run_replaces_the_process_with_mitmdump(home, monkeypatch, capsys):
         cli.main(["run", "-p", "9001"])
     assert seen["program"].lower().rstrip(".exe").endswith("mitmdump") and "9001" in seen["argv"]
     assert "keyfence exec" in capsys.readouterr().out
+
+
+def test_run_tells_mitmdump_the_tcp_timeout_from_the_config(home, write_config, monkeypatch, capsys):
+    seen = {}
+    write_config("proxy_tcp_timeout: 7200\n")
+
+    def fake_exec(program, argv):
+        seen.update(program=program, argv=argv)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(cli.runner, "port_open", lambda port: False)
+    monkeypatch.setattr(cli.os, "execvp", fake_exec)
+    with pytest.raises(SystemExit):
+        cli.main(["run", "-p", "9001"])
+    assert ["--set", "tcp_timeout=7200"] in [seen["argv"][i:i + 2] for i in range(len(seen["argv"]) - 1)]
+
+
+def test_run_rejects_an_invalid_tcp_timeout(home, write_config, monkeypatch, capsys):
+    write_config("proxy_tcp_timeout: 0\n")
+    monkeypatch.setattr(cli.os, "execvp", lambda *a: pytest.fail("must not exec"))
+    assert cli.main(["run", "-p", "9001"]) == 1
+    assert "proxy_tcp_timeout" in capsys.readouterr().err
 
 
 def test_run_without_mitmdump(home, monkeypatch, capsys):
@@ -423,6 +498,40 @@ def test_install_hooks_names_the_hook_the_deny_block_and_the_record_it_writes(ho
     out = capsys.readouterr().out
     assert str(settings) in out and "permissions.deny" in out and str(record) in out
     assert json.loads(record.read_text()) == sorted(cli.hooks.DENY_RULES)
+
+
+def test_install_hooks_prints_the_claude_code_versions_the_deny_rules_need_below_the_rule_count(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    after_count = lines[lines.index(next(line for line in lines if "permissions.deny block" in line)) + 1]
+    assert "Edit" in after_count and "Write" in after_count
+    assert all(version in after_count for version in cli.DENY_RULE_MIN_CLAUDE_CODE.values())
+
+
+def test_install_hooks_prints_the_claude_code_versions_when_the_hook_is_already_there(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    capsys.readouterr()
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    out = capsys.readouterr().out
+    assert "Hook already present" in out
+    assert all(version in out for version in cli.DENY_RULE_MIN_CLAUDE_CODE.values())
+
+
+def test_install_hooks_remove_does_not_print_the_claude_code_versions(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    capsys.readouterr()
+    assert cli.main(["install-hooks", "claude-code", "--project", "--remove"]) == 0
+    out = capsys.readouterr().out
+    assert "Hook removed" in out
+    assert not any(version in out for version in cli.DENY_RULE_MIN_CLAUDE_CODE.values())
+
+
+def test_setup_md_names_the_same_claude_code_versions_the_deny_rules_need():
+    setup = (ROOT / "docs" / "setup.md").read_text()
+    assert all(version in setup for version in cli.DENY_RULE_MIN_CLAUDE_CODE.values())
 
 
 def test_install_hooks_remove_without_record_keeps_user_rules_until_forced(home, tmp_path, monkeypatch, capsys):

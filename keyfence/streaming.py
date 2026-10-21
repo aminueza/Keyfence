@@ -33,7 +33,7 @@ def restore_json(text: str, mapping: dict[str, str]) -> str:
     for start, end, key in string_value_spans(text):
         parts.append(text[pos:start])
         value = text[start:end]
-        if value and (value[0] == "{" or value[0] == "["):
+        if key in NESTED_JSON_FIELDS and value and (value[0] == "{" or value[0] == "["):
             extra = 2
         else:
             extra = 1

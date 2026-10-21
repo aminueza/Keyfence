@@ -18,6 +18,7 @@ from .importer import default_paths, env_values, import_files, looks_secret
 from .vault import DEFAULT_DIR, Vault, VaultError
 
 AGENTS = ("claude-code", "pi")
+DENY_RULE_MIN_CLAUDE_CODE = {"Edit": "2.1.208", "Write": "2.1.228"}
 
 
 def cmd_add_secret(_args) -> int:
@@ -189,6 +190,7 @@ def cmd_scan(args) -> int:
 
 
 def cmd_run(args) -> int:
+    config = Config.load()
     if runner.port_open(args.port):
         print(f"Port {args.port} is already in use. Pick another one with -p.")
         return 1
@@ -202,7 +204,8 @@ def cmd_run(args) -> int:
     print(f"  export HTTP_PROXY=http://127.0.0.1:{args.port}")
     print("or run them through it directly: keyfence exec -- <command>")
     print("(Ctrl+C to stop)\n", flush=True)
-    command = runner.proxy_command(args.port, local=args.local)
+    command = runner.proxy_command(args.port, local=args.local,
+                                   extra=runner.tcp_timeout_args(config))
     try:
         os.execvp(command[0], command)
     except FileNotFoundError:
@@ -273,6 +276,11 @@ def _list_hooks() -> int:
     return 0
 
 
+def _print_deny_rule_versions() -> None:
+    print(f"The deny rules also cover Edit on Claude Code {DENY_RULE_MIN_CLAUDE_CODE['Edit']}+ and Write on "
+          f"{DENY_RULE_MIN_CLAUDE_CODE['Write']}+, so on older versions only the Python hook refuses them.")
+
+
 def cmd_install_hooks(args) -> int:
     if args.pi_command and (args.list or args.remove or args.agent != "pi"):
         print("error: --command only applies to `install-hooks pi`", file=sys.stderr)
@@ -300,10 +308,12 @@ def cmd_install_hooks(args) -> int:
         print(f"Hook installed in {path} for {scope}.")
         print(f"That file also holds a permissions.deny block: keyfence's {len(hooks.DENY_RULES)} rules make "
               "Claude Code refuse to read .env files, private keys and credential files.")
+        _print_deny_rule_versions()
         print(f"The rules keyfence added are listed in {hooks.added_rules_path(path)}, which is the record "
               "--remove reads back.")
     else:
         print(f"Hook already present in {path}.")
+        _print_deny_rule_versions()
     return 0
 
 
@@ -352,6 +362,7 @@ def cmd_status(_args) -> int:
     print(f"Mode:            {cfg.mode}")
     print(f"Hosts:           {len(cfg.hosts)} monitored"
           + (" (intercepting ALL hosts)" if cfg.intercept_all_hosts else ""))
+    print(f"TCP timeout:     {cfg.proxy_tcp_timeout} s")
     print(f"Vault:           {vault.count()} secret(s), {vault.canary_count()} canary(ies) in {vault.path}")
     print(f"Rules:           {len(cfg.scan.rules)} gitleaks rules"
           + ("" if cfg.scan.gitleaks else " (disabled)"))
@@ -474,6 +485,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return _dispatch(args)
     except VaultError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

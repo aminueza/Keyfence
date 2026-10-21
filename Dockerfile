@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ARG MITMPROXY_VERSION=12.2.3
 ARG PYYAML_VERSION=6.0.3
+ARG CERTIFI_VERSION=2026.7.22
 ARG KEYFENCE_UID=1000
 ARG KEYFENCE_GID=1000
 
@@ -11,7 +12,7 @@ RUN groupadd --gid ${KEYFENCE_GID} keyfence \
 WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY keyfence/ /app/keyfence/
-RUN pip install --no-cache-dir "mitmproxy==${MITMPROXY_VERSION}" "PyYAML==${PYYAML_VERSION}" \
+RUN pip install --no-cache-dir "mitmproxy==${MITMPROXY_VERSION}" "PyYAML==${PYYAML_VERSION}" "certifi==${CERTIFI_VERSION}" \
   && pip install --no-cache-dir --no-deps /app
 
 COPY config.example.yaml /app/config.example.yaml

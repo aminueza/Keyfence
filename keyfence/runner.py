@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import http.client
 import json
 import os
@@ -27,6 +28,8 @@ CONFDIR = Path(os.environ["MITMPROXY_CONFDIR"]) if os.environ.get("MITMPROXY_CON
 CA_CERT = (CONFDIR or Path.home() / ".mitmproxy") / "mitmproxy-ca-cert.pem"
 ENV_VAULT_VAR = "KEYFENCE_ENV_VAULT"
 PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
+NO_PROXY_ENV_VARS = ("NO_PROXY", "no_proxy")
+LOOPBACK_BYPASS = ("localhost", "127.0.0.1", "::1")
 BUNDLE_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO", "CARGO_HTTP_CAINFO")
 CA_ENV_VARS = ("NODE_EXTRA_CA_CERTS", *BUNDLE_ENV_VARS)
 BUNDLE_NAME = "ca-bundle.pem"
@@ -74,6 +77,10 @@ def allow_hosts_args(config: Config) -> list[str]:
     for pattern in dict.fromkeys([*config.hosts, PROBE_HOST]):
         args += ["--allow-hosts", host_regex(pattern)]
     return args
+
+
+def tcp_timeout_args(config: Config) -> list[str]:
+    return ["--set", f"tcp_timeout={config.proxy_tcp_timeout}"]
 
 
 def proxy_command(port: int, addon: Path = ADDON_PATH, extra: Sequence[str] = (),
@@ -248,12 +255,36 @@ def ensure_bundle(ca_cert: Path, home: Path | None = None) -> tuple[Path, str]:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, BUNDLE_MODE)
     with os.fdopen(fd, "w") as handle:
         handle.write(content)
-    os.chmod(path, BUNDLE_MODE)
+        if hasattr(os, "fchmod"):
+            os.fchmod(handle.fileno(), BUNDLE_MODE)
+        else:
+            os.chmod(path, BUNDLE_MODE)
     return path, f"{roots} ({kind}) plus {ca_cert}"
 
 
+def with_loopback(value: str) -> str:
+    entries = [entry.strip() for entry in value.split(",") if entry.strip()]
+    listed = {entry.lower() for entry in entries}
+    entries += [name for name in LOOPBACK_BYPASS if name not in listed]
+    return ",".join(entries)
+
+
+def loopback_monitored(config: Config) -> bool:
+    if config.intercept_all_hosts:
+        return True
+    if any(config.host_matches(name) for name in LOOPBACK_BYPASS):
+        return True
+    spellings = (*LOOPBACK_BYPASS, "[::1]")
+    for pattern in config.hosts:
+        text = pattern.strip().lower()
+        if any(text == name or text.endswith("." + name) or fnmatch.fnmatch(name, text)
+               for name in spellings):
+            return True
+    return False
+
+
 def child_env(base: Mapping[str, str], port: int, ca_cert: Path, bundle: Path,
-              windows: bool = os.name == "nt") -> dict[str, str]:
+              windows: bool = os.name == "nt", bypass_loopback: bool = True) -> dict[str, str]:
     env = dict(base)
     proxy_url = f"http://127.0.0.1:{port}"
     for name in PROXY_ENV_VARS:
@@ -261,6 +292,16 @@ def child_env(base: Mapping[str, str], port: int, ca_cert: Path, bundle: Path,
     for name in BUNDLE_ENV_VARS:
         env[name] = str(bundle)
     env["NODE_EXTRA_CA_CERTS"] = str(ca_cert)
+    if bypass_loopback:
+        upper = (base.get("NO_PROXY") or "").strip()
+        lower = (base.get("no_proxy") or "").strip()
+        if upper and lower:
+            env["NO_PROXY"] = with_loopback(upper)
+            env["no_proxy"] = with_loopback(lower)
+        else:
+            merged = with_loopback(upper or lower)
+            env["NO_PROXY"] = merged
+            env["no_proxy"] = merged
     if windows:
         with_git_config(env, GIT_SCHANNEL_KEY, "true")
     return env
@@ -339,20 +380,29 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
     proxy_fd = os.open(proxy_log_path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
     proxy_log = os.fdopen(proxy_fd, "a")
     try:
-        os.chmod(proxy_log_path, 0o600)
+        if hasattr(os, "fchmod"):
+            os.fchmod(proxy_log.fileno(), 0o600)
+        else:
+            os.chmod(proxy_log_path, 0o600)
     except OSError as exc:
         print(f"keyfence: could not make {proxy_log_path} private: {exc}", file=sys.stderr, flush=True)
     if local == "":
         local = Path(command[0]).name
-    extra = allow_hosts_args(config)
+    extra = allow_hosts_args(config) + tcp_timeout_args(config)
     if record:
         notice = record_notice(record)
         if notice:
             print(notice, file=sys.stderr, flush=True)
         record.parent.mkdir(parents=True, exist_ok=True)
-        record.touch(mode=0o600)
-        with contextlib.suppress(OSError):
-            os.chmod(record, 0o600)
+        record_fd = os.open(record, os.O_CREAT | os.O_WRONLY, 0o600)
+        try:
+            with contextlib.suppress(OSError):
+                if hasattr(os, "fchmod"):
+                    os.fchmod(record_fd, 0o600)
+                else:
+                    os.chmod(record, 0o600)
+        finally:
+            os.close(record_fd)
         extra += ["-w", str(record)]
     try:
         proxy = start_proxy(port, proxy_env, proxy_log, timeout, ca_cert, local, extra)
@@ -370,7 +420,8 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         except BundleError as exc:
             print(exc)
             return 1
-        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert, bundle))
+        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert, bundle,
+                                                            bypass_loopback=not loopback_monitored(config)))
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
             time.sleep(linger)

@@ -17,6 +17,257 @@
   directory, now prints one `error:` line and exits 1 instead of raising a
   traceback.
 
+- `docs/limitations.md` now names two cases keyfence does not cover. An
+  agent can use a credential on disk without reading it (`ssh prod`,
+  `aws s3 ls`, `git push`): the hook allows it and the secret never
+  appears in a request to the model. A session that runs in the cloud,
+  such as Claude Code on the web, sends its requests from a remote
+  environment that the local proxy and hook never see.
+
+## 0.10.0 (2026-10-06)
+
+- `keyfence exec` and `keyfence run` now configure mitmproxy's `tcp_timeout`
+  from a new `proxy_tcp_timeout` key in `~/.keyfence/config.yaml`, which
+  defaults to 3600 seconds. mitmproxy closes a TCP connection across which
+  no data has moved for longer than `tcp_timeout`, and its built-in default
+  of 600 seconds silently kills long LLM requests: a model that takes more
+  than ten minutes to produce the first token, or a non-streaming request
+  whose reasoning sends nothing until it is done, sees the request fail from
+  the client side with no sign in the audit log that the proxy was the one
+  that dropped it. Both entry points
+  now pass `--set tcp_timeout=<value>` to mitmdump, so the value in the
+  config file is honoured by `keyfence exec` (which builds its own mitmdump
+  command) and by `keyfence run` (which replaces the current process with
+  mitmdump and previously started the proxy with no timeout override at
+  all). The key is read like the other top-level keys and validated when the
+  file is loaded: a value that is not an integer, or that is zero or
+  negative, is an error that names the key and the offending value instead of
+  falling back to the default, so a typo cannot quietly re-enable the
+  600-second cutoff. `keyfence selftest` starts a proxy too, but its single
+  request completes in seconds, so it keeps mitmproxy's own default and is
+  unchanged. Review of the change widened who reports a bad config and who
+  shows the timeout: a config file that fails to load now makes every
+  command print one `error: <message>` line on stderr and exit 1 instead of
+  a traceback, because `keyfence main` catches `ValueError` beside the
+  existing `VaultError` handler, so `status`, `scan`, `import`, `export`,
+  `doctor` and `selftest` report the same one-line error `exec` and `run`
+  already did, and `keyfence status` prints the configured timeout in its
+  summary (`TCP timeout:     3600 s`), so a session that drops long requests
+  can be diagnosed by reading one command's output.
+
+- `keyfence exec` puts `localhost`, `127.0.0.1` and `::1` in `NO_PROXY` and
+  `no_proxy` for the command it starts: set when the variable is empty,
+  appended without repeating an entry the exported list already holds, and
+  each variable keeps its own entries when you exported both. Loopback
+  requests therefore bypass the proxy by default instead of paying a hop
+  through mitmdump that did nothing, because the default config does not
+  put those hosts in `hosts` and `intercept_all_hosts` is off, so the
+  addon never scanned them. This is what made a local model server show up
+  in `ss -tnp` as a connection from `mitmdump` and hit long requests with
+  the 600 s inactivity timeout of #135, and what made podman fail inside
+  containers (with `--http-proxy=false` as the way out, now written down
+  in `docs/limitations.md`). The entries are left out when the config asks
+  to scan the loopback: `intercept_all_hosts` on, or a `hosts` pattern
+  that matches a loopback name the way the addon would (`127.0.0.1`,
+  `127.0.0.*`) or that merely mentions one as a suffix (`api.localhost`,
+  `*.localhost`, where `NO_PROXY=localhost` would bypass the match), so a
+  config that asks to scan loopback still gets loopback scanned and
+  nothing silently skips it: `keyfence selftest` relies on the first,
+  adding `127.0.0.1` to `hosts`, and scanning a local service stays an
+  explicit choice. `keyfence doctor` now warns when the shell has a proxy
+  set but `NO_PROXY` leaves out the loopback entries, naming the export
+  that adds them, for the manual `keyfence run` setup where exec does not
+  fill them in for you.
+
+## 0.9.0 (2026-09-29)
+
+- A URL in a command is no longer read as a local path, so
+  `curl https://x.com/secrets.json`, `curl https://x.com/.env` and
+  `wget http://host/id_rsa` are allowed. The word splitter breaks on `:`, so
+  what used to reach the sensitive-name check was the remainder
+  `//x.com/secrets.json`, whose basename matches the `secrets.*` rule, even
+  though nothing on this machine is named that and the command only fetches
+  it. The guard now finds the spans in the raw command that carry a scheme
+  and drops those exact characters before the words are split, so the split
+  never sees them. Only the schemes that fetch something remote are masked,
+  `http`, `https`, `ftp`, `ftps`, `ws` and `wss`, matched without regard to
+  case; anything else falls through to the path check, because the mask
+  that fixes a false positive must not become the way to read a key.
+  `curl file:///root/.ssh/id_rsa` and `FILE:///root/.ssh/id_rsa` read a local
+  file through the scheme, so they stay refused, and so does the next
+  scheme nobody has heard of that turns out to read local files, which an
+  allowlist refuses by default and a denylist would have allowed. A span runs
+  from `scheme://` to the end of the shell word, which stops at whitespace
+  and at the shell metacharacters, so a path typed after one is still
+  decided: `curl https://x.com/a && cat .env` and
+  `wget http://host/id_rsa;cat .env` stay refused. The scheme has to come
+  from the raw text because the split erases it: `wget http://host/id_rsa`
+  and `cat http //root/.ssh/id_rsa` come out of the splitter with the same
+  words in the same order, and a rule that recovered the scheme from the
+  previous word would let the second one through, which is one line of
+  command away from someone's private key. A word that starts with `//` is
+  a filesystem path and nothing else, so `cat //evil.com/../.env`,
+  `cat //host/.env` and `cat //my.dir/.env` stay refused, and so does
+  `cat http //root/.ssh/id_rsa`, which carries no scheme at all.
+
+- `keyfence install-hooks claude-code` now prints the Claude Code versions its
+  deny rules need, next to the count of rules it wrote and also when the hook
+  was already in place. `Read` deny rules cover `Edit` only from 2.1.208 and
+  `Write` only from 2.1.228, so on older versions the declarative layer misses
+  those two tools and only the Python hook refuses them. `--remove` does not
+  print it. The two versions have one definition in `keyfence/cli.py` and a test
+  checks `docs/setup.md` names the same two.
+- `docs/configuration.md` now says that `hosts` and `extra_hosts` are
+  read when the proxy starts, so under `keyfence exec` editing either takes
+  effect on the next session and not during a running one. `keyfence run`
+  intercepts every host, so the addon reloads a new entry without a restart.
+  The behaviour shipped in 0.8.0 and the caveat was never written down.
+
+- `certifi` is now declared in `pyproject.toml`. `keyfence/runner.py`
+  imports it as the first source of system roots for the CA bundle, but
+  it was only present because mitmproxy depends on it; on Windows the
+  other fallbacks are unlikely to answer, so the bundle rested on a
+  transitive dependency. The floor is `2026.1.4`, the first release of
+  the current year, and not an older one: certifi is a trust store
+  rather than an API, so an old release is an old set of roots, and a
+  resolver free to pick one hands the child process a bundle that
+  rejects perfectly good certificates, which reads as keyfence's fault
+  rather than as a root that expired. `certifi.where()` has pointed at
+  the bundled `cacert.pem` since 0.0.4, so the call was never the
+  constraint; the roots were.
+
+- The declarative deny rules installed by `keyfence install-hooks
+  claude-code` now include `NotebookEdit` rules alongside the existing
+  `Read` rules, covering `.env` files, private keys, credentials and other
+  secret paths. Carve-outs for safe `.env` names (`.env.example`,
+  `.env.sample`, `.env.template`, `.env.dist`) are added for both `Read`
+  and `NotebookEdit`. A version note documents that `Read` deny rules only
+  cover `Edit` on Claude Code 2.1.208+ and `Write` on 2.1.228+; on older
+  versions those tools are not blocked by the declarative rules, though the
+  Python hook still refuses them.
+
+- A URL that contains a query parameter whose name matches a sensitive
+  pattern is no longer refused. The unglob logic that strips `*` and `?`
+  from words now skips words that start with `http://`, `https://`, or `//`
+  (the latter covers the scheme-less remainder after word splitting), so
+  `curl https://x.com/?credentials=1` and `curl 'https://x.com/?credentials=1'`
+  are allowed while `cat .env*`, `rm .env*`, and `cat id_rsa*` are still
+  refused. A test pins the URL case. A bracket glob is refused when the
+  class expands to a secret name, and every character of every class in the
+  word is tried, so `cat .[e]nv`, `cat .[ce]nv`, `cat .[abcde]nv`,
+  `cat ~/.ssh/id_[r]sa` and `cat id_rs[a]` are all refused. Where a word
+  carries more than one class, every combination of them is tried, because
+  `cat .[e]n[v]` and `cat i[d]_rs[a]` each reach a secret name only once
+  both classes are resolved at the same time. A class that expands to no
+  sensitive name stays allowed: a character class inside a `sed` expression
+  or a `grep` pattern is not a path, so `sed -i '' 's/[abc]/x/' file.txt`,
+  `grep '[0-9]' data.csv` and `cat notes[1].md` still pass, because the
+  expansion still has to match a sensitive name. The expansion is bounded at
+  10000 candidates per word, because the combinations multiply: a word
+  carrying six classes of ten characters is a million candidates, which took
+  the hook about eighteen seconds to decide and would have run into the hook
+  timeout. A word past that bound is refused outright rather than decided on
+  a partial expansion, so the guard fails closed instead of quietly allowing
+  a word it could not resolve.
+
+- `cat [c]redentials` stays allowed, because a word with no `/`, `.` or `_`
+  is never treated as a path. That predates this release and is the known
+  limit of the word filter, recorded here so the bracket claim above is not
+  read as complete.
+
+- The private files keyfence writes are set private through the handle it
+  already had open, not through the path. The audit log, the proxy log, the
+  CA bundle, the vault and the file `keyfence exec --record` writes each went
+  through `os.chmod(path, ...)`, which resolves the path a second time: a
+  path swapped between the open and the chmod sent the mode change to
+  whatever now answered that name, which is how a file holding secrets in
+  clear text ends up with the mode of a file the caller never wrote. Each of
+  the five now calls `os.fchmod(handle.fileno(), ...)`, so the mode lands on
+  the file the descriptor already refers to. Two of them, the bundle and the
+  vault, chmod'd after closing the handle, so those calls moved inside the
+  block that holds it, and the record file, whose `touch` opened and closed
+  it, is now opened once and set private on that descriptor. The outcome is
+  the same mode as before; what changed is that it can no longer land
+  somewhere else.
+
+- Placeholder restoration in buffered JSON bodies decides the escaping level
+  from the key instead of the first character of the value, which is the rule
+  the streamed path already follows. A secret containing newlines, restored
+  into a value that merely starts with `{` or `[`, came back escaped one
+  level too deep: prose under `content` that quotes an object, such as
+  `{"content": "{\"example\": \"<<SECRET_1>>\"} explained above"}`, showed a
+  literal `\n` where the newline was, because the leading brace read as "this
+  string holds a nested JSON document". The key now decides that question, and
+  the value's first character only breaks the tie inside `partial_json` and
+  `arguments`, where both shapes genuinely occur, so a nested JSON document
+  still gets the second level while prose keeps its real newlines.
+- The last docstrings and comments under `tests/` are gone. The branch
+  that introduced them ended with a commit called "Remove docstrings and
+  comments per convention" and missed the three streaming tests, so they
+  were an oversight rather than a deliberate exception. `test_blocker1_...`
+  and `test_blocker3_...` were renamed because their docstrings carried
+  information the names did not, `test_blocker2_...` was renamed only to
+  drop the `blocker2` prefix, and `test_blocker3_...` was split into three
+  named tests so that the case labels its comments carried live in the names.
+  No behaviour changed.
+- `keyfence_path()` is now defined in `keyfence.hooks` and re-exported by
+  `keyfence.pi`, removing the duplicate implementation. The hook guard
+  (`plugin/hooks/guard.py`) remains a byte-identical copy of `keyfence/hooks.py`
+  and runs standalone without importing the package.
+
+- The release gate waits for the CI run to finish instead of reading it once.
+  A tag pushed while the `main` run for the release commit was still going
+  read `conclusion: null`, which is not `success`, and the release failed
+  with nothing wrong: the same suite went green a minute later. The
+  `check-ci` job now polls the workflow runs for the tagged SHA every 20
+  seconds until one of them reaches `status: completed`, and gives up after
+  30 minutes, so a queued or running suite is left to finish while a red one
+  still stops the release. The failure says which of the three things
+  happened: no run was ever registered for the commit, a run was registered
+  and never finished inside the window (`was still queued`, `was still
+  in_progress`, with the run id), or a run finished on something other than
+  `success` (`concluded with failure`, `concluded with cancelled`). Waiting
+  before reporting a missing run is part of the fix, because the API can
+  answer empty for a commit whose run has not been registered yet, which is
+  the same race that failed the release.
+  `tests/test_release_notes.py` pins the shape of the gate by parsing
+  `.github/workflows/release.yml` the way the other release tests do: the
+  read happens inside a loop that waits for `completed`, the three messages
+  stay distinct, `success` is the only conclusion that passes, and the wait
+  expires on a named `POLL_TIMEOUT_MS`.
+
+- `.github/PULL_REQUEST_TEMPLATE.md` carries the four sections every merged
+  pull request here already used — Problem, What changed, How to test and
+  Verification — as prompts under each heading instead of a form, so a
+  first-time contributor meets the convention instead of having it
+  explained in review. Verification asks for the commit SHA, the date and
+  the test counts from the run, because a body carrying those can be
+  checked against the diff while a body without them cannot be told from
+  a stale one. The code of conduct question and the review-turnaround
+  question that #108 raised are deliberately left unanswered here; neither
+  is the filer's to decide.
+
+## 0.8.1 (2026-09-28)
+
+- A path written with a trailing glob is refused again. `cat .env*` is how
+  an agent asks for `.env` and `.env.local` in one command, and the hook
+  let it through: matching splits the command into words and hands each to
+  `is_sensitive`, which compares the word as literal text, so `.env*` is
+  not `.env`, does not match `.env.*`, which wants a dot after `env`, and
+  does not match `*.env`, which wants the name to end there. A word that
+  carries `*` or `?` is now also tested with those characters removed, so
+  `cat .env*`, `ls .env*`, `rm .env*`, `cat .env?` and `cat id_rsa*` are
+  refused while `cat *.md` and `ls *.py` still pass. A glob that stands in
+  for a character of the name itself, such as `credential?`, is not
+  recovered by that and is still allowed.
+- `keyfence hook --help` prints the usage for `hook` instead of
+  `unknown agent: --help`. The fast path that serves the hook without
+  loading the rest of the CLI read the first argument as the agent name,
+  so the one subcommand a person is most likely to try by hand answered as
+  if keyfence were broken. `-h` and `--help` now fall through to the
+  parser that holds the text, and a hook call with a payload still takes
+  the fast path, with argparse and the CLI left unimported.
+
 ## 0.8.0 (2026-09-28)
 
 - Placeholder restoration in streamed and buffered responses now decides the

@@ -176,6 +176,14 @@ def check_environment(host: str, port: int, environ=os.environ, ca_cert: Path = 
     problem = git_ignores_ca(environ, run, system)
     if problem:
         return Check(WARN, "shell environment", f"{detail}, but {problem}")
+    read = "no_proxy" if (environ.get("no_proxy") or "").strip() else "NO_PROXY"
+    listed = {entry.strip().lower() for entry in (environ.get(read) or "").split(",") if entry.strip()}
+    missing = [entry for entry in runner.LOOPBACK_BYPASS if entry not in listed]
+    if missing:
+        return Check(WARN, "shell environment",
+                     f"{detail}, but {read} does not list {', '.join(missing)}, so tools in this shell "
+                     f"still send loopback requests to the proxy; `export {read}=localhost,127.0.0.1,::1` "
+                     "adds them here, keyfence exec adds them for the command it starts")
     return Check(OK, "shell environment", detail)
 
 

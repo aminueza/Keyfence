@@ -107,8 +107,11 @@ class Vault:
         try:
             with os.fdopen(fd, "w") as fh:
                 fh.write(payload)
-            with contextlib.suppress(OSError):
-                os.chmod(tmp, 0o600)
+                with contextlib.suppress(OSError):
+                    if hasattr(os, "fchmod"):
+                        os.fchmod(fh.fileno(), 0o600)
+                    else:
+                        os.chmod(tmp, 0o600)
             os.replace(tmp, self.path)
         except OSError as exc:
             with contextlib.suppress(OSError):
