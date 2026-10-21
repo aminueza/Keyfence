@@ -5,6 +5,7 @@ import socket
 import stat
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -215,6 +216,21 @@ def test_run_tells_mitmdump_to_tunnel_the_hosts_it_does_not_monitor(home, write_
     assert not _tunnels_with_argv(seen["cmd"], runner.PROBE_HOST)
 
 
+def test_run_tells_mitmdump_the_tcp_timeout_from_the_config(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    write_config("proxy_tcp_timeout: 7200\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert ["--set", "tcp_timeout=7200"] in _pairs(seen["cmd"])
+
+
+def test_run_tells_mitmdump_the_default_tcp_timeout(home, write_config, monkeypatch, tmp_path):
+    seen = {}
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert ["--set", "tcp_timeout=3600"] in _pairs(seen["cmd"])
+
+
 def test_run_still_tunnels_the_hosts_it_does_not_monitor_while_recording(home, write_config, monkeypatch, tmp_path):
     seen = {}
     write_config("mode: audit\nhosts:\n  - api.openai.com\n")
@@ -289,6 +305,43 @@ def test_run_creates_the_proxy_log_private_from_the_first_moment_it_exists(home,
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_proxy_log_mode_goes_on_the_open_handle_and_never_on_the_path(home, monkeypatch, tmp_path):
+    log = home / "proxy.log"
+    log.write_text("")
+    log.chmod(0o644)
+    seen = []
+    fchmod = os.fchmod
+    chmod = os.chmod
+
+    def watching_fchmod(fd, mode, *args, **kwargs):
+        seen.append((os.fstat(fd).st_ino, mode))
+        return fchmod(fd, mode, *args, **kwargs)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        if Path(path) == log:
+            raise AssertionError(f"the proxy log mode went on the path {path}, not on the handle")
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fchmod", watching_fchmod)
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert [(ino, mode) for ino, mode in seen if ino == log.stat().st_ino] == [(log.stat().st_ino, 0o600)]
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_run_still_sets_every_mode_it_owns_on_a_python_without_fchmod(home, monkeypatch, tmp_path):
+    monkeypatch.delattr(os, "fchmod")
+    record = tmp_path / "rec" / "s.flows"
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert stat.S_IMODE((home / "proxy.log").stat().st_mode) == 0o600
+    assert stat.S_IMODE(record.stat().st_mode) == 0o600
+    assert stat.S_IMODE((home / runner.BUNDLE_NAME).stat().st_mode) == runner.BUNDLE_MODE
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
 def test_run_tightens_a_proxy_log_left_world_readable_by_an_older_version(home, monkeypatch, tmp_path):
     log = home / "proxy.log"
     log.write_text("")
@@ -299,23 +352,48 @@ def test_run_tightens_a_proxy_log_left_world_readable_by_an_older_version(home, 
 
 
 def test_run_says_on_stderr_when_the_proxy_log_stays_readable(home, monkeypatch, tmp_path, capsys):
-    chmod = os.chmod
+    log = home / "proxy.log"
+    fchmod = os.fchmod
 
-    def refusing_chmod(path, mode, *args, **kwargs):
-        # Scope the refusal to proxy.log. A blanket refusal also catches the
-        # CA bundle's own chmod in ensure_bundle, which makes run() fail for a
-        # reason this test is not about.
-        if Path(path) == home / "proxy.log":
+    def refusing_only_the_proxy_log_fchmod(fd, mode, *args, **kwargs):
+        if log.exists() and os.fstat(fd).st_ino == log.stat().st_ino:
             raise OSError(1, "Operation not permitted")
-        return chmod(path, mode, *args, **kwargs)
+        return fchmod(fd, mode, *args, **kwargs)
 
-    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    monkeypatch.setattr(os, "fchmod", refusing_only_the_proxy_log_fchmod)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
     assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
     err = capsys.readouterr().err
     assert "could not make" in err
     assert "proxy.log" in err
-    assert (home / "proxy.log").exists()
+    assert log.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_record_mode_goes_on_the_open_handle_and_never_on_the_path(home, monkeypatch, tmp_path):
+    record = tmp_path / "rec" / "s.flows"
+    record.parent.mkdir(parents=True)
+    record.write_text("")
+    record.chmod(0o644)
+    seen = []
+    fchmod = os.fchmod
+    chmod = os.chmod
+
+    def watching_fchmod(fd, mode, *args, **kwargs):
+        seen.append((os.fstat(fd).st_ino, mode))
+        return fchmod(fd, mode, *args, **kwargs)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        if Path(path) == record:
+            raise AssertionError(f"the record mode went on the path {path}, not on the handle")
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fchmod", watching_fchmod)
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert [(ino, mode) for ino, mode in seen if ino == record.stat().st_ino] == [(record.stat().st_ino, 0o600)]
+    assert stat.S_IMODE(record.stat().st_mode) == 0o600
 
 
 @pytest.mark.parametrize("mode", ["audit", "block"])
@@ -512,6 +590,100 @@ def test_child_env_tells_git_for_windows_to_use_the_ca(tmp_path):
         assert env["GIT_CONFIG_COUNT"] == "1" and env["GIT_CONFIG_KEY_0"] == "http.schannelUseSSLCAInfo"
 
 
+def test_child_env_bypasses_loopback_by_default(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({}, 8888, ca, bundle)
+    for name in runner.NO_PROXY_ENV_VARS:
+        assert env[name] == "localhost,127.0.0.1,::1"
+
+
+def test_child_env_adds_loopback_to_the_no_proxy_list_the_user_exported(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({"NO_PROXY": "internal.corp,127.0.0.1"}, 8888, ca, bundle)
+    assert env["NO_PROXY"] == "internal.corp,127.0.0.1,localhost,::1"
+    assert env["NO_PROXY"].split(",").count("127.0.0.1") == 1
+
+
+def test_child_env_keeps_the_two_no_proxy_variables_apart_when_the_user_set_both(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({"NO_PROXY": "upper.corp", "no_proxy": "lower.corp"}, 8888, ca, bundle)
+    assert env["NO_PROXY"] == "upper.corp,localhost,127.0.0.1,::1"
+    assert env["no_proxy"] == "lower.corp,localhost,127.0.0.1,::1"
+
+
+def test_child_env_gives_the_unset_no_proxy_variable_the_same_list_as_the_set_one(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({"NO_PROXY": "internal.corp"}, 8888, ca, bundle)
+    assert env["no_proxy"] == env["NO_PROXY"] == "internal.corp,localhost,127.0.0.1,::1"
+
+
+def test_child_env_leaves_loopback_proxied_when_bypass_is_off(tmp_path):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    plain = runner.child_env({}, 8888, ca, bundle, bypass_loopback=False)
+    assert "NO_PROXY" not in plain and "no_proxy" not in plain
+    kept = runner.child_env({"NO_PROXY": "internal.corp"}, 8888, ca, bundle, bypass_loopback=False)
+    assert kept["NO_PROXY"] == "internal.corp"
+    assert "no_proxy" not in kept
+
+
+def test_child_env_default_env_makes_urllib_bypass_the_loopback(tmp_path, monkeypatch):
+    ca = tmp_path / "ca.pem"
+    bundle = tmp_path / "ca-bundle.pem"
+    env = runner.child_env({}, 8888, ca, bundle)
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    assert urllib.request.proxy_bypass("localhost") is True
+    assert urllib.request.proxy_bypass("127.0.0.1") is True
+
+
+def _child_env_for_config(write_config, monkeypatch, tmp_path, config_text):
+    seen = {}
+    write_config(config_text)
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: seen.update(env=env) or 0)
+    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    return seen["env"]
+
+
+def test_run_hands_the_child_the_loopback_bypass_by_default(write_config, monkeypatch, tmp_path):
+    env = _child_env_for_config(write_config, monkeypatch, tmp_path, "mode: audit\n")
+    assert env["NO_PROXY"] == env["no_proxy"] == "localhost,127.0.0.1,::1"
+
+
+def test_run_drops_the_bypass_when_a_loopback_pattern_is_in_extra_hosts(write_config, monkeypatch, tmp_path):
+    env = _child_env_for_config(write_config, monkeypatch, tmp_path,
+                                'mode: audit\nextra_hosts: ["127.0.0.*"]\n')
+    assert "NO_PROXY" not in env and "no_proxy" not in env
+
+
+def test_run_drops_the_bypass_when_a_pattern_ends_in_a_loopback_name(write_config, monkeypatch, tmp_path):
+    env = _child_env_for_config(write_config, monkeypatch, tmp_path,
+                                'mode: audit\nextra_hosts: ["*.localhost"]\n')
+    assert "NO_PROXY" not in env and "no_proxy" not in env
+
+
+def test_run_drops_the_bypass_when_intercept_all_hosts_is_on(write_config, monkeypatch, tmp_path):
+    env = _child_env_for_config(write_config, monkeypatch, tmp_path,
+                                "mode: audit\nintercept_all_hosts: true\n")
+    assert "NO_PROXY" not in env and "no_proxy" not in env
+
+
+def test_run_drops_the_bypass_when_a_loopback_address_is_listed(write_config, monkeypatch, tmp_path):
+    for extra in ('["127.0.0.1"]', '["[::1]"]'):
+        env = _child_env_for_config(write_config, monkeypatch, tmp_path,
+                                    f"mode: audit\nextra_hosts: {extra}\n")
+        assert "NO_PROXY" not in env and "no_proxy" not in env, extra
+
+
 def _roots(tmp_path, name="roots.pem", text=CA_PEM):
     path = tmp_path / name
     path.write_text(text)
@@ -578,6 +750,31 @@ def test_bundle_is_not_world_writable_under_a_permissive_umask(home, tmp_path, o
     finally:
         os.umask(previous)
     assert stat.S_IMODE(path.stat().st_mode) == 0o644
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_bundle_mode_goes_on_the_open_handle_and_never_on_the_path(home, tmp_path, only_roots, monkeypatch):
+    only_roots(_roots(tmp_path))
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    seen = []
+    fchmod = os.fchmod
+    chmod = os.chmod
+
+    def watching_fchmod(fd, mode, *args, **kwargs):
+        seen.append((os.fstat(fd).st_ino, mode))
+        return fchmod(fd, mode, *args, **kwargs)
+
+    def refusing_chmod(path, mode, *args, **kwargs):
+        if Path(path) == home / runner.BUNDLE_NAME:
+            raise AssertionError(f"the bundle mode went on the path {path}, not on the handle")
+        return chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fchmod", watching_fchmod)
+    monkeypatch.setattr(os, "chmod", refusing_chmod)
+    path, _ = runner.ensure_bundle(ca)
+    assert seen == [(path.stat().st_ino, runner.BUNDLE_MODE)]
+    assert stat.S_IMODE(path.stat().st_mode) == runner.BUNDLE_MODE
 
 
 def test_bundle_left_world_writable_is_tightened_on_the_next_write(home, tmp_path, only_roots):

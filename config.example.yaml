@@ -16,6 +16,13 @@ extra_hosts:
 # true = scan ALL HTTPS traffic, not only AI providers (slower)
 intercept_all_hosts: false
 
+# Seconds of inactivity before mitmproxy closes a TCP connection. The
+# mitmproxy default is 600, which kills long LLM requests that send nothing
+# for a while (a long prompt being processed before the first token, or a
+# non-streaming request with long reasoning); raise it if your provider can
+# stay silent for longer than that.
+proxy_tcp_timeout: 3600
+
 # When a request was changed, add a short note to the system prompt telling the
 # model that the [REDACTED:...] / <<SECRET_n>> tokens are expected, so it does
 # not warn the user or suggest rotating credentials, and keeps placeholders intact.

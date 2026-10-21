@@ -1,4 +1,5 @@
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,81 @@ def test_the_release_job_builds_its_notes_from_the_changelog_for_the_tag():
     assert any("tools/release_notes.py" in run and "GITHUB_REF_NAME" in run for run in runs)
     create = next(run for run in runs if "gh release create" in run)
     assert "--notes-file" in create and "GITHUB_REF_NAME" in create and "--verify-tag" in create
+
+
+LOOP = re.compile(r"\b(?:while|for)\b[^;{]*\{")
+
+
+def check_ci_script():
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+    steps = workflow["jobs"]["check-ci"]["steps"]
+    return next(step["with"]["script"] for step in steps if "github-script" in step["uses"])
+
+
+def loop_bodies(script):
+    bodies = []
+    for match in LOOP.finditer(script):
+        depth = 0
+        for index in range(match.end() - 1, len(script)):
+            if script[index] == "{":
+                depth += 1
+            elif script[index] == "}":
+                depth -= 1
+                if not depth:
+                    bodies.append(script[match.end():index])
+                    break
+    return bodies
+
+
+def failure_branches(script):
+    branches = {}
+    for part in script.split("if (")[1:]:
+        condition, _, rest = part.partition(")")
+        message = re.search(r"core\.setFailed\(`([^`]*)`\)", rest)
+        if message:
+            branches[condition.strip()] = message.group(1)
+    return branches
+
+
+def test_the_release_gate_reads_the_run_inside_a_loop_that_waits_for_it_to_complete():
+    script = check_ci_script()
+    polling = [body for body in loop_bodies(script) if "listWorkflowRunsForRepo" in body]
+    assert polling
+    assert "".join(polling).count("listWorkflowRunsForRepo") == script.count("listWorkflowRunsForRepo")
+    for body in polling:
+        assert "status === 'completed'" in body
+        assert "setTimeout" in body
+
+
+def test_the_release_gate_names_each_of_the_three_failures_apart():
+    branches = failure_branches(check_ci_script())
+    assert len(branches) == 3
+    assert len(set(branches.values())) == 3
+    no_run = branches["timedOut && !latest"]
+    assert "No CI workflow run found for commit ${sha}" in no_run and "minutes of polling" in no_run
+    unfinished = branches["timedOut"]
+    assert "${latest.id}" in unfinished and "was still ${latest.status}" in unfinished
+    assert "minutes" in unfinished
+    red = branches["finished.conclusion !== 'success'"]
+    assert "${finished.id}" in red and "concluded with ${finished.conclusion}" in red
+
+
+def test_the_release_gate_only_lets_a_success_conclusion_through():
+    script = check_ci_script()
+    assert "finished.conclusion !== 'success'" in script
+    assert script.count("'success'") == 1
+    assert script.rindex("conclusion !== 'success'") < script.rindex("console.log")
+
+
+def test_the_release_gate_expires_instead_of_waiting_forever():
+    script = check_ci_script()
+    polling = [body for body in loop_bodies(script) if "listWorkflowRunsForRepo" in body]
+    assert len(polling) == 1
+    body = polling[0]
+    assert "const POLL_INTERVAL_MS = " in script
+    assert "const POLL_TIMEOUT_MS = " in script
+    assert "const deadline = Date.now() + POLL_TIMEOUT_MS" in script
+    assert body.index("Date.now() >= deadline") < body.index("timedOut = true") < body.index("setTimeout")
 
 
 def test_the_summary_is_one_line_and_names_the_first_entries():

@@ -5,6 +5,7 @@ import json
 import sys
 
 AGENTS = ("claude-code", "pi")
+HELP_FLAGS = ("-h", "--help")
 
 
 def _block(reason: str) -> int:
@@ -24,7 +25,7 @@ def _is_prompt_event(text: str) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    if args[:1] == ["hook"]:
+    if args[:1] == ["hook"] and not any(arg in HELP_FLAGS for arg in args[1:]):
         if len(args) != 2 or args[1] not in AGENTS:
             print(f"unknown agent: {' '.join(args[1:]) or '(none)'}", file=sys.stderr)
             return 1

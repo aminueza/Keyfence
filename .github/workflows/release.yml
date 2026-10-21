@@ -17,28 +17,57 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const sha = context.sha;
+            const POLL_INTERVAL_MS = 20000;
+            const POLL_TIMEOUT_MS = 30 * 60 * 1000;
+            const deadline = Date.now() + POLL_TIMEOUT_MS;
+            const minutes = POLL_TIMEOUT_MS / 60000;
 
-            const runs = await github.rest.actions.listWorkflowRunsForRepo({
-              owner,
-              repo,
-              workflow_id: 'ci.yml',
-              head_sha: sha,
-              per_page: 10
-            });
+            let latest = null;
+            let finished = null;
+            let timedOut = false;
 
-            const ciRun = runs.data.workflow_runs.find(r => r.head_sha === sha && r.name === 'CI');
+            while (!finished) {
+              const runs = await github.rest.actions.listWorkflowRunsForRepo({
+                owner,
+                repo,
+                workflow_id: 'ci.yml',
+                head_sha: sha,
+                per_page: 10
+              });
 
-            if (!ciRun) {
-              core.setFailed('No CI workflow run found for this commit');
+              const found = runs.data.workflow_runs.find(r => r.head_sha === sha && r.name === 'CI') ?? null;
+              latest = found;
+
+              if (found && found.status === 'completed') {
+                finished = found;
+                break;
+              }
+
+              if (Date.now() >= deadline) {
+                timedOut = true;
+                break;
+              }
+
+              core.info(`CI run for ${sha} is ${found ? found.status : 'not registered'}; polling again in ${POLL_INTERVAL_MS} ms`);
+              await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+            }
+
+            if (timedOut && !latest) {
+              core.setFailed(`No CI workflow run found for commit ${sha} after ${minutes} minutes of polling`);
               return;
             }
 
-            if (ciRun.conclusion !== 'success') {
-              core.setFailed(`CI workflow run ${ciRun.id} concluded with ${ciRun.conclusion}`);
+            if (timedOut) {
+              core.setFailed(`CI workflow run ${latest.id} was still ${latest.status} after ${minutes} minutes`);
               return;
             }
 
-            console.log(`CI workflow run ${ciRun.id} passed`);
+            if (finished.conclusion !== 'success') {
+              core.setFailed(`CI workflow run ${finished.id} concluded with ${finished.conclusion}`);
+              return;
+            }
+
+            console.log(`CI workflow run ${finished.id} passed`);
 
   build:
     needs: check-ci
@@ -54,7 +83,7 @@ jobs:
           pip install dist/*.whl
           keyfence --help
           test "v$(python -c 'import keyfence; print(keyfence.__version__)')" = "${GITHUB_REF_NAME}"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dist
           path: dist/
@@ -66,7 +95,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: dist
           path: dist/
@@ -82,7 +111,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.13"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: dist
           path: dist/
