@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -729,7 +730,8 @@ def test_prompt_audit_mode_logs(home, write_config, capsys):
     assert captured.out == "" and err.getvalue() == ""
     audit_log = home / "audit.log"
     assert audit_log.exists()
-    assert stat.S_IMODE(audit_log.stat().st_mode) == 0o600
+    if os.name != "nt":  # Windows chmod only toggles the write bit
+        assert stat.S_IMODE(audit_log.stat().st_mode) == 0o600
     lines = audit_log.read_text().strip().splitlines()
     assert len(lines) == 1
     entry = json.loads(lines[0])

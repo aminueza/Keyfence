@@ -708,7 +708,8 @@ def test_entry_hook_pi_unaffected(home, write_config, monkeypatch, capsys):
     assert captured.out == "" and captured.err == ""
 
 
-@pytest.mark.parametrize("raw", ["", "not json", "[]", "[" * 100000])
+@pytest.mark.parametrize("raw", ["", "not json", "[]",
+                                 pytest.param("[" * 100000, id="deep-json")])
 def test_entry_unreadable_or_odd_input_still_exits_2(home, monkeypatch, capsys, raw):
     from keyfence import entry
     monkeypatch.setattr("sys.stdin", io.StringIO(raw))
