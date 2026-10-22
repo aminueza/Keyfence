@@ -26,7 +26,8 @@ On disk it keeps:
   proxy computes one digest per token of every request, a few hundred per
   request, and must answer in milliseconds. Protect the file like the CA
   key below, and prefer registering long random values.
-- `~/.keyfence/audit.log`: one line per request with findings, with a masked
+- `~/.keyfence/audit.log`: one line per request, or per scanned Claude
+  Code prompt, with findings, with a masked
   preview and the JSON key, never the value. A preview is two characters at
   each end of a value of 24 characters or more; a shorter value is logged as
   its kind and its length alone, because a preview of a short secret is most

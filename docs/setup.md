@@ -76,7 +76,7 @@ Linux and Windows: see the
 | `keyfence canary [file] [--name VAR]` | append a fake secret to a file (default `.env`) and register it as a canary |
 | `keyfence exec [-p PORT] [--all-env] [--local [NAMES]] -- <cmd>` | run a command through its own proxy on port 8888, or a free port when that one is taken |
 | `keyfence run [-p PORT] [--local [NAMES]]` | run the proxy in the foreground on port 8888 |
-| `keyfence install-hooks claude-code\|pi [--project] [--remove [--force]] [--command PATH]` | stop the agent from reading secret files at all |
+| `keyfence install-hooks claude-code\|pi [--project] [--remove [--force]] [--command PATH]` | stop the agent from reading secret files, and refuse a prompt that carries a secret (claude-code) |
 | `keyfence install-hooks --list` | show the supported agents and whether the hook is installed for each, globally and in this project |
 | `keyfence hook claude-code\|pi` | the hook itself; the agent runs it, you do not |
 | `keyfence export [--since TS] [--otlp URL] [--header K=V] [--all]` | print the audit log as JSONL or send it to a collector |
@@ -300,6 +300,34 @@ Note: the `Read` deny rules also cover `Edit` on Claude Code 2.1.208+
 and `Write` on 2.1.228+. On older versions those tools are not blocked by
 the declarative rules; the Python hook still refuses them. The
 `NotebookEdit` deny rules work on all versions that support the tool.
+
+`keyfence install-hooks claude-code` also adds a `UserPromptSubmit` hook.
+This hook scans every prompt the user submits before it reaches the model.
+If the prompt contains a secret (a registered vault secret, a pattern like
+an API key, or a high-entropy value), the hook blocks the prompt and tells
+Claude Code not to send it. The prompt text stays on disk in the transcript
+and prompt history, so the secret should be rotated immediately. In `audit`
+mode the prompt goes through; in `redact`, `placeholder` and `block` modes
+it is refused with a JSON reply on stdout. Either way the finding lands in
+the audit log, as it does for the proxy in every mode; `keyfence status`
+shows the mode each entry was written under, so a blocked prompt reads
+`(redact)` or `(block)`. The block is a JSON reply with exit `0`, per
+Claude Code's hook contract; the known limit is that anything else
+written to the hook's stdout (a line a shell profile echoes, say) stops
+Claude Code from reading the reply as JSON, and the prompt goes through.
+The hook requires Claude Code v2.1.295+ for the `onFailure: block`
+field; without it a hook that crashes or times out would let the prompt
+through.
+
+Detection is the proxy's: the prompt hook only catches secrets that are
+registered in the vault, match a known secret pattern (API keys, tokens,
+private keys, etc.), or have high entropy. A password that is not registered
+and does not look like a secret (a short, low-entropy phrase) still passes.
+With `--project`, the hook lands in `./.claude/settings.json`, a file teams
+often commit: it calls the absolute keyfence path of the machine that
+installed it (the install note prints it), and `onFailure: block` refuses
+every prompt when that path is missing, so teammates without keyfence at
+that path would be blocked.
 
 Installations made with 0.4.0 have no such list. There `--remove` takes
 out the hook, leaves every deny rule in place, prints the ones that match

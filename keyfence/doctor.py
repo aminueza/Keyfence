@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,18 @@ def _run(command: list[str]) -> tuple[int, str]:
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
     return done.returncode, done.stdout + done.stderr
+
+
+def _hook_executable(command: str) -> str:
+    # Claude Code runs the command through a shell, so parse it the way the
+    # shell would: a quoted path with spaces yields its real executable, and
+    # an unquoted one that the shell would split or mangle does not pass for
+    # a healthy single token.
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    return parts[0] if parts else command
 
 
 def command_problem(command: str) -> str | None:
@@ -210,18 +223,55 @@ def hook_installed(path: Path) -> bool:
     return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("PreToolUse", []))
 
 
-def hook_command(path: Path) -> str | None:
+def prompt_hook_installed(path: Path) -> bool:
+    try:
+        data = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError:
+        return False
+    return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("UserPromptSubmit", []))
+
+
+def keyfence_hook(path: Path, event: str) -> dict | None:
     try:
         data = json.loads(path.read_text()) if path.exists() else {}
     except ValueError:
         return None
-    for entry in data.get("hooks", {}).get("PreToolUse", []):
+    for entry in data.get("hooks", {}).get(event, []):
         if hooks._is_ours(entry):
             for hook in entry.get("hooks", []):
-                cmd = hook.get("command", "")
-                if cmd:
-                    return cmd
+                if hook.get("command"):
+                    return hook
     return None
+
+
+def hook_command(path: Path) -> str | None:
+    hook = keyfence_hook(path, "PreToolUse")
+    return _hook_display(hook) if hook else None
+
+
+def prompt_hook_command(path: Path) -> str | None:
+    hook = keyfence_hook(path, "UserPromptSubmit")
+    return _hook_display(hook) if hook else None
+
+
+def _hook_display(hook: dict) -> str:
+    args = hook.get("args")
+    if isinstance(args, list):
+        return " ".join([str(hook.get("command", "")), *(str(a) for a in args)])
+    return str(hook.get("command", ""))
+
+
+def _hook_problem(hook: dict) -> str | None:
+    # Exec form (command + args) is spawned directly, no shell: the command
+    # is the executable. Shell form goes through a shell, so parse it the way
+    # the shell would -- an unquoted path the shell splits or mangles does
+    # not pass for a healthy single token.
+    args = hook.get("args")
+    if isinstance(args, list):
+        executable = str(hook.get("command", ""))
+    else:
+        executable = _hook_executable(str(hook.get("command", "")))
+    return command_problem(executable)
 
 
 def installed_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, Path, bool]]:
@@ -230,26 +280,54 @@ def installed_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, Pat
             for scope, path in (("global", locate(False)), ("project", locate(True, cwd)))]
 
 
+def prompt_hook_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, Path, bool]]:
+    if agent != "claude-code":
+        return []
+    return [(scope, path, prompt_hook_installed(path))
+            for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd)))]
+
+
 def check_hook(cwd: Path | None = None) -> Check:
     scopes = []
     for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
         if not hook_installed(path):
             continue
-        command = hook_command(path)
-        if command is None:
+        hook = keyfence_hook(path, "PreToolUse")
+        if hook is None:
             return Check(FAIL, "Claude Code hook",
                          f"installed ({scope}) but {path} holds no keyfence command; every Claude Code tool call is refused "
                          "until keyfence install-hooks claude-code runs again")
-        executable = command.split()[0]
-        problem = command_problem(executable)
+        problem = _hook_problem(hook)
         if problem:
             return Check(FAIL, "Claude Code hook",
-                         f"installed ({scope}) but the {scope} hook calls {command}, whose executable {executable} {problem}; every Claude Code "
+                         f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every Claude Code "
                          "tool call is refused until keyfence install-hooks claude-code runs again")
         scopes.append(scope)
     if scopes:
         return Check(OK, "Claude Code hook", "installed (" + ", ".join(scopes) + ")")
     return Check(INFO, "Claude Code hook", "not installed; keyfence install-hooks claude-code stops Claude Code from reading secret files")
+
+
+def check_prompt_hook(cwd: Path | None = None) -> Check:
+    scopes = []
+    for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
+        if not prompt_hook_installed(path):
+            continue
+        hook = keyfence_hook(path, "UserPromptSubmit")
+        if hook is None:
+            return Check(FAIL, "Claude Code prompt hook",
+                         f"installed ({scope}) but {path} holds no keyfence command; every submitted prompt is refused "
+                         "until keyfence install-hooks claude-code runs again")
+        problem = _hook_problem(hook)
+        if problem:
+            return Check(FAIL, "Claude Code prompt hook",
+                         f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every submitted prompt "
+                         "is refused until keyfence install-hooks claude-code runs again")
+        scopes.append(scope)
+    if scopes:
+        return Check(OK, "Claude Code prompt hook", "installed (" + ", ".join(scopes) + ")")
+    return Check(INFO, "Claude Code prompt hook",
+                 f"not installed; keyfence install-hooks claude-code adds it (needs Claude Code v{hooks.PROMPT_HOOK_MIN_CLAUDE_CODE}+)")
 
 
 def check_pi_extension(cwd: Path | None = None) -> Check:
@@ -300,6 +378,7 @@ def run_checks(port: int, cwd: Path | None = None) -> list[Check]:
         check_environment(host, target),
         check_local_mode(),
         check_hook(cwd),
+        check_prompt_hook(cwd),
         check_pi_extension(cwd),
         check_audit(),
     ]

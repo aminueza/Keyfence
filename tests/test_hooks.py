@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -504,6 +505,64 @@ def test_a_carve_out_written_before_the_env_rules_it_cancels_leaves_them_in_forc
     assert not _the_deny_block_refuses_a_path(deny, ".env.example")
 
 
+def test_install_uses_exec_form_for_executable_paths(tmp_path):
+    spaced = tmp_path / "My Projects" / "keyfence"
+    spaced.parent.mkdir()
+    spaced.write_text("")
+    path = tmp_path / "settings.json"
+    assert hooks.install(path, str(spaced))
+    data = json.loads(path.read_text())
+    for event in ("PreToolUse", "UserPromptSubmit"):
+        hook = data["hooks"][event][0]["hooks"][0]
+        assert hook["command"] == str(spaced)
+        assert hook["args"] == ["hook", "claude-code"]
+    assert not hooks.install(path, str(spaced))
+    path2 = tmp_path / "s2" / "settings.json"
+    assert hooks.install(path2, "C:\\Program Files\\keyfence.exe")
+    hook = json.loads(path2.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert hook["command"] == "C:\\Program Files\\keyfence.exe"
+    assert hook["args"] == ["hook", "claude-code"]
+    path3 = tmp_path / "s3" / "settings.json"
+    assert hooks.install(path3, "wrapper.sh hook claude-code")
+    hook = json.loads(path3.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert hook["command"] == "wrapper.sh hook claude-code" and "args" not in hook
+
+
+def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
+    binary = tmp_path / "My Projects" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    path = tmp_path / "settings.json"
+    stale = f"{binary} hook claude-code"
+    path.write_text(json.dumps({"hooks": {
+        "PreToolUse": [{"matcher": hooks.HOOK_MATCHER, "hooks": [{"type": "command", "command": stale}]}],
+        "UserPromptSubmit": [{"hooks": [{"type": "command", "command": stale, "onFailure": "block"}]}],
+        "PostToolUse": [{"hooks": [{"type": "command", "command": "other hook claude-code-ish"}]}],
+    }}))
+    assert hooks.install(path, str(binary))
+    data = json.loads(path.read_text())
+    for event in ("PreToolUse", "UserPromptSubmit"):
+        hook = data["hooks"][event][0]["hooks"][0]
+        assert hook["command"] == str(binary)
+        assert hook["args"] == ["hook", "claude-code"]
+    assert data["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == "other hook claude-code-ish"
+    assert not hooks.install(path, str(binary))
+
+
+def test_installed_exec_form_command_actually_spawns(tmp_path):
+    exe = hooks.keyfence_path()
+    if not Path(exe).is_file():
+        pytest.skip("keyfence console script not installed in this environment")
+    path = tmp_path / "settings.json"
+    assert hooks.install(path, exe)
+    hook = json.loads(path.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "clean text"})
+    env = dict(os.environ, HOME=str(tmp_path), PYTHONPATH=str(ROOT))
+    done = subprocess.run([hook["command"], *hook["args"]], input=payload,
+                          capture_output=True, text=True, env=env, timeout=60)
+    assert done.returncode == 0 and done.stdout == ""
+
+
 def test_install_and_uninstall_merge_with_existing_settings(tmp_path):
     path = tmp_path / ".claude" / "settings.json"
     path.parent.mkdir()
@@ -515,12 +574,18 @@ def test_install_and_uninstall_merge_with_existing_settings(tmp_path):
     assert len(data["hooks"]["PreToolUse"]) == 2
     assert data["hooks"]["PreToolUse"][1]["hooks"][0]["command"] == hooks.HOOK_COMMAND
     assert data["hooks"]["PreToolUse"][1]["matcher"] == hooks.HOOK_MATCHER
+    assert "UserPromptSubmit" in data["hooks"]
+    assert data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"] == hooks.HOOK_COMMAND
+    assert data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["timeout"] == 10
+    assert data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["onFailure"] == "block"
+    assert "matcher" not in data["hooks"]["UserPromptSubmit"][0]
     assert set(hooks.DENY_RULES) <= set(data["permissions"]["deny"])
     result = hooks.uninstall(path)
     assert result.changed and result.hook and result.rules == len(hooks.DENY_RULES) and result.unrecorded == []
     assert not hooks.uninstall(path).changed
     data = json.loads(path.read_text())
     assert len(data["hooks"]["PreToolUse"]) == 1
+    assert "UserPromptSubmit" not in data.get("hooks", {})
     assert "permissions" not in data
 
 
@@ -573,6 +638,29 @@ def test_uninstall_force_removes_every_keyfence_shaped_rule_and_any_recorded_one
     assert not record.exists()
 
 
+def test_uninstall_removes_only_keyfence_prompt_hooks(tmp_path):
+    path = tmp_path / "settings.json"
+    foreign = {"matcher": "Read", "hooks": [{"type": "command", "command": "echo foreign"}]}
+    path.write_text(json.dumps({"hooks": {"UserPromptSubmit": [foreign, {"hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}]}]}}))
+    assert hooks.install(path)
+    result = hooks.uninstall(path)
+    assert result.hook and result.rules == len(hooks.DENY_RULES) and result.changed
+    data = json.loads(path.read_text())
+    assert data["hooks"]["UserPromptSubmit"] == [foreign]
+    assert not hooks.uninstall(path).changed
+
+
+def test_uninstall_removes_both_pretooluse_and_prompt(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}]}],
+                                           "UserPromptSubmit": [{"hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}]}]}}))
+    assert hooks.install(path)
+    result = hooks.uninstall(path)
+    assert result.hook and result.rules == len(hooks.DENY_RULES) and result.changed
+    data = json.loads(path.read_text())
+    assert "hooks" not in data
+
+
 def test_added_rules_record_is_none_when_missing_or_unreadable(tmp_path):
     path = tmp_path / "settings.json"
     record = tmp_path / "keyfence-deny-rules.json"
@@ -618,3 +706,243 @@ def test_settings_path(tmp_path, monkeypatch):
     monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path))
     assert hooks.settings_path(project=False) == tmp_path / ".claude" / "settings.json"
     assert hooks.settings_path(project=True, cwd=tmp_path / "proj") == tmp_path / "proj" / ".claude" / "settings.json"
+
+
+def _secret() -> str:
+    return "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+
+
+def test_prompt_clean(home, capsys):
+    from keyfence import prompt
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello world"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == "" and err.getvalue() == ""
+
+
+def test_prompt_redact_mode_blocks(home, write_config, capsys):
+    from keyfence import prompt
+    write_config("mode: redact\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["decision"] == "block"
+    assert data["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+    assert data["hookSpecificOutput"]["suppressOriginalPrompt"] is True
+    assert "openai-api-key" in data["reason"]
+    assert "sk…Uv" in data["reason"]
+    assert "prompt was not sent" in data["reason"]
+    assert "transcript" in data["reason"]
+    assert "rotated" in data["reason"]
+    assert _secret() not in captured.out + captured.err + err.getvalue()
+
+
+def test_prompt_placeholder_mode_blocks(home, write_config, capsys):
+    from keyfence import prompt
+    write_config("mode: placeholder\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["decision"] == "block"
+    assert "openai-api-key" in data["reason"]
+    assert _secret() not in captured.out + captured.err + err.getvalue()
+
+
+def test_prompt_block_mode_blocks(home, write_config, capsys):
+    from keyfence import prompt
+    write_config("mode: block\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["decision"] == "block"
+    assert "openai-api-key" in data["reason"]
+    assert _secret() not in captured.out + captured.err + err.getvalue()
+
+
+def test_prompt_many_findings_are_capped_in_the_reason(home, write_config, capsys):
+    from keyfence import prompt
+    write_config("mode: redact\n")
+    keys = "\n".join(f"key{i}: sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St{i:02d}" for i in range(6))
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": keys})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert "and 1 more" in data["reason"]
+
+
+def test_prompt_audit_mode_logs(home, write_config, capsys):
+    import stat
+    from keyfence import prompt
+    write_config("mode: audit\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and err.getvalue() == ""
+    audit_log = home / "audit.log"
+    assert audit_log.exists()
+    if os.name != "nt":  # Windows chmod only toggles the write bit
+        assert stat.S_IMODE(audit_log.stat().st_mode) == 0o600
+    lines = audit_log.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["host"] == "claude-code:prompt"
+    assert entry["path"] == ""
+    assert entry["mode"] == "audit"
+    assert entry["count"] == 1
+    assert entry["findings"][0]["kind"] == "openai-api-key"
+    assert entry["findings"][0]["preview"] == _secret()[:2] + "…" + _secret()[-2:] + f" ({len(_secret())} chars)"
+    assert entry["findings"][0]["key"] is None
+    assert _secret() not in lines[0]
+
+
+def test_prompt_block_mode_also_logs(home, write_config, capsys):
+    from keyfence import prompt
+    write_config("mode: block\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    lines = (home / "audit.log").read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["mode"] == "block"
+    assert entry["count"] == 1
+    assert _secret() not in lines[0]
+
+
+def test_prompt_block_mode_survives_an_unwritable_audit_log(home, write_config, capsys):
+    from keyfence import prompt
+    (home / "blocker").write_text("")  # a file where the audit dir should be: mkdir fails even as root
+    write_config(f"mode: block\naudit_log: {home / 'blocker' / 'audit.log'}\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {_secret()}"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert data["hookSpecificOutput"]["suppressOriginalPrompt"] is True
+    assert "could not write audit log" in err.getvalue()
+    assert _secret() not in err.getvalue()
+
+
+def test_prompt_audit_mode_logs_suppressed(home, write_config, capsys):
+    from keyfence import prompt
+    write_config(f"mode: audit\nignore_values: [{_secret()}]\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit",
+                          "prompt": f"token: {_secret()} and sk-proj-Zz9Yy8Xx7Ww6Vv5Uu4Tt3Ss2Rr1Qq0Pp"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    entry = json.loads((home / "audit.log").read_text(encoding="utf-8").strip())
+    assert entry["count"] >= 1
+    assert entry["suppressed"] == 1
+
+
+def test_prompt_audit_mode_canary_label(home, write_config, capsys):
+    from keyfence import prompt
+    from keyfence.vault import Vault
+    write_config("mode: audit\n")
+    canary = "canary-secret-value-for-testing-123456"
+    Vault().add_canary(canary, "test-label")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": f"token: {canary}"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    audit_log = home / "audit.log"
+    lines = audit_log.read_text(encoding="utf-8").strip().splitlines()
+    entry = json.loads(lines[0])
+    assert entry["findings"][0]["kind"] == "canary"
+    assert entry["findings"][0]["label"] == "test-label"
+    assert canary not in lines[0]
+
+
+def test_prompt_broken_config_blocks(home, capsys):
+    from keyfence import prompt
+    (home / "config.yaml").write_text("mode: bogus\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert data["hookSpecificOutput"]["suppressOriginalPrompt"] is True
+    assert "configuration failed to load" in data["reason"]
+    assert "invalid mode" in data["reason"]
+
+
+def test_prompt_invalid_yaml_config_blocks(home, capsys):
+    from keyfence import prompt
+    (home / "config.yaml").write_text("mode: [unclosed\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert "configuration failed to load" in data["reason"]
+    assert "while parsing" in data["reason"]  # the YAML error itself, not just the prefix
+
+
+def test_prompt_broken_vault_blocks(home, capsys):
+    from keyfence import prompt
+    from keyfence.vault import DEFAULT_DIR
+    (DEFAULT_DIR / "vault.json").write_text("not a vault")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert "not a valid keyfence vault" in data["reason"]
+
+
+def test_prompt_pasted_block_scanned(home, write_config, capsys):
+    from keyfence import prompt
+    write_config("mode: redact\n")
+    secret = _secret()
+    prompt_text = f'<pasted_content id="a1b2c3">\ntoken: {secret}\n</pasted_content id="a1b2c3">'
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt_text})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert "openai-api-key" in data["reason"]
+    assert secret not in data["reason"]
+
+
+def test_prompt_unreadable_input(home, capsys):
+    from keyfence import prompt
+    payload = "not json"
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 2
+    assert "could not read the input" in err.getvalue()
+    assert capsys.readouterr().out == ""
+
+
+def test_prompt_missing_prompt_field(home, capsys):
+    from keyfence import prompt
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit"})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and err.getvalue() == ""
+
+
+def test_prompt_empty_prompt_field(home, capsys):
+    from keyfence import prompt
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": ""})
+    err = io.StringIO()
+    assert prompt.run(io.StringIO(payload), err) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "" and err.getvalue() == ""
+
+
+def test_prompt_crash_blocks(home, monkeypatch, capsys):
+    from keyfence import prompt
+    def crash(*a, **k):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(prompt, "scan_report", crash)
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert data["hookSpecificOutput"]["suppressOriginalPrompt"] is True
+    assert "guard crashed" in data["reason"]
+    assert "RuntimeError" in data["reason"]

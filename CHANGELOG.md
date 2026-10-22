@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code` now installs a second Claude Code
+  hook, `UserPromptSubmit`, that scans every submitted prompt for secrets
+  before the prompt reaches the model (issue #145). On a finding it blocks
+  the prompt with a JSON reply on stdout (`decision: block`,
+  `suppressOriginalPrompt: true`) and says the prompt was not sent and the
+  text is still on disk in the transcript and prompt history, so the secret
+  should be rotated. The finding is logged to the audit log in every mode,
+  as the proxy does, with `host: claude-code:prompt`, an empty
+  `path`, and findings with `kind`, `preview` (masked) and `key`, plus
+  `label` for a canary; in `audit` mode the prompt itself goes through.
+  The hook needs Claude Code v2.1.295+ for the
+  `onFailure: block` field. The installed entries use exec form (`command`
+  plus `args`), so Claude Code spawns keyfence directly with no shell on
+  any platform: paths with spaces or Windows backslashes need no quoting
+  and work under Git Bash and the PowerShell fallback alike, and re-running
+  `install-hooks` repairs an entry left by an older keyfence whose
+  command could not start. The hook reads its payload as UTF-8 whatever the
+  locale codec is, so a prompt with emoji is not refused on Windows.
+  `keyfence doctor` reports whether the prompt
+  hook is installed, and `install-hooks --list` shows it under a prompt
+  hook heading.
+- The prompt check lives in a new module, `keyfence/prompt.py`, with the
+  same vault and detectors as the proxy and audit entries in the same shape
+  as the addon's, without importing it. `keyfence hook claude-code`
+  dispatches on `hook_event_name`, so tool calls keep the fast path that
+  loads neither yaml nor the config.
 - `keyfence scan -f <dir>` now walks a directory recursively, scanning each
   file line by line; it never loads a whole file. Files are visited in
   sorted order for deterministic output. The first 8 KiB of each file are
