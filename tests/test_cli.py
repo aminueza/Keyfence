@@ -1,7 +1,9 @@
 import io
 import json
+import os
 import runpy
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -34,6 +36,8 @@ def test_scan_file_and_stdin(home, tmp_path, capsys, monkeypatch):
     path = tmp_path / "in.txt"
     path.write_text(f"x={KEY}")
     assert cli.main(["scan", "-f", str(path)]) == 2
+    out = capsys.readouterr().out
+    assert "  - [github-token] gh…89 (40 chars) (offset 2-42)\n" in out
     monkeypatch.setattr("sys.stdin", io.StringIO(f"y={KEY}"))
     assert cli.main(["scan"]) == 2
 
@@ -307,6 +311,7 @@ def test_scan_honours_ignore_lists(home, write_config, capsys):
     assert cli.main(["scan", f"connect to {HOST} with {KEY}"]) == 2
     out = capsys.readouterr().out
     assert "1 finding(s) ignored" in out and "1 secret(s) detected" in out and "[github-token]" in out
+    assert "(registered secret)" not in out
 
 
 def test_status_without_audit_log(home, capsys):
@@ -689,6 +694,279 @@ def test_module_entrypoint(home, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("keyfence", run_name="__main__")
     assert exc.value.code == 0
+
+
+def test_scan_directory_finds_secrets(home, tmp_path, capsys):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    (tmp_path / "transcript.jsonl").write_text(f'{{"msg": "token: {secret}"}}\n')
+    (tmp_path / "clean.txt").write_text("nothing here\n")
+    binary = tmp_path / "binary.bin"
+    binary.write_bytes(b"hello\x00world")
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "found.jsonl").write_text(f'key={secret}\n')
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    out = captured.out
+    assert "2 secret(s) detected:" in out
+    assert f'  - {tmp_path / "transcript.jsonl"}:1: [openai-api-key] sk…Uv (40 chars) in "msg"\n' in out
+    assert "transcript.jsonl:1:" in out
+    assert "nested/found.jsonl:1:" in out or "nested\\found.jsonl:1:" in out
+    assert "openai-api-key" in out
+    assert "clean.txt" not in out
+    assert "binary.bin" not in out
+    assert "(registered secret)" not in out
+    assert secret not in out
+
+
+def test_scan_directory_clean(home, tmp_path, capsys):
+    (tmp_path / "a.txt").write_text("hello\n")
+    (tmp_path / "b.txt").write_text("world\n")
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "No secrets detected." in out
+
+
+def test_scan_directory_binary_skipped(home, tmp_path, capsys):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    binary = tmp_path / "bad.bin"
+    binary.write_bytes(f"token: {secret}\x00".encode())
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "No secrets detected." in out
+
+
+def test_scan_directory_missing_path(home, capsys):
+    missing = Path("does_not_exist_xyz")
+    assert cli.main(["scan", "-f", str(missing)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error:")
+    assert "does_not_exist_xyz" in err
+
+
+def test_scan_directory_vault_registered_secret(home, tmp_path, capsys):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    vault = Vault()
+    vault.add(secret)
+    (tmp_path / "file.txt").write_text(f"token: {secret}\n")
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    out = capsys.readouterr().out
+    assert "(registered secret)" in out
+    assert secret not in out
+
+
+def test_scan_directory_ignore_list(home, write_config, tmp_path, capsys):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    write_config(f"ignore_values: [{secret}]\n")
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "one.txt").write_text(f"token: {secret}\n")
+    (sub / "two.txt").write_text(f"key={secret}\n")
+    assert cli.main(["scan", "-f", str(sub)]) == 0
+    out = capsys.readouterr().out
+    assert out.count("finding(s) ignored") == 1
+    assert "2 finding(s) ignored by the ignore lists in" in out
+    assert "No secrets detected." in out
+
+
+def test_scan_directory_unreadable_file(home, tmp_path, capsys, monkeypatch):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    readable = tmp_path / "readable.txt"
+    readable.write_text(f"token: {secret}\n")
+    unreadable = tmp_path / "unreadable.txt"
+    unreadable.write_text("should not matter\n")
+    unreadable_str = str(unreadable.resolve())
+    original_open = Path.open
+
+    def patched_open(self, *args, **kwargs):
+        if str(self.resolve()) == unreadable_str:
+            raise PermissionError("Permission denied")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", patched_open)
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    captured = capsys.readouterr()
+    assert f"skipped: {unreadable}" in captured.err
+    assert "readable.txt:1:" in captured.out
+
+
+def test_scan_directory_text_open_failure(home, tmp_path, capsys, monkeypatch):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    (tmp_path / "race.txt").write_text(f"token: {secret}\n")
+    race_str = str((tmp_path / "race.txt").resolve())
+    original_open = Path.open
+
+    def patched_open(self, mode="r", *args, **kwargs):
+        # the binary pre-check passes; the text open afterwards fails, as a
+        # file that loses its read permission between the two opens would
+        if str(self.resolve()) == race_str and mode == "r":
+            raise PermissionError(13, "Permission denied", str(self))
+        return original_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", patched_open)
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 0
+    captured = capsys.readouterr()
+    assert "skipped:" in captured.err and "race.txt" in captured.err
+    assert "No secrets detected." in captured.out
+
+
+def test_scan_directory_unreadable_root_is_an_error(home, tmp_path, capsys, monkeypatch):
+    root = tmp_path / "locked"
+    root.mkdir()
+    root_str = str(root)
+    original_scandir = os.scandir
+
+    def patched_scandir(path):
+        if str(path) == root_str:
+            raise PermissionError(13, "Permission denied", str(path))
+        return original_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", patched_scandir)
+    assert cli.main(["scan", "-f", str(root)]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert "No secrets detected." not in captured.out
+
+
+def test_scan_directory_dangling_symlink_skipped(home, tmp_path, capsys):
+    if os.name == "nt":
+        pytest.skip("symlinks need privileges on Windows")
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    (tmp_path / "ok.txt").write_text(f"token: {secret}\n")
+    (tmp_path / "dangling").symlink_to(tmp_path / "does-not-exist")
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    captured = capsys.readouterr()
+    assert "skipped:" in captured.err and "dangling" in captured.err
+    assert "ok.txt:1:" in captured.out
+
+
+def test_scan_directory_binary_check_boundary_at_8k(home, tmp_path, capsys):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    line1 = f"token: {secret}\n"
+    # a NUL at byte 8191 is inside the 8 KiB head (binary, skipped); at
+    # byte 8192 it is past it (scanned as text), pinning the constant
+    (tmp_path / "in.bin").write_bytes((line1 + "x" * (8191 - len(line1))).encode() + b"\x00" + b"y" * 10)
+    (tmp_path / "out.bin").write_bytes((line1 + "x" * (8192 - len(line1))).encode() + b"\x00" + b"y" * 10)
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    out = capsys.readouterr().out
+    assert "out.bin:1:" in out
+    assert "in.bin" not in out
+
+
+def test_scan_directory_unreadable_subdirectory(home, tmp_path, capsys, monkeypatch):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    readable = tmp_path / "readable.txt"
+    readable.write_text(f"token: {secret}\n")
+    bad_dir = tmp_path / "bad_dir"
+    bad_dir.mkdir()
+    (bad_dir / "secret.txt").write_text(f"key={secret}\n")
+    bad_dir_str = str(bad_dir.resolve())
+    original_scandir = os.scandir
+
+    def patched_scandir(path):
+        if str(Path(path).resolve()) == bad_dir_str:
+            raise PermissionError(13, "Permission denied", str(bad_dir))
+        return original_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", patched_scandir)
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    captured = capsys.readouterr()
+    assert f"skipped: {bad_dir}" in captured.err
+    assert "readable.txt:1:" in captured.out
+
+
+def test_scan_single_file_pem_multiline(home, tmp_path, capsys):
+    pem = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "MIIEpAIBAAKCAQEA...\n"
+        "-----END RSA PRIVATE KEY-----\n"
+    )
+    path = tmp_path / "key.pem"
+    path.write_text(pem)
+    assert cli.main(["scan", "-f", str(path)]) == 2
+    out = capsys.readouterr().out
+    assert "pem-private-key" in out
+    assert "offset" in out
+
+
+def test_scan_single_file_unreadable_is_an_error(home, tmp_path, capsys, monkeypatch):
+    path = tmp_path / "secret.txt"
+    path.write_text("token: sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv\n")
+    path_str = str(path.resolve())
+    original_open = Path.open
+
+    def patched_open(self, *args, **kwargs):
+        if str(self.resolve()) == path_str:
+            raise PermissionError(13, "Permission denied", str(path))
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", patched_open)
+    assert cli.main(["scan", "-f", str(path)]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error:")
+    assert "No secrets detected." not in captured.out
+    assert "ignored" not in captured.out
+
+
+def test_scan_directory_non_regular_file_skipped(home, tmp_path, capsys):
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("mkfifo is not available on this platform")
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    (tmp_path / "readable.txt").write_text(f"token: {secret}\n")
+    os.mkfifo(tmp_path / "pipe")
+    result = {}
+
+    def run():
+        result["rc"] = cli.main(["scan", "-f", str(tmp_path)])
+
+    # a regression in the regular-file check blocks in open() forever;
+    # run in a thread so that failure is a failure, not a hung CI job
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout=30)
+    assert not t.is_alive(), "scan hung on the FIFO: the regular-file check regressed"
+    assert result["rc"] == 2
+    captured = capsys.readouterr()
+    assert "skipped:" in captured.err and "pipe" in captured.err
+    assert "readable.txt:1:" in captured.out
+
+
+def test_scan_directory_sorted_order(home, tmp_path, capsys, monkeypatch):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    sub_a = tmp_path / "adir"
+    sub_b = tmp_path / "bdir"
+    sub_a.mkdir()
+    sub_b.mkdir()
+    (tmp_path / "b.txt").write_text(f"token: {secret}\n")
+    (tmp_path / "a.txt").write_text(f"token: {secret}\n")
+    (sub_b / "z.txt").write_text(f"token: {secret}\n")
+    (sub_a / "y.txt").write_text(f"token: {secret}\n")
+    real_walk = os.walk
+
+    def reversed_walk(top, **kwargs):
+        # hand the walk the opposite of the OS order, so a deleted
+        # dirs.sort()/files.sort() shows up as reversed output
+        for root, dirs, files in real_walk(top, **kwargs):
+            dirs[:] = sorted(dirs, reverse=True)
+            files[:] = sorted(files, reverse=True)
+            yield root, dirs, files
+
+    monkeypatch.setattr(os, "walk", reversed_walk)
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    out = capsys.readouterr().out
+    names = ("a.txt", "b.txt", os.path.join("adir", "y.txt"), os.path.join("bdir", "z.txt"))
+    positions = [out.index(name) for name in names]
+    assert positions == sorted(positions)
+
+
+def test_scan_directory_binary_check_reads_at_most_8k(home, tmp_path, capsys):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    payload = f"token: {secret}\n" + "x" * 9000 + "\x00"
+    (tmp_path / "big.txt").write_text(payload)
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    out = capsys.readouterr().out
+    assert "big.txt:1:" in out
 
 
 def _secret() -> str:

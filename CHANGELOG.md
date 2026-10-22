@@ -28,6 +28,22 @@
   as the addon's, without importing it. `keyfence hook claude-code`
   dispatches on `hook_event_name`, so tool calls keep the fast path that
   loads neither yaml nor the config.
+- `keyfence scan -f <dir>` now walks a directory recursively, scanning each
+  file line by line; it never loads a whole file. Files are visited in
+  sorted order for deterministic output. The first 8 KiB of each file are
+  checked for a NUL byte; files that contain one are treated as binary and
+  skipped silently. Anything that is not a regular file is reported on
+  stderr as `skipped: <path> (not a regular file)`. Unreadable files and
+  subdirectories are reported on stderr as `skipped: <path> (<reason>)` and
+  the walk continues. Each finding prints
+  `  - <file>:<line>: [kind] masked`, followed by ` in "key"` when the
+  value sits under a JSON key; unlike single-file mode, directory mode
+  prints no offset. Findings that match a registered secret are labelled
+  `(registered secret)`. The
+  ignore-list summary prints once at the end. Single-file, text and stdin
+  modes keep their previous output; a missing or unreadable path, file or
+  directory, now prints one `error:` line and exits 1 instead of raising a
+  traceback.
 
 - `docs/limitations.md` now names two cases keyfence does not cover. An
   agent can use a credential on disk without reading it (`ssh prod`,
