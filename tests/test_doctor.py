@@ -326,7 +326,7 @@ def test_hook_check(home, tmp_path, monkeypatch):
     binary.write_text("")
     binary.chmod(0o755)
     (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
-        {"matcher": "Read", "hooks": [{"type": "command", "command": f"{binary} hook claude-code"}]}]}}))
+        {"matcher": "Read", "hooks": [{"type": "command", "command": f"{doctor.hooks._quote_exe(str(binary))} hook claude-code"}]}]}}))
     check = doctor.check_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
     (project / "settings.json").write_text("not json")
@@ -344,7 +344,7 @@ def test_prompt_hook_check(home, tmp_path, monkeypatch):
     binary.write_text("")
     binary.chmod(0o755)
     (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
-        {"hooks": [{"type": "command", "command": f"{binary} hook claude-code", "timeout": 10, "onFailure": "block"}]}]}}))
+        {"hooks": [{"type": "command", "command": f"{doctor.hooks._quote_exe(str(binary))} hook claude-code", "timeout": 10, "onFailure": "block"}]}]}}))
     check = doctor.check_prompt_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
     (project / "settings.json").write_text("not json")
