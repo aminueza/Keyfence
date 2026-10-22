@@ -231,32 +231,47 @@ def prompt_hook_installed(path: Path) -> bool:
     return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("UserPromptSubmit", []))
 
 
-def hook_command(path: Path) -> str | None:
+def keyfence_hook(path: Path, event: str) -> dict | None:
     try:
         data = json.loads(path.read_text()) if path.exists() else {}
     except ValueError:
         return None
-    for entry in data.get("hooks", {}).get("PreToolUse", []):
+    for entry in data.get("hooks", {}).get(event, []):
         if hooks._is_ours(entry):
             for hook in entry.get("hooks", []):
-                cmd = hook.get("command", "")
-                if cmd:
-                    return cmd
+                if hook.get("command"):
+                    return hook
     return None
+
+
+def hook_command(path: Path) -> str | None:
+    hook = keyfence_hook(path, "PreToolUse")
+    return _hook_display(hook) if hook else None
 
 
 def prompt_hook_command(path: Path) -> str | None:
-    try:
-        data = json.loads(path.read_text()) if path.exists() else {}
-    except ValueError:
-        return None
-    for entry in data.get("hooks", {}).get("UserPromptSubmit", []):
-        if hooks._is_ours(entry):
-            for hook in entry.get("hooks", []):
-                cmd = hook.get("command", "")
-                if cmd:
-                    return cmd
-    return None
+    hook = keyfence_hook(path, "UserPromptSubmit")
+    return _hook_display(hook) if hook else None
+
+
+def _hook_display(hook: dict) -> str:
+    args = hook.get("args")
+    if isinstance(args, list):
+        return " ".join([str(hook.get("command", "")), *(str(a) for a in args)])
+    return str(hook.get("command", ""))
+
+
+def _hook_problem(hook: dict) -> str | None:
+    # Exec form (command + args) is spawned directly, no shell: the command
+    # is the executable. Shell form goes through a shell, so parse it the way
+    # the shell would -- an unquoted path the shell splits or mangles does
+    # not pass for a healthy single token.
+    args = hook.get("args")
+    if isinstance(args, list):
+        executable = str(hook.get("command", ""))
+    else:
+        executable = _hook_executable(str(hook.get("command", "")))
+    return command_problem(executable)
 
 
 def installed_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, Path, bool]]:
@@ -277,16 +292,15 @@ def check_hook(cwd: Path | None = None) -> Check:
     for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
         if not hook_installed(path):
             continue
-        command = hook_command(path)
-        if command is None:
+        hook = keyfence_hook(path, "PreToolUse")
+        if hook is None:
             return Check(FAIL, "Claude Code hook",
                          f"installed ({scope}) but {path} holds no keyfence command; every Claude Code tool call is refused "
                          "until keyfence install-hooks claude-code runs again")
-        executable = _hook_executable(command)
-        problem = command_problem(executable)
+        problem = _hook_problem(hook)
         if problem:
             return Check(FAIL, "Claude Code hook",
-                         f"installed ({scope}) but the {scope} hook calls {command}, whose executable {executable} {problem}; every Claude Code "
+                         f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every Claude Code "
                          "tool call is refused until keyfence install-hooks claude-code runs again")
         scopes.append(scope)
     if scopes:
@@ -299,16 +313,15 @@ def check_prompt_hook(cwd: Path | None = None) -> Check:
     for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
         if not prompt_hook_installed(path):
             continue
-        command = prompt_hook_command(path)
-        if command is None:
+        hook = keyfence_hook(path, "UserPromptSubmit")
+        if hook is None:
             return Check(FAIL, "Claude Code prompt hook",
                          f"installed ({scope}) but {path} holds no keyfence command; every submitted prompt is refused "
                          "until keyfence install-hooks claude-code runs again")
-        executable = _hook_executable(command)
-        problem = command_problem(executable)
+        problem = _hook_problem(hook)
         if problem:
             return Check(FAIL, "Claude Code prompt hook",
-                         f"installed ({scope}) but the {scope} hook calls {command}, whose executable {executable} {problem}; every submitted prompt "
+                         f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every submitted prompt "
                          "is refused until keyfence install-hooks claude-code runs again")
         scopes.append(scope)
     if scopes:

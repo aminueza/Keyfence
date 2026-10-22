@@ -13,9 +13,11 @@
   `path`, and findings with `kind`, `preview` (masked) and `key`, plus
   `label` for a canary; in `audit` mode the prompt itself goes through.
   The hook needs Claude Code v2.1.295+ for the
-  `onFailure: block` field. The installed command quotes the executable path,
-  so it still starts when the path holds spaces or Windows backslashes, and
-  re-running `install-hooks` repairs an entry left by an older keyfence whose
+  `onFailure: block` field. The installed entries use exec form (`command`
+  plus `args`), so Claude Code spawns keyfence directly with no shell on
+  any platform: paths with spaces or Windows backslashes need no quoting
+  and work under Git Bash and the PowerShell fallback alike, and re-running
+  `install-hooks` repairs an entry left by an older keyfence whose
   command could not start. The hook reads its payload as UTF-8 whatever the
   locale codec is, so a prompt with emoji is not refused on Windows.
   `keyfence doctor` reports whether the prompt

@@ -4,7 +4,6 @@ import fnmatch
 import itertools
 import json
 import re
-import shlex
 import shutil
 import sys
 from pathlib import Path, PurePosixPath
@@ -58,6 +57,7 @@ _SECRET_COMMANDS = re.compile(
     r"bw\s+(?:get|list\s+items)"
     r")\b", re.IGNORECASE | re.MULTILINE)
 HOOK_COMMAND = "keyfence hook claude-code"
+HOOK_ARGS = ["hook", "claude-code"]
 HOOK_MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash"
 PROMPT_HOOK_MIN_CLAUDE_CODE = "2.1.295"
 _DENY_BASE = (
@@ -80,26 +80,43 @@ def keyfence_path() -> str:
     return shutil.which("keyfence") or "keyfence"
 
 
-def _quote_exe(exe: str) -> str:
-    # Claude Code runs the command through a shell (Git Bash on Windows), so
-    # a path with spaces or backslashes must be quoted or it never starts --
-    # and under onFailure=block a hook that cannot start refuses every prompt.
-    quoted = shlex.quote(exe)
-    if "\\" in exe and not quoted.startswith("'"):
-        quoted = f"'{exe}'"  # shlex leaves bare backslashes; Git Bash eats them
-    return quoted
+def _hook_fields(command: str | None) -> dict:
+    # Exec form (command + args) spawns the executable directly, with no
+    # shell on any platform: a path with spaces or Windows backslashes needs
+    # no quoting, and the same entry works under Git Bash and under the
+    # PowerShell fallback alike. Shell form stays for a caller-given command
+    # string, where the caller owns the quoting.
+    if not command or command == HOOK_COMMAND:
+        return {"command": HOOK_COMMAND}
+    if "hook claude-code" in command:
+        return {"command": command}
+    return {"command": command, "args": list(HOOK_ARGS)}
 
 
-def _sync_command(entries: list, command: str) -> bool:
+def _is_our_hook(hook: dict) -> bool:
+    args = hook.get("args")
+    if isinstance(args, list) and [str(a) for a in args] == HOOK_ARGS:
+        return True
+    return "hook claude-code" in str(hook.get("command", ""))
+
+
+def _sync_command(entries: list, fields: dict) -> bool:
     # An entry written by an older keyfence can hold a command that cannot
     # start (unquoted path with spaces or backslashes); re-running install
     # must repair it, because that entry blocks every prompt meanwhile.
     fixed = False
     for entry in entries:
         for hook in entry.get("hooks", []):
-            cmd = str(hook.get("command", ""))
-            if "hook claude-code" in cmd and cmd != command:
-                hook["command"] = command
+            if not _is_our_hook(hook):
+                continue
+            if hook.get("command") != fields["command"]:
+                hook["command"] = fields["command"]
+                fixed = True
+            if hook.get("args") != fields.get("args"):
+                if "args" in fields:
+                    hook["args"] = list(fields["args"])
+                else:
+                    hook.pop("args", None)
                 fixed = True
     return fixed
 
@@ -280,13 +297,7 @@ def settings_path(project: bool, cwd: Path | None = None) -> Path:
 
 
 def _is_ours(entry: dict) -> bool:
-    for h in entry.get("hooks", []):
-        cmd = str(h.get("command", ""))
-        if HOOK_COMMAND in cmd:
-            return True
-        if "hook claude-code" in cmd:
-            return True
-    return False
+    return any(_is_our_hook(h) for h in entry.get("hooks", []))
 
 
 def added_rules_path(path: Path) -> Path:
@@ -314,9 +325,7 @@ class Removal(NamedTuple):
 
 
 def install(path: Path, command: str | None = None) -> bool:
-    command = command or HOOK_COMMAND
-    if command != HOOK_COMMAND and "hook claude-code" not in command:
-        command = f"{_quote_exe(command)} hook claude-code"
+    fields = _hook_fields(command)
     data = json.loads(path.read_text()) if path.exists() else {}
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     prompt = data.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
@@ -325,17 +334,17 @@ def install(path: Path, command: str | None = None) -> bool:
     if not any(_is_ours(e) for e in pre):
         pre.append({
             "matcher": HOOK_MATCHER,
-            "hooks": [{"type": "command", "command": command, "timeout": 10}],
+            "hooks": [{"type": "command", **fields, "timeout": 10}],
         })
         changed = True
-    elif _sync_command(pre, command):
+    elif _sync_command(pre, fields):
         changed = True
     if not any(_is_ours(e) for e in prompt):
         prompt.append({
-            "hooks": [{"type": "command", "command": command, "timeout": 10, "onFailure": "block"}],
+            "hooks": [{"type": "command", **fields, "timeout": 10, "onFailure": "block"}],
         })
         changed = True
-    elif _sync_command(prompt, command):
+    elif _sync_command(prompt, fields):
         changed = True
     missing = [rule for rule in DENY_RULES if rule not in deny]
     if missing:

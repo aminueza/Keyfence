@@ -132,7 +132,11 @@ Claude Code has declarative hooks and permissions, so
   `keyfence hook claude-code`, timeout 10, `onFailure: block` (no matcher
   key — the event fires on every prompt). This requires Claude Code
   v2.1.295+ for the `onFailure` field; without it a hook that crashes or
-  times out would let the prompt through;
+  times out would let the prompt through. Both entries use exec form:
+  `command` is the installer's keyfence executable and `args` is
+  `["hook", "claude-code"]`, so Claude Code spawns it directly with no
+  shell on any platform — paths with spaces or Windows backslashes need
+  no quoting and work under Git Bash and PowerShell alike.
 - `permissions.deny` rules for `Read` on `.env` files, `*.pem`, `*.key`,
   `credentials*`, `secrets.*`, `*.tfvars` and the home-directory
   credential stores (`DENY_RULES` in `hooks.py`). These need no Python on

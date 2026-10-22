@@ -505,7 +505,7 @@ def test_a_carve_out_written_before_the_env_rules_it_cancels_leaves_them_in_forc
     assert not _the_deny_block_refuses_a_path(deny, ".env.example")
 
 
-def test_install_quotes_executable_paths_the_shell_would_split(tmp_path):
+def test_install_uses_exec_form_for_executable_paths(tmp_path):
     spaced = tmp_path / "My Projects" / "keyfence"
     spaced.parent.mkdir()
     spaced.write_text("")
@@ -513,13 +513,19 @@ def test_install_quotes_executable_paths_the_shell_would_split(tmp_path):
     assert hooks.install(path, str(spaced))
     data = json.loads(path.read_text())
     for event in ("PreToolUse", "UserPromptSubmit"):
-        cmd = data["hooks"][event][0]["hooks"][0]["command"]
-        assert cmd == f"'{spaced}' hook claude-code"
+        hook = data["hooks"][event][0]["hooks"][0]
+        assert hook["command"] == str(spaced)
+        assert hook["args"] == ["hook", "claude-code"]
     assert not hooks.install(path, str(spaced))
     path2 = tmp_path / "s2" / "settings.json"
     assert hooks.install(path2, "C:\\Program Files\\keyfence.exe")
-    cmd = json.loads(path2.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
-    assert cmd == "'C:\\Program Files\\keyfence.exe' hook claude-code"
+    hook = json.loads(path2.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert hook["command"] == "C:\\Program Files\\keyfence.exe"
+    assert hook["args"] == ["hook", "claude-code"]
+    path3 = tmp_path / "s3" / "settings.json"
+    assert hooks.install(path3, "wrapper.sh hook claude-code")
+    hook = json.loads(path3.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert hook["command"] == "wrapper.sh hook claude-code" and "args" not in hook
 
 
 def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
@@ -535,11 +541,26 @@ def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
     }}))
     assert hooks.install(path, str(binary))
     data = json.loads(path.read_text())
-    fixed = f"'{binary}' hook claude-code"
-    assert data["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == fixed
-    assert data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"] == fixed
+    for event in ("PreToolUse", "UserPromptSubmit"):
+        hook = data["hooks"][event][0]["hooks"][0]
+        assert hook["command"] == str(binary)
+        assert hook["args"] == ["hook", "claude-code"]
     assert data["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == "other hook claude-code-ish"
     assert not hooks.install(path, str(binary))
+
+
+def test_installed_exec_form_command_actually_spawns(tmp_path):
+    exe = hooks.keyfence_path()
+    if not Path(exe).is_file():
+        pytest.skip("keyfence console script not installed in this environment")
+    path = tmp_path / "settings.json"
+    assert hooks.install(path, exe)
+    hook = json.loads(path.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "clean text"})
+    env = dict(os.environ, HOME=str(tmp_path), PYTHONPATH=str(ROOT))
+    done = subprocess.run([hook["command"], *hook["args"]], input=payload,
+                          capture_output=True, text=True, env=env, timeout=60)
+    assert done.returncode == 0 and done.stdout == ""
 
 
 def test_install_and_uninstall_merge_with_existing_settings(tmp_path):
