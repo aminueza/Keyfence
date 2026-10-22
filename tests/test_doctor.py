@@ -354,6 +354,28 @@ def test_prompt_hook_check(home, tmp_path, monkeypatch):
     assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.FAIL
 
 
+def test_prompt_hook_check_parses_quoted_commands_like_a_shell(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    binary = tmp_path / "My Projects" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    settings = project / "settings.json"
+
+    def write(command):
+        settings.write_text(json.dumps({"hooks": {"UserPromptSubmit": [
+            {"hooks": [{"type": "command", "command": command, "timeout": 10, "onFailure": "block"}]}]}}))
+
+    write(f"'{binary}' hook claude-code")
+    check = doctor.check_prompt_hook(tmp_path / "proj")
+    assert check.status == doctor.OK and "project" in check.detail
+    write(f"{binary} hook claude-code")
+    check = doctor.check_prompt_hook(tmp_path / "proj")
+    assert check.status == doctor.FAIL and "refused" in check.detail
+
+
 def test_audit_check(home, write_config):
     assert doctor.check_audit().status == doctor.INFO
     (home / "audit.log").write_text('{"a": 1}\n\n{"b": 2}\n')

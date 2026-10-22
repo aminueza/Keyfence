@@ -4,6 +4,7 @@ import fnmatch
 import itertools
 import json
 import re
+import shlex
 import shutil
 import sys
 from pathlib import Path, PurePosixPath
@@ -77,6 +78,30 @@ def keyfence_path() -> str:
         if candidate.exists():
             return str(candidate)
     return shutil.which("keyfence") or "keyfence"
+
+
+def _quote_exe(exe: str) -> str:
+    # Claude Code runs the command through a shell (Git Bash on Windows), so
+    # a path with spaces or backslashes must be quoted or it never starts --
+    # and under onFailure=block a hook that cannot start refuses every prompt.
+    quoted = shlex.quote(exe)
+    if "\\" in exe and not quoted.startswith("'"):
+        quoted = f"'{exe}'"  # shlex leaves bare backslashes; Git Bash eats them
+    return quoted
+
+
+def _sync_command(entries: list, command: str) -> bool:
+    # An entry written by an older keyfence can hold a command that cannot
+    # start (unquoted path with spaces or backslashes); re-running install
+    # must repair it, because that entry blocks every prompt meanwhile.
+    fixed = False
+    for entry in entries:
+        for hook in entry.get("hooks", []):
+            cmd = str(hook.get("command", ""))
+            if "hook claude-code" in cmd and cmd != command:
+                hook["command"] = command
+                fixed = True
+    return fixed
 
 
 def is_sensitive(path: str) -> bool:
@@ -291,7 +316,7 @@ class Removal(NamedTuple):
 def install(path: Path, command: str | None = None) -> bool:
     command = command or HOOK_COMMAND
     if command != HOOK_COMMAND and "hook claude-code" not in command:
-        command = f"{command} hook claude-code"
+        command = f"{_quote_exe(command)} hook claude-code"
     data = json.loads(path.read_text()) if path.exists() else {}
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     prompt = data.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
@@ -303,10 +328,14 @@ def install(path: Path, command: str | None = None) -> bool:
             "hooks": [{"type": "command", "command": command, "timeout": 10}],
         })
         changed = True
+    elif _sync_command(pre, command):
+        changed = True
     if not any(_is_ours(e) for e in prompt):
         prompt.append({
             "hooks": [{"type": "command", "command": command, "timeout": 10, "onFailure": "block"}],
         })
+        changed = True
+    elif _sync_command(prompt, command):
         changed = True
     missing = [rule for rule in DENY_RULES if rule not in deny]
     if missing:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,18 @@ def _run(command: list[str]) -> tuple[int, str]:
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, str(exc)
     return done.returncode, done.stdout + done.stderr
+
+
+def _hook_executable(command: str) -> str:
+    # Claude Code runs the command through a shell, so parse it the way the
+    # shell would: a quoted path with spaces yields its real executable, and
+    # an unquoted one that the shell would split or mangle does not pass for
+    # a healthy single token.
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+    return parts[0] if parts else command
 
 
 def command_problem(command: str) -> str | None:
@@ -269,7 +282,7 @@ def check_hook(cwd: Path | None = None) -> Check:
             return Check(FAIL, "Claude Code hook",
                          f"installed ({scope}) but {path} holds no keyfence command; every Claude Code tool call is refused "
                          "until keyfence install-hooks claude-code runs again")
-        executable = command.split()[0]
+        executable = _hook_executable(command)
         problem = command_problem(executable)
         if problem:
             return Check(FAIL, "Claude Code hook",
@@ -291,7 +304,7 @@ def check_prompt_hook(cwd: Path | None = None) -> Check:
             return Check(FAIL, "Claude Code prompt hook",
                          f"installed ({scope}) but {path} holds no keyfence command; every submitted prompt is refused "
                          "until keyfence install-hooks claude-code runs again")
-        executable = command.split()[0]
+        executable = _hook_executable(command)
         problem = command_problem(executable)
         if problem:
             return Check(FAIL, "Claude Code prompt hook",

@@ -505,6 +505,43 @@ def test_a_carve_out_written_before_the_env_rules_it_cancels_leaves_them_in_forc
     assert not _the_deny_block_refuses_a_path(deny, ".env.example")
 
 
+def test_install_quotes_executable_paths_the_shell_would_split(tmp_path):
+    spaced = tmp_path / "My Projects" / "keyfence"
+    spaced.parent.mkdir()
+    spaced.write_text("")
+    path = tmp_path / "settings.json"
+    assert hooks.install(path, str(spaced))
+    data = json.loads(path.read_text())
+    for event in ("PreToolUse", "UserPromptSubmit"):
+        cmd = data["hooks"][event][0]["hooks"][0]["command"]
+        assert cmd == f"'{spaced}' hook claude-code"
+    assert not hooks.install(path, str(spaced))
+    path2 = tmp_path / "s2" / "settings.json"
+    assert hooks.install(path2, "C:\\Program Files\\keyfence.exe")
+    cmd = json.loads(path2.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+    assert cmd == "'C:\\Program Files\\keyfence.exe' hook claude-code"
+
+
+def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
+    binary = tmp_path / "My Projects" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    path = tmp_path / "settings.json"
+    stale = f"{binary} hook claude-code"
+    path.write_text(json.dumps({"hooks": {
+        "PreToolUse": [{"matcher": hooks.HOOK_MATCHER, "hooks": [{"type": "command", "command": stale}]}],
+        "UserPromptSubmit": [{"hooks": [{"type": "command", "command": stale, "onFailure": "block"}]}],
+        "PostToolUse": [{"hooks": [{"type": "command", "command": "other hook claude-code-ish"}]}],
+    }}))
+    assert hooks.install(path, str(binary))
+    data = json.loads(path.read_text())
+    fixed = f"'{binary}' hook claude-code"
+    assert data["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == fixed
+    assert data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"] == fixed
+    assert data["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == "other hook claude-code-ish"
+    assert not hooks.install(path, str(binary))
+
+
 def test_install_and_uninstall_merge_with_existing_settings(tmp_path):
     path = tmp_path / ".claude" / "settings.json"
     path.parent.mkdir()
