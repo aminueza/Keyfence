@@ -13,7 +13,12 @@
   `path`, and findings with `kind`, `preview` (masked) and `key`, plus
   `label` for a canary; in `audit` mode the prompt itself goes through.
   The hook needs Claude Code v2.1.295+ for the
-  `onFailure: block` field. `keyfence doctor` reports whether the prompt
+  `onFailure: block` field. The installed command quotes the executable path,
+  so it still starts when the path holds spaces or Windows backslashes, and
+  re-running `install-hooks` repairs an entry left by an older keyfence whose
+  command could not start. The hook reads its payload as UTF-8 whatever the
+  locale codec is, so a prompt with emoji is not refused on Windows.
+  `keyfence doctor` reports whether the prompt
   hook is installed, and `install-hooks --list` shows it under a prompt
   hook heading.
 - The prompt check lives in a new module, `keyfence/prompt.py`, with the
