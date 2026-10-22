@@ -144,6 +144,23 @@ def test_entry_hook_fast_path_loads_only_hooks(home, monkeypatch, capsys):
     assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "0 False"
 
 
+def test_entry_hook_decodes_a_utf8_prompt_under_a_foreign_locale(home, monkeypatch):
+    # Claude Code always sends UTF-8, but sys.stdin decodes with the locale
+    # codec; on Windows that is an ANSI code page whose strict decoder raises
+    # on the bytes of U+1F44D, which must not refuse a clean prompt.
+    from keyfence import entry
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "ship it 👍"},
+                         ensure_ascii=False).encode("utf-8")
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(payload), encoding="cp1252", errors="strict"))
+    assert entry.main(["hook", "claude-code"]) == 0
+
+
+def test_entry_hook_refuses_undecodable_stdin_fail_closed(home, monkeypatch):
+    from keyfence import entry
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(b"\xff\xfe not json"), encoding="utf-8", errors="strict"))
+    assert entry.main(["hook", "claude-code"]) == 2
+
+
 @pytest.mark.parametrize("flag", ["--help", "-h"])
 def test_hook_help_prints_usage_instead_of_reading_the_flag_as_an_agent(capsys, flag):
     from keyfence import entry

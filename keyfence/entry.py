@@ -15,6 +15,25 @@ def _block(reason: str) -> int:
     return 0
 
 
+def _read_stdin() -> str | None:
+    # Claude Code sends UTF-8, but sys.stdin decodes with the locale codec,
+    # an ANSI code page on Windows that raises on valid UTF-8 (cp1252 chokes
+    # on the bytes of U+1F44D). Refusing there would block every prompt, so
+    # read the bytes and decode them explicitly; undecodable input stays
+    # fail-closed through run_hook().
+    stream = getattr(sys.stdin, "buffer", None)
+    try:
+        data = stream.read() if stream is not None else sys.stdin.read()
+    except BaseException:
+        return None  # run_hook() reads stdin itself and refuses with exit 2
+    if isinstance(data, bytes):
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    return data
+
+
 def _is_prompt_event(text: str) -> bool:
     try:
         payload = json.loads(text)
@@ -30,10 +49,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"unknown agent: {' '.join(args[1:]) or '(none)'}", file=sys.stderr)
             return 1
         if args[1] == "claude-code":
-            try:
-                text = sys.stdin.read()
-            except BaseException:
-                text = None  # run_hook() reads stdin itself and refuses with exit 2
+            text = _read_stdin()
             if text is not None and _is_prompt_event(text):
                 try:
                     from .prompt import run as run_prompt
