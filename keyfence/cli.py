@@ -197,8 +197,16 @@ def _remove_claude_code(path: Path, force: bool) -> int:
 def _list_hooks() -> int:
     for agent in AGENTS:
         print(agent)
-        for scope, path, installed in doctor.installed_scopes(agent):
-            print(f"  {scope:<8} {'installed' if installed else 'not installed':<14} {path}")
+        if agent == "claude-code":
+            print("  tool-call hook")
+            for scope, path, installed in doctor.installed_scopes(agent):
+                print(f"    {scope:<8} {'installed' if installed else 'not installed':<14} {path}")
+            print("  prompt hook")
+            for scope, path, installed in doctor.prompt_hook_scopes(agent):
+                print(f"    {scope:<8} {'installed' if installed else 'not installed':<14} {path}")
+        else:
+            for scope, path, installed in doctor.installed_scopes(agent):
+                print(f"  {scope:<8} {'installed' if installed else 'not installed':<14} {path}")
     return 0
 
 
@@ -237,6 +245,12 @@ def cmd_install_hooks(args) -> int:
         _print_deny_rule_versions()
         print(f"The rules keyfence added are listed in {hooks.added_rules_path(path)}, which is the record "
               "--remove reads back.")
+        print(f"The prompt hook requires Claude Code v{hooks.PROMPT_HOOK_MIN_CLAUDE_CODE}+ (adds UserPromptSubmit "
+              "with timeout 10 and onFailure=block).")
+        if args.project:
+            print(f"Note: ./.claude/settings.json is a file teams often commit. The hook calls "
+                  f"{hooks.keyfence_path()}, and onFailure=block refuses every prompt when that "
+                  "path is missing, so teammates without keyfence at that path would be blocked.")
     else:
         print(f"Hook already present in {path}.")
         _print_deny_rule_versions()

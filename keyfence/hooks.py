@@ -57,7 +57,9 @@ _SECRET_COMMANDS = re.compile(
     r"bw\s+(?:get|list\s+items)"
     r")\b", re.IGNORECASE | re.MULTILINE)
 HOOK_COMMAND = "keyfence hook claude-code"
+HOOK_ARGS = ["hook", "claude-code"]
 HOOK_MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash"
+PROMPT_HOOK_MIN_CLAUDE_CODE = "2.1.295"
 _DENY_BASE = (
     "./.env", "./.env.*", "./**/.env", "./**/.env.*", "./**/*.pem",
     "./**/*.key", "./**/credentials*", "./**/secrets.*", "./**/*.tfvars",
@@ -76,6 +78,47 @@ def keyfence_path() -> str:
         if candidate.exists():
             return str(candidate)
     return shutil.which("keyfence") or "keyfence"
+
+
+def _hook_fields(command: str | None) -> dict:
+    # Exec form (command + args) spawns the executable directly, with no
+    # shell on any platform: a path with spaces or Windows backslashes needs
+    # no quoting, and the same entry works under Git Bash and under the
+    # PowerShell fallback alike. Shell form stays for a caller-given command
+    # string, where the caller owns the quoting.
+    if not command or command == HOOK_COMMAND:
+        return {"command": HOOK_COMMAND}
+    if "hook claude-code" in command:
+        return {"command": command}
+    return {"command": command, "args": list(HOOK_ARGS)}
+
+
+def _is_our_hook(hook: dict) -> bool:
+    args = hook.get("args")
+    if isinstance(args, list) and [str(a) for a in args] == HOOK_ARGS:
+        return True
+    return "hook claude-code" in str(hook.get("command", ""))
+
+
+def _sync_command(entries: list, fields: dict) -> bool:
+    # An entry written by an older keyfence can hold a command that cannot
+    # start (unquoted path with spaces or backslashes); re-running install
+    # must repair it, because that entry blocks every prompt meanwhile.
+    fixed = False
+    for entry in entries:
+        for hook in entry.get("hooks", []):
+            if not _is_our_hook(hook):
+                continue
+            if hook.get("command") != fields["command"]:
+                hook["command"] = fields["command"]
+                fixed = True
+            if hook.get("args") != fields.get("args"):
+                if "args" in fields:
+                    hook["args"] = list(fields["args"])
+                else:
+                    hook.pop("args", None)
+                fixed = True
+    return fixed
 
 
 def is_sensitive(path: str) -> bool:
@@ -254,13 +297,7 @@ def settings_path(project: bool, cwd: Path | None = None) -> Path:
 
 
 def _is_ours(entry: dict) -> bool:
-    for h in entry.get("hooks", []):
-        cmd = str(h.get("command", ""))
-        if HOOK_COMMAND in cmd:
-            return True
-        if "hook claude-code" in cmd:
-            return True
-    return False
+    return any(_is_our_hook(h) for h in entry.get("hooks", []))
 
 
 def added_rules_path(path: Path) -> Path:
@@ -288,18 +325,26 @@ class Removal(NamedTuple):
 
 
 def install(path: Path, command: str | None = None) -> bool:
-    command = command or HOOK_COMMAND
-    if command != HOOK_COMMAND and "hook claude-code" not in command:
-        command = f"{command} hook claude-code"
+    fields = _hook_fields(command)
     data = json.loads(path.read_text()) if path.exists() else {}
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
+    prompt = data.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
     deny = data.setdefault("permissions", {}).setdefault("deny", [])
     changed = False
     if not any(_is_ours(e) for e in pre):
         pre.append({
             "matcher": HOOK_MATCHER,
-            "hooks": [{"type": "command", "command": command, "timeout": 10}],
+            "hooks": [{"type": "command", **fields, "timeout": 10}],
         })
+        changed = True
+    elif _sync_command(pre, fields):
+        changed = True
+    if not any(_is_ours(e) for e in prompt):
+        prompt.append({
+            "hooks": [{"type": "command", **fields, "timeout": 10, "onFailure": "block"}],
+        })
+        changed = True
+    elif _sync_command(prompt, fields):
         changed = True
     missing = [rule for rule in DENY_RULES if rule not in deny]
     if missing:
@@ -320,7 +365,9 @@ def uninstall(path: Path, force: bool = False) -> Removal:
         return Removal(False, 0, [])
     data = json.loads(path.read_text())
     pre = data.get("hooks", {}).get("PreToolUse", [])
-    kept = [e for e in pre if not _is_ours(e)]
+    prompt = data.get("hooks", {}).get("UserPromptSubmit", [])
+    kept_pre = [e for e in pre if not _is_ours(e)]
+    kept_prompt = [e for e in prompt if not _is_ours(e)]
     deny = data.get("permissions", {}).get("deny", [])
     recorded = _added_rules(path)
     ours = set(recorded or ())
@@ -332,13 +379,20 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     kept_deny = [rule for rule in deny if rule not in ours]
     if force or recorded is not None:
         added_rules_path(path).unlink(missing_ok=True)
-    result = Removal(len(kept) < len(pre), len(deny) - len(kept_deny), unrecorded)
+    result = Removal(
+        (len(kept_pre) < len(pre)) or (len(kept_prompt) < len(prompt)),
+        len(deny) - len(kept_deny),
+        unrecorded
+    )
     if not result.changed:
         return result
     if "hooks" in data:
-        data["hooks"]["PreToolUse"] = kept
-        if not kept:
+        data["hooks"]["PreToolUse"] = kept_pre
+        if not kept_pre:
             del data["hooks"]["PreToolUse"]
+        data["hooks"]["UserPromptSubmit"] = kept_prompt
+        if not kept_prompt:
+            del data["hooks"]["UserPromptSubmit"]
         if not data["hooks"]:
             del data["hooks"]
     if "permissions" in data:

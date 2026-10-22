@@ -10,7 +10,8 @@ without reading `hooks.py` and `pi.py` first.
 ## Wire format
 
 The caller runs `keyfence hook <agent>` once per tool call, before the tool
-runs, and writes one JSON object to its stdin:
+runs, and writes one JSON object to its stdin. For Claude Code, it also runs
+once per submitted prompt for the `UserPromptSubmit` event.
 
 ```json
 {"tool_name": "Read", "tool_input": {"file_path": "/work/.env"}}
@@ -21,7 +22,10 @@ runs, and writes one JSON object to its stdin:
 - `tool_input`: the tool's arguments as an object. A missing or null
   `tool_input` is treated as `{}`.
 
-The answer is the exit code. stdout is never used.
+The answer is the exit code. stdout is never used. Exception: the
+`UserPromptSubmit` event for Claude Code answers with a JSON block on stdout,
+exit 0 ([Claude Code hook
+reference](https://code.claude.com/docs/en/hooks)).
 
 | exit | meaning | what the caller does |
 |---|---|---|
@@ -54,7 +58,9 @@ Claude Code gives the hook 10 seconds; the pi extension has no timeout of
 its own. A decision takes a few milliseconds once Python is up, and the
 `hook` subcommand is served by `keyfence/entry.py` before the rest of the
 package (mitmproxy included) is imported, so the cost is one interpreter
-start.
+start. A `UserPromptSubmit` call costs more than a tool-call one: it runs
+the vault and the detectors over the prompt text, which is fine once per
+prompt (the prompt path imports the config and the detectors on purpose).
 
 ## What the rules look at
 
@@ -122,6 +128,15 @@ Claude Code has declarative hooks and permissions, so
 
 - a `PreToolUse` entry with the matcher above and the command
   `keyfence hook claude-code`, timeout 10;
+- a `UserPromptSubmit` entry with the command
+  `keyfence hook claude-code`, timeout 10, `onFailure: block` (no matcher
+  key — the event fires on every prompt). This requires Claude Code
+  v2.1.295+ for the `onFailure` field; without it a hook that crashes or
+  times out would let the prompt through. Both entries use exec form:
+  `command` is the installer's keyfence executable and `args` is
+  `["hook", "claude-code"]`, so Claude Code spawns it directly with no
+  shell on any platform — paths with spaces or Windows backslashes need
+  no quoting and work under Git Bash and PowerShell alike.
 - `permissions.deny` rules for `Read` on `.env` files, `*.pem`, `*.key`,
   `credentials*`, `secrets.*`, `*.tfvars` and the home-directory
   credential stores (`DENY_RULES` in `hooks.py`). These need no Python on
@@ -135,7 +150,11 @@ Claude Code has declarative hooks and permissions, so
 The Claude Code plugin in `plugin/` attaches the same rules through
 `plugin/hooks/hooks.json`, running `plugin/hooks/guard.py` with `python3`.
 That file is a byte-for-byte copy of `keyfence/hooks.py` (a test checks
-this) so the plugin works before keyfence is installed.
+this) so the plugin works before keyfence is installed. The plugin does not
+run the prompt hook (it needs the package); a follow-up will add that. The
+plugin's `/keyfence:setup` skill does run `keyfence install-hooks
+claude-code` once keyfence is installed, and that installs the prompt hook
+too.
 
 pi has no declarative rules, so `keyfence install-hooks pi` writes an
 extension (`~/.pi/agent/extensions/keyfence.ts`, or
@@ -160,7 +179,8 @@ The agent argument must be one of `claude-code` and `pi`, the `AGENTS`
 tuple that `keyfence/entry.py` and `keyfence/cli.py` both hold. Both
 values run the same `decide()` today: the tool-name and field rules above
 are the union of what the two agents send, and nothing in the payload
-tells the hook which agent it came from. The argument is what makes that
+tells the hook which agent it came from. A `UserPromptSubmit` payload
+goes to `keyfence/prompt.py` instead. The argument is what makes that
 work without guessing. It names the caller, so a hook line in a settings
 file or an extension says what it was installed for, and it is the place
 where a per-agent mapping (different tool names, differently named fields,
