@@ -80,20 +80,31 @@ def test_url_query_token_detected():
     assert findings[0].value == "AbCdEfGhIjKlMnOpQrStUvWxYz012345"
 
 
-@pytest.mark.parametrize("text", [
-    "a-" * 8192,
-    "-a" * 8192,
-    "a-b" * 5462,
-    "&" + "atoken" * 2731,
-    "?" + "key." * 4096,
-    "x" + "&a-token" * 2048,
-], ids=["a-", "-a", "a-b", "&atoken", "?key.", "&a-token"])
-def test_scan_time_is_linear_in_hyphenated_and_keyword_heavy_text(text):
-    assert len(text) >= 16384
+@pytest.mark.parametrize("text,size", [
+    ("a-" * 8192, 16384),
+    ("-a" * 8192, 16384),
+    ("a-b" * 5462, 16384),
+    ("&" + "atoken" * 21846, 131072),
+    ("?" + "key." * 32768, 131072),
+    ("x" + "&a-token" * 2048, 16384),
+    ("-----BEGIN PRIVATE KEY-----" * 4855, 131072),
+], ids=["a-", "-a", "a-b", "&atoken", "?key.", "&a-token", "BEGIN"])
+def test_scan_time_is_linear_in_hyphenated_and_keyword_heavy_text(text, size):
+    assert len(text) >= size
     started = time.perf_counter()
     report = scan_report(text, config=NO_ENTROPY)
     assert time.perf_counter() - started < 1.0
     assert report.findings == []
+
+
+def test_pem_block_starts_at_the_last_begin_header_before_its_end():
+    text = (
+        "-----BEGIN RSA PRIVATE KEY-----\nabandoned\n"
+        "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7fakefakefake\n-----END RSA PRIVATE KEY-----"
+    )
+    findings = scan(text, config=NO_ENTROPY)
+    assert [f.kind for f in findings] == ["pem-private-key"]
+    assert findings[0].value == text[text.rindex("-----BEGIN"):]
 
 
 @pytest.mark.parametrize("text", [
