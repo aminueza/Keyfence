@@ -294,8 +294,7 @@ def test_redact_covers_a_key_that_follows_an_unterminated_pem_header(guard):
     import base64
     import random
     import textwrap
-    raw = bytes(random.Random(7).getrandbits(8) for _ in range(1190))
-    lines = textwrap.wrap(base64.b64encode(raw).decode(), 64)
+    lines = textwrap.wrap(base64.b64encode(random.Random(7).randbytes(1190)).decode(), 64)
     payload = (
         "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n"
         "-----BEGIN PRIVATE KEY-----\nMIIEpAIBAAKCAQEAdecoy\n-----END PRIVATE KEY-----\n"

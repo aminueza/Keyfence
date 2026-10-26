@@ -435,7 +435,7 @@ def scan_report(text: str, vault=None, config: ScanConfig | None = None, ignore=
         findings = [f for f in findings if (f.start, f.end) not in dropped]
         suppressed = len(dropped)
 
-    priority = {"canary": 0, "vault": 0, "entropy": 2}
+    priority = {"canary": 0, "vault": 0, "pem-private-key": 0.5, "entropy": 2}
     findings.sort(key=lambda f: (priority.get(f.kind, 1), f.start))
     result: list[Finding] = []
     for f in findings:

@@ -28,7 +28,9 @@
   The spans are the ones the 0.10.0 pattern produced, checked against
   200,000 generated header sequences: a block runs from the first
   unterminated `BEGIN` to the `END` that closes it, with at least one
-  character between them. An intermediate version of this fix (issue
+  character between them, and the finding takes precedence over an
+  overlapping rule match that starts earlier, as it did while it was the
+  first rule in the list. An intermediate version of this fix (issue
   #153, never released) stopped the body at the next `BEGIN` instead,
   which left a key that followed an unterminated header outside the
   finding and sent it unredacted. The timing tests use 128 KB inputs for

@@ -100,8 +100,25 @@ def test_scan_time_is_linear_in_hyphenated_and_keyword_heavy_text(text, size):
 def pem_body(seed: int, size: int = 1190) -> str:
     import random
     import textwrap
-    raw = bytes(random.Random(seed).getrandbits(8) for _ in range(size))
-    return "\n".join(textwrap.wrap(base64.b64encode(raw).decode(), 64))
+    return "\n".join(textwrap.wrap(base64.b64encode(random.Random(seed).randbytes(size)).decode(), 64))
+
+
+def test_pem_body_is_random_bytes():
+    assert shannon_entropy(pem_body(1).replace("\n", "")) > 5.5
+    assert pem_body(1) != pem_body(2)
+
+
+def test_pem_block_wins_over_an_earlier_gitleaks_private_key_match():
+    first, second = pem_body(3), pem_body(4)
+    text = (
+        "-----BEGIN CERTIFICATE----------BEGIN PRIVATE KEY-----\n" + first + "\n"
+        "-----BEGIN PRIVATE KEY-----\n" + second + "\n-----END PRIVATE KEY-----\n"
+    )
+    findings = scan(text, config=ScanConfig(entropy_enabled=False, rules=load_rules()))
+    assert [f.kind for f in findings] == ["pem-private-key"]
+    for line in (first + "\n" + second).split("\n"):
+        at = text.index(line)
+        assert any(f.start <= at and f.end >= at + len(line) for f in findings), line
 
 
 def test_pem_block_starts_at_the_first_unterminated_begin_header():
