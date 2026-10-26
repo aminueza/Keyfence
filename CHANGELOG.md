@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.10.1 (2026-10-26)
 
 - Two detector regexes took quadratic time on text that a coding agent
