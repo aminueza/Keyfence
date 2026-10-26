@@ -798,17 +798,71 @@ def test_scan_directory_text_open_failure(home, tmp_path, capsys, monkeypatch):
     original_open = Path.open
 
     def patched_open(self, mode="r", *args, **kwargs):
-        # the binary pre-check passes; the text open afterwards fails, as a
-        # file that loses its read permission between the two opens would
         if str(self.resolve()) == race_str and mode == "r":
             raise PermissionError(13, "Permission denied", str(self))
         return original_open(self, mode, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", patched_open)
-    assert cli.main(["scan", "-f", str(tmp_path)]) == 0
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 1
     captured = capsys.readouterr()
     assert "skipped:" in captured.err and "race.txt" in captured.err
-    assert "No secrets detected." in captured.out
+    assert captured.out == "No secrets detected (1 path(s) skipped, see stderr).\n"
+
+
+def test_scan_directory_skipped_paths_are_counted_next_to_the_findings(home, tmp_path, capsys, monkeypatch):
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    (tmp_path / "ok.txt").write_text(f"token: {secret}\n")
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    (locked / "hidden.txt").write_text(f"key={secret}\n")
+    (tmp_path / "unreadable.txt").write_text("x\n")
+    unreadable = str((tmp_path / "unreadable.txt").resolve())
+    original_open = Path.open
+    original_scandir = os.scandir
+
+    def patched_open(self, *args, **kwargs):
+        if str(self.resolve()) == unreadable:
+            raise PermissionError(13, "Permission denied", str(self))
+        return original_open(self, *args, **kwargs)
+
+    def patched_scandir(path):
+        if str(Path(path).resolve()) == str(locked.resolve()):
+            raise PermissionError(13, "Permission denied", str(locked))
+        return original_scandir(path)
+
+    monkeypatch.setattr(Path, "open", patched_open)
+    monkeypatch.setattr(os, "scandir", patched_scandir)
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out.startswith("1 secret(s) detected (2 path(s) skipped, see stderr):\n")
+    assert captured.err.count("skipped:") == 2
+    assert "hidden.txt" not in captured.out
+
+
+def test_scan_directory_symlinked_directory_is_skipped_and_counted(home, tmp_path, capsys):
+    if os.name == "nt":
+        pytest.skip("symlinks need privileges on Windows")
+    secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text(f"token: {secret}\n")
+    inside = tmp_path / "inside"
+    inside.mkdir()
+    (inside / "clean.txt").write_text("nothing\n")
+    (inside / "link").symlink_to(outside, target_is_directory=True)
+    (inside / "loop").symlink_to(inside, target_is_directory=True)
+    assert cli.main(["scan", "-f", str(inside)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "No secrets detected (2 path(s) skipped, see stderr).\n"
+    assert f"skipped: {inside / 'link'} (symlinked directory)" in captured.err
+    assert f"skipped: {inside / 'loop'} (symlinked directory)" in captured.err
+    assert "secret.txt" not in captured.out
+
+
+def test_scan_directory_without_skips_prints_no_note(home, tmp_path, capsys):
+    (tmp_path / "a.txt").write_text("hello\n")
+    assert cli.main(["scan", "-f", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == "No secrets detected.\n"
 
 
 def test_scan_directory_unreadable_root_is_an_error(home, tmp_path, capsys, monkeypatch):
@@ -844,8 +898,6 @@ def test_scan_directory_dangling_symlink_skipped(home, tmp_path, capsys):
 def test_scan_directory_binary_check_boundary_at_8k(home, tmp_path, capsys):
     secret = "sk-proj-" + "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv"
     line1 = f"token: {secret}\n"
-    # a NUL at byte 8191 is inside the 8 KiB head (binary, skipped); at
-    # byte 8192 it is past it (scanned as text), pinning the constant
     (tmp_path / "in.bin").write_bytes((line1 + "x" * (8191 - len(line1))).encode() + b"\x00" + b"y" * 10)
     (tmp_path / "out.bin").write_bytes((line1 + "x" * (8192 - len(line1))).encode() + b"\x00" + b"y" * 10)
     assert cli.main(["scan", "-f", str(tmp_path)]) == 2
@@ -920,8 +972,6 @@ def test_scan_directory_non_regular_file_skipped(home, tmp_path, capsys):
     def run():
         result["rc"] = cli.main(["scan", "-f", str(tmp_path)])
 
-    # a regression in the regular-file check blocks in open() forever;
-    # run in a thread so that failure is a failure, not a hung CI job
     t = threading.Thread(target=run, daemon=True)
     t.start()
     t.join(timeout=30)
@@ -945,8 +995,6 @@ def test_scan_directory_sorted_order(home, tmp_path, capsys, monkeypatch):
     real_walk = os.walk
 
     def reversed_walk(top, **kwargs):
-        # hand the walk the opposite of the OS order, so a deleted
-        # dirs.sort()/files.sort() shows up as reversed output
         for root, dirs, files in real_walk(top, **kwargs):
             dirs[:] = sorted(dirs, reverse=True)
             files[:] = sorted(files, reverse=True)

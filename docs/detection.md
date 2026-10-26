@@ -131,8 +131,19 @@ treated as binary and skipped silently. Anything that is not a regular file
 (a FIFO, a socket) is reported on stderr as `skipped: <path> (not a regular
 file)`. Files or subdirectories that cannot be read (permission errors,
 etc.) are reported on stderr as `skipped: <path> (<reason>)` and the walk
-continues. If the directory given itself cannot be read, one `error:` line
-is printed and the exit code is 1.
+continues. A symlinked directory is not followed, which keeps the walk
+inside the tree you named and out of loops, and is reported the same way
+as `skipped: <path> (symlinked directory)`. Every skipped path is counted
+on stdout, next to the result (`No secrets detected (2 path(s) skipped,
+see stderr).`), and a scan that found nothing but skipped something exits
+1 rather than 0, because part of the tree was never read. If the directory
+given itself cannot be read, one `error:` line is printed and the exit
+code is 1.
+
+Throughput is around 2 MiB/s on transcript-shaped text, so a `~/.claude`
+that has seen months of Claude Code (hundreds of MB of transcripts) takes
+minutes, not seconds. Scan one project directory when that is what you
+need.
 
 This is designed for Claude Code transcript directories:
 `~/.claude/projects/<project>/<session>.jsonl`, `~/.claude/history.jsonl`,

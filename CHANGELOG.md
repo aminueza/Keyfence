@@ -64,7 +64,11 @@
   skipped silently. Anything that is not a regular file is reported on
   stderr as `skipped: <path> (not a regular file)`. Unreadable files and
   subdirectories are reported on stderr as `skipped: <path> (<reason>)` and
-  the walk continues. Each finding prints
+  the walk continues; a symlinked directory is not followed and is
+  reported as `skipped: <path> (symlinked directory)`. Skipped paths are
+  counted on stdout next to the result, and a scan that found nothing but
+  skipped something exits 1, so a tree that was not fully read never
+  looks clean (contributed by @felladrin, issue #144). Each finding prints
   `  - <file>:<line>: [kind] masked`, followed by ` in "key"` when the
   value sits under a JSON key; unlike single-file mode, directory mode
   prints no offset. Findings that match a registered secret are labelled

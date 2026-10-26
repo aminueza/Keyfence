@@ -104,48 +104,61 @@ def _scan_text(text: str, vault: Vault, config, ignore) -> tuple[int, int, list[
     return len(report.findings), report.suppressed, [_finding_line(f) for f in report.findings]
 
 
-def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[int, int, list[str]]:
+def _display(path: Path) -> str:
+    return os.fsencode(path).decode("utf-8", "backslashreplace")
+
+
+def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[int, int, int, list[str]]:
     count = 0
     total_suppressed = 0
+    skipped = 0
     lines: list[str] = []
+
+    def skip(target: str, reason: str):
+        nonlocal skipped
+        skipped += 1
+        print(f"skipped: {target} ({reason})", file=sys.stderr)
 
     def walk_error(exc: OSError):
         if os.path.normpath(str(exc.filename)) == os.path.normpath(os.fspath(path)):
-            raise exc  # the root itself is unreadable, so nothing was scanned
-        print(f"skipped: {exc.filename} ({exc})", file=sys.stderr)
+            raise exc
+        skip(str(exc.filename), str(exc))
 
     for root, dirs, files in os.walk(path, onerror=walk_error):
         dirs.sort()
         files.sort()
+        for dname in list(dirs):
+            if (Path(root) / dname).is_symlink():
+                dirs.remove(dname)
+                skip(_display(Path(root) / dname), "symlinked directory")
         for fname in files:
             fpath = Path(root) / fname
-            display = os.fsencode(fpath).decode("utf-8", "backslashreplace")
+            display = _display(fpath)
             try:
                 if not stat.S_ISREG(fpath.stat().st_mode):
-                    print(f"skipped: {display} (not a regular file)", file=sys.stderr)
+                    skip(display, "not a regular file")
                     continue
                 with fpath.open("rb") as bf:
                     head = bf.read(8192)
                     if b"\x00" in head:
                         continue
             except OSError as exc:
-                print(f"skipped: {display} ({exc})", file=sys.stderr)
+                skip(display, str(exc))
                 continue
             try:
                 with fpath.open("r", errors="replace") as tf:
                     for lineno, line in enumerate(tf, 1):
                         report = scan_report(line, vault=vault, config=config, ignore=ignore)
-                        if report.suppressed:
-                            total_suppressed += report.suppressed
+                        total_suppressed += report.suppressed
                         for f in report.findings:
                             kind_suffix = " (registered secret)" if f.kind in ("vault", "canary") else ""
                             where = f" in \"{f.key}\"" if f.key else ""
                             lines.append(f"  - {display}:{lineno}: [{f.kind}] {f.masked}{kind_suffix}{where}")
                             count += 1
             except OSError as exc:
-                print(f"skipped: {display} ({exc})", file=sys.stderr)
+                skip(display, str(exc))
                 continue
-    return count, total_suppressed, lines
+    return count, total_suppressed, skipped, lines
 
 
 def cmd_scan(args) -> int:
@@ -153,6 +166,7 @@ def cmd_scan(args) -> int:
     vault = Vault()
     ignore = cfg.ignore_list(vault)
 
+    skipped = 0
     if args.file:
         path = Path(args.file)
         try:
@@ -163,7 +177,7 @@ def cmd_scan(args) -> int:
             return 1
         if path.is_dir():
             try:
-                count, suppressed, lines = _scan_directory(path, vault, cfg.scan, ignore)
+                count, suppressed, skipped, lines = _scan_directory(path, vault, cfg.scan, ignore)
             except OSError as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1
@@ -180,10 +194,11 @@ def cmd_scan(args) -> int:
 
     if suppressed:
         print(f"{suppressed} finding(s) ignored by the ignore lists in {Config.path()}")
+    note = f" ({skipped} path(s) skipped, see stderr)" if skipped else ""
     if not count:
-        print("No secrets detected.")
-        return 0
-    print(f"{count} secret(s) detected:")
+        print(f"No secrets detected{note}.")
+        return 1 if skipped else 0
+    print(f"{count} secret(s) detected{note}:")
     for line in lines:
         print(line)
     return 2
