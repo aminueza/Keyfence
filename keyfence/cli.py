@@ -6,13 +6,14 @@ import json
 import os
 import re
 import secrets
+import stat
 import sys
 from collections import Counter
 from pathlib import Path
 
 from . import doctor, export, hooks, pi, runner, sources
 from .config import Config
-from .detectors import scan_report
+from .detectors import Finding, scan_report
 from .importer import default_paths, env_values, import_files, looks_secret
 from .vault import DEFAULT_DIR, Vault, VaultError
 
@@ -93,25 +94,113 @@ def cmd_canary(args) -> int:
     return 0
 
 
+def _finding_line(f: Finding) -> str:
+    where = f" in \"{f.key}\"" if f.key else ""
+    return f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})"
+
+
+def _scan_text(text: str, vault: Vault, config, ignore) -> tuple[int, int, list[str]]:
+    report = scan_report(text, vault=vault, config=config, ignore=ignore)
+    return len(report.findings), report.suppressed, [_finding_line(f) for f in report.findings]
+
+
+def _display(path: Path) -> str:
+    return os.fsencode(path).decode("utf-8", "backslashreplace")
+
+
+def _scan_directory(path: Path, vault: Vault, config, ignore) -> tuple[int, int, int, list[str]]:
+    count = 0
+    total_suppressed = 0
+    skipped = 0
+    lines: list[str] = []
+
+    def skip(target: str, reason: str):
+        nonlocal skipped
+        skipped += 1
+        print(f"skipped: {target} ({reason})", file=sys.stderr)
+
+    def walk_error(exc: OSError):
+        if os.path.normpath(str(exc.filename)) == os.path.normpath(os.fspath(path)):
+            raise exc
+        skip(str(exc.filename), str(exc))
+
+    for root, dirs, files in os.walk(path, onerror=walk_error):
+        dirs.sort()
+        files.sort()
+        for dname in list(dirs):
+            if (Path(root) / dname).is_symlink():
+                dirs.remove(dname)
+                skip(_display(Path(root) / dname), "symlinked directory")
+        for fname in files:
+            fpath = Path(root) / fname
+            display = _display(fpath)
+            try:
+                if not stat.S_ISREG(fpath.stat().st_mode):
+                    skip(display, "not a regular file")
+                    continue
+                with fpath.open("rb") as bf:
+                    head = bf.read(8192)
+                    if b"\x00" in head:
+                        continue
+            except OSError as exc:
+                skip(display, str(exc))
+                continue
+            try:
+                with fpath.open("r", errors="replace") as tf:
+                    for lineno, line in enumerate(tf, 1):
+                        report = scan_report(line, vault=vault, config=config, ignore=ignore)
+                        total_suppressed += report.suppressed
+                        for f in report.findings:
+                            kind_suffix = " (registered secret)" if f.kind in ("vault", "canary") else ""
+                            where = f" in \"{f.key}\"" if f.key else ""
+                            lines.append(f"  - {display}:{lineno}: [{f.kind}] {f.masked}{kind_suffix}{where}")
+                            count += 1
+            except OSError as exc:
+                skip(display, str(exc))
+                continue
+    return count, total_suppressed, skipped, lines
+
+
 def cmd_scan(args) -> int:
-    if args.file:
-        text = Path(args.file).read_text(errors="replace")
-    elif args.text:
-        text = args.text
-    else:
-        text = sys.stdin.read()
     cfg = Config.load()
     vault = Vault()
-    report = scan_report(text, vault=vault, config=cfg.scan, ignore=cfg.ignore_list(vault))
-    if report.suppressed:
-        print(f"{report.suppressed} finding(s) ignored by the ignore lists in {Config.path()}")
-    if not report.findings:
-        print("No secrets detected.")
-        return 0
-    print(f"{len(report.findings)} secret(s) detected:")
-    for f in report.findings:
-        where = f" in \"{f.key}\"" if f.key else ""
-        print(f"  - [{f.kind}] {f.masked} (offset {f.start}-{f.end}{where})")
+    ignore = cfg.ignore_list(vault)
+
+    skipped = 0
+    if args.file:
+        path = Path(args.file)
+        try:
+            if not path.exists():
+                raise FileNotFoundError(f"path does not exist: {path}")
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if path.is_dir():
+            try:
+                count, suppressed, skipped, lines = _scan_directory(path, vault, cfg.scan, ignore)
+            except OSError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+        else:
+            try:
+                count, suppressed, lines = _scan_text(path.read_text(errors="replace"), vault, cfg.scan, ignore)
+            except OSError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+    elif args.text:
+        count, suppressed, lines = _scan_text(args.text, vault, cfg.scan, ignore)
+    else:
+        count, suppressed, lines = _scan_text(sys.stdin.read(), vault, cfg.scan, ignore)
+
+    if suppressed:
+        print(f"{suppressed} finding(s) ignored by the ignore lists in {Config.path()}")
+    note = f" ({skipped} path(s) skipped, see stderr)" if skipped else ""
+    if not count:
+        print(f"No secrets detected{note}.")
+        return 1 if skipped else 0
+    print(f"{count} secret(s) detected{note}:")
+    for line in lines:
+        print(line)
     return 2
 
 
@@ -352,9 +441,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_canary.add_argument("file", nargs="?", default=".env", help="file to append to (default: .env)")
     p_canary.add_argument("--name", default="INTERNAL_API_TOKEN", help="variable name to use")
 
-    p_scan = sub.add_parser("scan", help="test detection on text, a file or stdin")
+    p_scan = sub.add_parser("scan", help="test detection on text, a file, a directory or stdin")
     p_scan.add_argument("text", nargs="?", help="text to scan")
-    p_scan.add_argument("-f", "--file", help="file to scan")
+    p_scan.add_argument("-f", "--file", help="file or directory to scan")
 
     p_run = sub.add_parser("run", help="start the proxy")
     p_run.add_argument("-p", "--port", type=int, default=8888,

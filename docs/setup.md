@@ -80,7 +80,7 @@ Linux and Windows: see the
 | `keyfence install-hooks --list` | show the supported agents and whether the hook is installed for each, globally and in this project |
 | `keyfence hook claude-code\|pi` | the hook itself; the agent runs it, you do not |
 | `keyfence export [--since TS] [--otlp URL] [--header K=V] [--all]` | print the audit log as JSONL or send it to a collector |
-| `keyfence scan 'text'`, `keyfence scan -f FILE` | test detection on text, a file or stdin |
+| `keyfence scan 'text'`, `keyfence scan -f FILE\|DIR` | test detection on text, a file, a directory or stdin |
 | `keyfence status` | show config, vault size, rule count and recent detections |
 
 `keyfence import` with no arguments reads `.env*` files in the current

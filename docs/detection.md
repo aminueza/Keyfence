@@ -121,3 +121,52 @@ and never an ignored value either.
 
 `keyfence scan` prints the same information for a text, file or stdin, and
 `keyfence status` shows the last five requests grouped by kind.
+
+## Directory mode
+
+`keyfence scan -f <dir>` walks the directory recursively in sorted order,
+scanning each file line by line; it never loads a whole file. The first
+8 KiB of each file are checked for a NUL byte; files that contain one are
+treated as binary and skipped silently. Anything that is not a regular file
+(a FIFO, a socket) is reported on stderr as `skipped: <path> (not a regular
+file)`. Files or subdirectories that cannot be read (permission errors,
+etc.) are reported on stderr as `skipped: <path> (<reason>)` and the walk
+continues. A symlinked directory is not followed, which keeps the walk
+inside the tree you named and out of loops, and is reported the same way
+as `skipped: <path> (symlinked directory)`. Every skipped path is counted
+on stdout, next to the result (`No secrets detected (2 path(s) skipped,
+see stderr).`), and a scan that found nothing but skipped something exits
+1 rather than 0, because part of the tree was never read. If the directory
+given itself cannot be read, one `error:` line is printed and the exit
+code is 1.
+
+Throughput is around 2 MiB/s on transcript-shaped text, so a `~/.claude`
+that has seen months of Claude Code (hundreds of MB of transcripts) takes
+minutes, not seconds. Scan one project directory when that is what you
+need.
+
+This is designed for Claude Code transcript directories:
+`~/.claude/projects/<project>/<session>.jsonl`, `~/.claude/history.jsonl`,
+and `~/.claude/paste-cache/`. Each `.jsonl` line is one complete message,
+so a secret inside a message sits on that line and is scanned like typed
+text.
+
+Typical workflow:
+1. `keyfence scan -f ~/.claude/projects/my-project` lists every leaked
+   secret with file and line number, and whether it matches a registered
+   secret (labelled `(registered secret)`).
+2. Rotate the real secrets in your providers.
+3. `claude purge` clears the project's transcript files and removes the
+   corresponding lines from `history.jsonl`. `paste-cache/` is not
+   affected by `claude purge`; its entries go away with the age-based
+   cleanup after `cleanupPeriodDays` (30 by default), or you can delete
+   the folder yourself.
+
+Limitation: directory mode scans line by line, so it cannot detect a secret
+that spans multiple lines (e.g., a PEM private key block in a plain text
+file). The raw-text places a multi-line key most likely sits are exactly
+the two this workflow points at: `paste-cache/` and the tool results
+Claude Code spills to `projects/<project>/<session>/tool-results/`.
+`keyfence scan -f <file>` reads the whole file and still catches
+multi-line secrets there. `.jsonl` transcripts are not affected because
+each message is a single line.
