@@ -1,6 +1,7 @@
 import pytest
 
 import base64
+import time
 import json
 
 from keyfence.detectors import (
@@ -77,6 +78,51 @@ def test_url_query_token_detected():
     findings = scan(text, config=NO_ENTROPY)
     assert len(findings) == 1
     assert findings[0].value == "AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+
+
+@pytest.mark.parametrize("text", [
+    "a-" * 8192,
+    "-a" * 8192,
+    "a-b" * 5462,
+    "&" + "atoken" * 2731,
+    "?" + "key." * 4096,
+    "x" + "&a-token" * 2048,
+], ids=["a-", "-a", "a-b", "&atoken", "?key.", "&a-token"])
+def test_scan_time_is_linear_in_hyphenated_and_keyword_heavy_text(text):
+    assert len(text) >= 16384
+    started = time.perf_counter()
+    report = scan_report(text, config=NO_ENTROPY)
+    assert time.perf_counter() - started < 1.0
+    assert report.findings == []
+
+
+@pytest.mark.parametrize("text", [
+    "MY-API-KEY=Zq8xK2mP9vL4nR7tW3yB6cF1dH5j",
+    "x-api-key: Zq8xK2mP9vL4nR7tW3yB6cF1dH5j",
+    'my-secret-token="Zq8xK2mP9vL4nR7tW3yB6cF1dH5j"',
+    "DB-PASS = Zq8xK2mP9vL4nR7tW3yB6cF1dH5j",
+    "export AUTH-TOKEN=Zq8xK2mP9vL4nR7tW3yB6cF1dH5j",
+])
+def test_generic_assignment_with_hyphenated_names(text):
+    findings = scan(text, config=NO_ENTROPY)
+    assert [f.kind for f in findings] == ["generic-assignment"]
+    assert findings[0].value == "Zq8xK2mP9vL4nR7tW3yB6cF1dH5j"
+
+
+@pytest.mark.parametrize("text", [
+    "https://x.com/?x.token.y=Zq8xK2mP9vL4nR7tW3yB6cF1dH5j",
+    "https://x.com/?a=1&keyname=Zq8xK2mP9vL4nR7tW3yB6cF1dH5j#frag",
+    "https://x.com/?my-sig=Zq8xK2mP9vL4nR7tW3yB6cF1dH5j&b=2",
+])
+def test_url_query_keyword_anywhere_in_the_parameter_name(text):
+    findings = scan(text, config=NO_ENTROPY)
+    assert [f.kind for f in findings] == ["url-query-secret"]
+    assert findings[0].value == "Zq8xK2mP9vL4nR7tW3yB6cF1dH5j"
+
+
+def test_url_query_without_a_keyword_or_an_equals_sign_is_not_a_finding():
+    text = "https://x.com/?a.b=Zq8xK2mP9vL4nR7tW3yB6cF1dH5j&token&key.Zq8xK2mP9vL4nR7tW3yB6cF1dH5j"
+    assert scan(text, config=NO_ENTROPY) == []
 
 
 def test_clean_text_has_no_findings():
