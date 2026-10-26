@@ -45,7 +45,7 @@ _PLACEHOLDER_VALUES = (
 BUILTIN_RULES: list[Rule] = [
     _rule("pem-private-key",
           r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----"
-          r"[\s\S]+?"
+          r"(?:(?!-----BEGIN )[\s\S])+?"
           r"-----END (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----"),
     _rule("anthropic-api-key", r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"),
     _rule("openai-api-key", r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}\b"),
