@@ -97,14 +97,38 @@ def test_scan_time_is_linear_in_hyphenated_and_keyword_heavy_text(text, size):
     assert report.findings == []
 
 
-def test_pem_block_starts_at_the_last_begin_header_before_its_end():
+def pem_body(seed: int, size: int = 1190) -> str:
+    import random
+    import textwrap
+    raw = bytes(random.Random(seed).getrandbits(8) for _ in range(size))
+    return "\n".join(textwrap.wrap(base64.b64encode(raw).decode(), 64))
+
+
+def test_pem_block_starts_at_the_first_unterminated_begin_header():
     text = (
-        "-----BEGIN RSA PRIVATE KEY-----\nabandoned\n"
-        "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7fakefakefake\n-----END RSA PRIVATE KEY-----"
+        "-----BEGIN PRIVATE KEY-----\n" + pem_body(1) + "\n"
+        "-----BEGIN PRIVATE KEY-----\nMIIEpAIBAAKCAQEAdecoy\n-----END PRIVATE KEY-----\n"
     )
     findings = scan(text, config=NO_ENTROPY)
-    assert [f.kind for f in findings] == ["pem-private-key"]
-    assert findings[0].value == text[text.rindex("-----BEGIN"):]
+    assert [(f.kind, f.start, f.end) for f in findings] == [("pem-private-key", 0, len(text) - 1)]
+    assert findings[0].value == text[:-1]
+
+
+def test_pem_headers_are_paired_the_way_the_old_pattern_paired_them():
+    begin, end = "-----BEGIN EC PRIVATE KEY-----", "-----END EC PRIVATE KEY-----"
+    assert scan(f"{begin}{end}", config=NO_ENTROPY) == []
+    assert [f.value for f in scan(f"{begin}x{end}", config=NO_ENTROPY)] == [f"{begin}x{end}"]
+    assert scan(f"{end}\nabc\n{begin}", config=NO_ENTROPY) == []
+    two = f"{begin}\nabc\n{end}\n{begin}\ndef\n{end}"
+    assert [f.start for f in scan(two, config=NO_ENTROPY)] == [0, two.rindex(begin)]
+    with_certificate = f"{begin}\n-----END CERTIFICATE-----\nabc\n{end}"
+    assert [f.value for f in scan(with_certificate, config=NO_ENTROPY)] == [with_certificate]
+
+
+def test_pem_scan_with_gitleaks_rules_keeps_the_builtin_kind():
+    cfg = ScanConfig(entropy_enabled=False, rules=load_rules())
+    text = "-----BEGIN RSA PRIVATE KEY-----\n" + pem_body(2) + "\n-----END RSA PRIVATE KEY-----"
+    assert [(f.kind, f.start, f.end) for f in scan(text, config=cfg)] == [("pem-private-key", 0, len(text))]
 
 
 @pytest.mark.parametrize("text", [

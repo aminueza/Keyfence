@@ -43,10 +43,6 @@ _PLACEHOLDER_VALUES = (
 )
 
 BUILTIN_RULES: list[Rule] = [
-    _rule("pem-private-key",
-          r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----"
-          r"(?:(?!-----BEGIN )[\s\S])+?"
-          r"-----END (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----"),
     _rule("anthropic-api-key", r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"),
     _rule("openai-api-key", r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}\b"),
     _rule("aws-access-key-id", r"\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b"),
@@ -333,6 +329,22 @@ def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5,
     return findings
 
 
+_PEM_HEADER = re.compile(r"-----(BEGIN|END) (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----")
+
+
+def _scan_pem(text: str) -> list[Finding]:
+    findings: list[Finding] = []
+    start = body = None
+    for m in _PEM_HEADER.finditer(text):
+        if m.group(1) == "BEGIN":
+            if start is None:
+                start, body = m.start(), m.end()
+        elif start is not None and m.start() > body:
+            findings.append(Finding(kind="pem-private-key", value=text[start:m.end()], start=start, end=m.end()))
+            start = None
+    return findings
+
+
 def _scan_url_query(text: str) -> list[Finding]:
     return [
         Finding(kind="url-query-secret", value=m.group(1), start=m.start(1), end=m.end(1))
@@ -403,6 +415,7 @@ def scan_report(text: str, vault=None, config: ScanConfig | None = None, ignore=
 
     findings.extend(_scan_vault(decoded, vault, json_spans))
     if config.patterns_enabled:
+        findings.extend(_scan_pem(decoded))
         findings.extend(_scan_rules(decoded, BUILTIN_RULES + config.rules))
         findings.extend(_scan_url_query(decoded))
     if config.entropy_enabled:

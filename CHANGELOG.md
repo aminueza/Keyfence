@@ -22,14 +22,19 @@
   (issue #149, found while sweeping the built-in rules for the shape
   above): its body pattern walked to the end of the text for every
   `-----BEGIN` header that had no `-----END` after it, so 256 KB of
-  repeated headers took 6.5 s. The body now stops at the next
-  `-----BEGIN`, so each header is scanned only as far as the one after it:
-  128 KB takes 20 ms. One visible change: two `BEGIN` headers followed by
-  one `END` used to match from the first header and now match from the
-  second, which is the block the `END` closes. The timing tests now use
-  128 KB inputs for the query and PEM cases, the smallest size at which
-  the old patterns break the one second budget with a wide margin for the
-  new ones, so each half of the fix fails its test if reverted.
+  repeated headers took 6.5 s. The rule is no longer a regex: a dedicated
+  scan finds every `BEGIN` and `END` header in one pass and pairs them in
+  Python, so each header is visited once and 128 KB takes under 1 ms.
+  The spans are the ones the 0.10.0 pattern produced, checked against
+  200,000 generated header sequences: a block runs from the first
+  unterminated `BEGIN` to the `END` that closes it, with at least one
+  character between them. An intermediate version of this fix (issue
+  #153, never released) stopped the body at the next `BEGIN` instead,
+  which left a key that followed an unterminated header outside the
+  finding and sent it unredacted. The timing tests use 128 KB inputs for
+  the query and PEM cases, the smallest size at which the old patterns
+  break the one second budget with a wide margin for the new ones, so
+  each part of the fix fails its test if reverted.
 
 - `keyfence install-hooks claude-code` now installs a second Claude Code
   hook, `UserPromptSubmit`, that scans every submitted prompt for secrets
