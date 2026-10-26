@@ -3,19 +3,41 @@ from __future__ import annotations
 import re
 import tomllib
 import warnings
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 BUNDLED_RULES = Path(__file__).parent / "rules" / "gitleaks.toml"
 _INLINE_IGNORECASE = re.compile(r"\(\?i\)")
 _END_OF_STRING = re.compile(r"(?<!\\)\\z")
+_IDENTIFIER_PREFIX = re.compile(r"^(\(\?i\))?\[\\w\.-\]\{0,50\}\?(\(\?i:)?(?:\[\\w\.-\]\{0,50\}\?)?")
+_LINE_ANCHOR = re.compile(r"^\\b(\w+)\\b\(\?:\.\*(\??)\|\.\*\2\(\?:")
+
+
+@dataclass(frozen=True)
+class LineAnchoredPattern:
+    pattern: re.Pattern
+    anchor: re.Pattern
+
+    def finditer(self, text: str) -> Iterator[re.Match]:
+        resume = blocked = 0
+        for hit in self.anchor.finditer(text):
+            start = hit.start()
+            if start < resume or start < blocked:
+                continue
+            match = self.pattern.match(text, start)
+            if match:
+                resume = match.end()
+                yield match
+            else:
+                newline = text.find("\n", start)
+                blocked = len(text) if newline < 0 else newline
 
 
 @dataclass
 class Rule:
     name: str
-    pattern: re.Pattern
+    pattern: re.Pattern | LineAnchoredPattern
     secret_group: int = 0
     min_entropy: float = 0.0
     keywords: tuple[str, ...] = ()
@@ -50,6 +72,13 @@ def compile_regex(regex: str, flags: int = 0) -> re.Pattern:
         return re.compile(regex, flags)
 
 
+def _line_anchored(pattern: re.Pattern) -> re.Pattern | LineAnchoredPattern:
+    found = _LINE_ANCHOR.match(pattern.pattern)
+    if not found:
+        return pattern
+    return LineAnchoredPattern(pattern, re.compile(rf"\b{found[1]}\b", pattern.flags))
+
+
 def _compile_many(regexes: list[str]) -> tuple[re.Pattern, ...]:
     compiled = []
     for regex in regexes:
@@ -73,9 +102,13 @@ def _rule_from_gitleaks(raw: dict) -> Rule | None:
         ignore_regexes.extend(allow.get("regexes", []))
         stopwords.extend(allow.get("stopwords", []))
     secret_group = int(raw.get("secretGroup", 0)) or (1 if pattern.groups == 1 else 0)
+    if secret_group:
+        trimmed = _IDENTIFIER_PREFIX.sub(r"\1\2", raw["regex"], count=1)
+        if trimmed != raw["regex"]:
+            pattern = compile_regex(trimmed)
     return Rule(
         name=raw["id"],
-        pattern=pattern,
+        pattern=_line_anchored(pattern),
         secret_group=secret_group,
         min_entropy=float(raw.get("entropy", 0.0)),
         keywords=tuple(k.lower() for k in raw.get("keywords", [])),
