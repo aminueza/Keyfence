@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.1 (2026-10-26)
 
 - Two detector regexes took quadratic time on text that a coding agent
   sends every day, and the request hook that runs them is synchronous, so
