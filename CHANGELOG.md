@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Two detector regexes took quadratic time on text that a coding agent
+  sends every day, and the request hook that runs them is synchronous, so
+  one such line stalled the proxy on every turn until it left the context
+  (GCVE-110-PYPI-2026-018768, reported by Vulnetix after a review of
+  0.10.0). The generic assignment rule allowed `-` in the identifier it
+  scanned before the keyword, and `-` is a word boundary, so a 16 KB run
+  of `a-a-a-…` gave the engine a fresh start at every character and a
+  scan to the end of the line from each: 5.8 s for 16 KB, 23 s for 32 KB.
+  The identifier now stops at `-`; hyphenated names such as `MY-API-KEY=`
+  and `x-api-key:` still match, because the keyword part of the rule
+  already accepts the hyphen. The URL query rule had the same shape, a
+  character class before a keyword alternation and another after it, and
+  backtracked once per keyword occurrence inside one parameter name; it
+  now finds the keyword in a lookahead and consumes the name with a
+  possessive quantifier, so a name is scanned once. Both scans are linear
+  and the six worst inputs found take under 2 ms each.
+- The `pem-private-key` rule had the same defect by a different route
+  (issue #149, found while sweeping the built-in rules for the shape
+  above): its body pattern walked to the end of the text for every
+  `-----BEGIN` header that had no `-----END` after it, so 256 KB of
+  repeated headers took 6.5 s. The body now stops at the next
+  `-----BEGIN`, so each header is scanned only as far as the one after it:
+  128 KB takes 20 ms. One visible change: two `BEGIN` headers followed by
+  one `END` used to match from the first header and now match from the
+  second, which is the block the `END` closes. The timing tests now use
+  128 KB inputs for the query and PEM cases, the smallest size at which
+  the old patterns break the one second budget with a wide margin for the
+  new ones, so each half of the fix fails its test if reverted.
+
 - `keyfence install-hooks claude-code` now installs a second Claude Code
   hook, `UserPromptSubmit`, that scans every submitted prompt for secrets
   before the prompt reaches the model (issue #145). On a finding it blocks
