@@ -290,6 +290,23 @@ def test_audit_mode_logs_and_changes_nothing(guard, home, caplog):
     assert entry["mode"] == "audit" and entry["findings"][0]["kind"] == "github-token"
 
 
+def test_redact_covers_a_key_that_follows_an_unterminated_pem_header(guard):
+    import base64
+    import random
+    import textwrap
+    lines = textwrap.wrap(base64.b64encode(random.Random(7).randbytes(1190)).decode(), 64)
+    payload = (
+        "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n"
+        "-----BEGIN PRIVATE KEY-----\nMIIEpAIBAAKCAQEAdecoy\n-----END PRIVATE KEY-----\n"
+    )
+    kf = guard("redact", "scan:\n  entropy: false\n")
+    flow = make_flow(body=json.dumps({"content": payload}).encode())
+    kf.request(flow)
+    out = json.loads(flow.request.get_text())["content"]
+    assert out == "[REDACTED:pem-private-key]\n"
+    assert not any(line in out for line in lines)
+
+
 def test_injected_config_and_vault_are_not_reloaded(home, write_config):
     from keyfence.config import Config
     write_config("mode: block\n")
