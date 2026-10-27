@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.2 (2026-10-27)
 
 - Seven bundled gitleaks rules stalled the synchronous request hook on
   keyword-dense text, the same class of defect as
