@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Seven bundled gitleaks rules stalled the synchronous request hook on
+  keyword-dense text, the same class of defect as
+  GCVE-110-PYPI-2026-018768, present in every release so far. The
+  ruleset is generated for Go's RE2, which runs in linear time, and
+  Python's backtracking engine does not. `okta-access-token`,
+  `sumologic-access-id`, `cisco-meraki-api-key`, `cohere-api-token` and
+  `privateai-api-token` open with the identifier class
+  `[\w.-]{0,50}?` twice, so every position tried up to 51 × 51 prefix
+  lengths: 16 KB of a repeated keyword took 2.5 to 5.3 s. The loader now
+  drops that leading lazy prefix from every rule whose secret is a
+  capture group (97 rules); it can match empty, so it only moved where
+  the whole match starts, never the secret. The four rules whose secret
+  is the whole match keep it. `curl-auth-header` and `curl-auth-user`
+  scanned to the end of the line from every `curl` word, quadratic in
+  the line: 3.8 s for 32 KB. They now try the first `curl` of a line and,
+  when it fails, skip the later ones on that line, which cannot match
+  where the first did not. The same 16 KB and 32 KB inputs now take
+  5 to 10 ms. Checked against the previous patterns on 242,500 texts
+  generated from the rules themselves, 200,000 curl command lines and
+  the detection corpus: no finding changed. A new test runs every
+  bundled rule on keyword-dense text with a one second budget, so a
+  ruleset update that brings the shape back fails it.
+
 ## 0.10.1 (2026-10-26)
 
 - Two detector regexes took quadratic time on text that a coding agent
