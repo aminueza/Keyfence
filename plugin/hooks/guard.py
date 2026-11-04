@@ -352,23 +352,22 @@ def install(path: Path, command: str | None = None) -> bool:
     elif _sync_command(prompt, fields):
         changed = True
     previous = _added_rules(path) or []
-    stale = [rule for rule in deny if rule in STALE_DENY_RULES and rule in previous]
-    if stale:
+    stale = set(previous) & set(STALE_DENY_RULES)
+    if any(rule in stale for rule in deny):
         deny[:] = [rule for rule in deny if rule not in stale]
         changed = True
     missing = [rule for rule in DENY_RULES if rule not in deny]
     if missing:
         deny.extend(missing)
         changed = True
-    if missing or stale:
+    if changed:
         path.parent.mkdir(parents=True, exist_ok=True)
-        recorded = (set(previous) - set(stale)) | set(missing)
+        path.write_text(json.dumps(data, indent=2) + "\n")
+    # The record goes second: if the settings write fails, the record still lists the stale rules for the next run.
+    if missing or stale:
+        recorded = (set(previous) - stale) | set(missing)
         added_rules_path(path).write_text(json.dumps(sorted(recorded), indent=2) + "\n")
-    if not changed:
-        return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
-    return True
+    return changed
 
 
 def uninstall(path: Path, force: bool = False) -> Removal:

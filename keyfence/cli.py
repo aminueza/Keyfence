@@ -300,8 +300,8 @@ def _list_hooks() -> int:
 
 
 def _print_deny_rule_versions() -> None:
-    print(f"The deny rules also cover Edit on Claude Code {DENY_RULE_MIN_CLAUDE_CODE['Edit']}+ and Write on "
-          f"{DENY_RULE_MIN_CLAUDE_CODE['Write']}+, so on older versions only the Python hook refuses them.")
+    print(f"The Read deny rules also cover Edit on Claude Code {DENY_RULE_MIN_CLAUDE_CODE['Edit']}+ and Write on "
+          f"{DENY_RULE_MIN_CLAUDE_CODE['Write']}+; on older versions the Python hook still refuses them.")
 
 
 def cmd_install_hooks(args) -> int:

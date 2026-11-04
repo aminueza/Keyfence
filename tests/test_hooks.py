@@ -714,6 +714,29 @@ def test_install_drops_the_stale_notebookedit_rules_it_recorded_and_keeps_a_user
     assert json.loads(path.read_text()) == {"permissions": {"deny": ["Bash(rm -rf *)"]}}
 
 
+def test_install_drops_recorded_stale_rules_when_every_current_rule_is_already_there(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    reads = [rule for rule in hooks.DENY_RULES if rule.startswith("Read(")]
+    edits = [rule for rule in hooks.DENY_RULES if rule.startswith("Edit(")]
+    stale = list(hooks.STALE_DENY_RULES)
+    path.write_text(json.dumps({"permissions": {"deny": [*reads, *stale, *edits]}}))
+    record.write_text(json.dumps(reads + stale))
+    assert hooks.install(path)
+    assert json.loads(path.read_text())["permissions"]["deny"] == reads + edits
+    assert json.loads(record.read_text()) == sorted(reads)
+
+
+def test_install_forgets_recorded_stale_rules_the_user_already_took_out(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    path.write_text(json.dumps({"permissions": {"deny": list(hooks.DENY_RULES)}}))
+    record.write_text(json.dumps(list(hooks.STALE_DENY_RULES)))
+    hooks.install(path)
+    assert json.loads(path.read_text())["permissions"]["deny"] == list(hooks.DENY_RULES)
+    assert json.loads(record.read_text()) == []
+
+
 def test_install_creates_file_and_uninstall_cleans_empty_sections(tmp_path):
     path = tmp_path / "settings.json"
     assert hooks.install(path)

@@ -298,12 +298,11 @@ keyfence's.
 
 Note: the `Read` deny rules also cover `Edit` on Claude Code 2.1.208+
 and `Write` on 2.1.228+. On older versions those tools are not blocked by
-the `Read` rules; the Python hook still refuses them. Claude Code checks
-a file path against `Read` and `Edit` rules only, and an `Edit` rule
-covers every tool that edits a file, `Write`, `MultiEdit` and
-`NotebookEdit` included. A `NotebookEdit(path)` or
-`Write(path)` rule never matches, and Claude Code warns about each one at
-startup. keyfence 0.9.0 to 0.10.2 installed `NotebookEdit` rules;
+the `Read` rules; the Python hook still refuses them. Claude Code 2.1.311
+checks a file path against `Read` and `Edit` rules only, and an `Edit`
+rule covers every tool that edits a file, `Write`, `MultiEdit` and
+`NotebookEdit` included. A `NotebookEdit(path)` or `Write(path)` rule
+never matches there, and Claude Code warns about each one at startup. keyfence 0.9.0 to 0.10.2 installed `NotebookEdit` rules;
 running `keyfence install-hooks claude-code` again removes the ones its
 record lists and adds the `Edit` rules.
 
