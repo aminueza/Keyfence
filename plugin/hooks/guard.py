@@ -66,9 +66,14 @@ _DENY_BASE = (
     "~/.aws/credentials", "~/.ssh/**", "~/.netrc", "~/.npmrc",
     "~/.pypirc", "~/.git-credentials", "~/.docker/config.json", "~/.kube/config",
 )
-DENY_RULES = tuple(f"Read({p})" for p in _DENY_BASE) + tuple(f"NotebookEdit({p})" for p in _DENY_BASE) + tuple(
+DENY_RULES = tuple(f"Read({p})" for p in _DENY_BASE) + tuple(f"Edit({p})" for p in _DENY_BASE) + tuple(
     f"Read(!{name})" for name in SAFE_ENV_NAMES
-) + tuple(f"NotebookEdit(!{name})" for name in SAFE_ENV_NAMES)
+) + tuple(f"Edit(!{name})" for name in SAFE_ENV_NAMES)
+# 0.9.0 to 0.10.2 installed these. Claude Code checks file paths against Read and Edit rules
+# only, so a NotebookEdit path rule never matches and it warns about each one at startup.
+STALE_DENY_RULES = tuple(f"NotebookEdit({p})" for p in _DENY_BASE) + tuple(
+    f"NotebookEdit(!{name})" for name in SAFE_ENV_NAMES
+)
 
 
 def keyfence_path() -> str:
@@ -346,13 +351,19 @@ def install(path: Path, command: str | None = None) -> bool:
         changed = True
     elif _sync_command(prompt, fields):
         changed = True
+    previous = _added_rules(path) or []
+    stale = [rule for rule in deny if rule in STALE_DENY_RULES and rule in previous]
+    if stale:
+        deny[:] = [rule for rule in deny if rule not in stale]
+        changed = True
     missing = [rule for rule in DENY_RULES if rule not in deny]
     if missing:
         deny.extend(missing)
         changed = True
+    if missing or stale:
         path.parent.mkdir(parents=True, exist_ok=True)
-        previous = _added_rules(path) or []
-        added_rules_path(path).write_text(json.dumps(sorted(set(previous) | set(missing)), indent=2) + "\n")
+        recorded = (set(previous) - set(stale)) | set(missing)
+        added_rules_path(path).write_text(json.dumps(sorted(recorded), indent=2) + "\n")
     if not changed:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -373,9 +384,9 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     ours = set(recorded or ())
     unrecorded = []
     if force:
-        ours |= set(DENY_RULES)
+        ours |= set(DENY_RULES + STALE_DENY_RULES)
     elif recorded is None:
-        unrecorded = [rule for rule in deny if rule in DENY_RULES]
+        unrecorded = [rule for rule in deny if rule in DENY_RULES + STALE_DENY_RULES]
     kept_deny = [rule for rule in deny if rule not in ours]
     if force or recorded is not None:
         added_rules_path(path).unlink(missing_ok=True)

@@ -693,6 +693,27 @@ def test_install_merges_new_rules_into_an_existing_record(tmp_path):
     assert json.loads(path.read_text()) == {}
 
 
+def test_every_deny_rule_names_a_tool_claude_code_checks_paths_against():
+    assert all(rule.startswith(("Read(", "Edit(")) for rule in hooks.DENY_RULES)
+    assert {f"Edit(!{name})" for name in hooks.SAFE_ENV_NAMES} <= set(hooks.DENY_RULES)
+
+
+def test_install_drops_the_stale_notebookedit_rules_it_recorded_and_keeps_a_user_written_one(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    stale = list(hooks.STALE_DENY_RULES)
+    path.write_text(json.dumps({"permissions": {"deny": ["Bash(rm -rf *)", *stale]}}))
+    record.write_text(json.dumps(stale[1:]))
+    assert hooks.install(path)
+    deny = json.loads(path.read_text())["permissions"]["deny"]
+    assert deny[:2] == ["Bash(rm -rf *)", stale[0]] and set(hooks.DENY_RULES) <= set(deny)
+    assert not set(stale[1:]) & set(deny)
+    assert json.loads(record.read_text()) == sorted(hooks.DENY_RULES)
+    assert not hooks.install(path)
+    assert hooks.uninstall(path, force=True).rules == len(hooks.DENY_RULES) + 1
+    assert json.loads(path.read_text()) == {"permissions": {"deny": ["Bash(rm -rf *)"]}}
+
+
 def test_install_creates_file_and_uninstall_cleans_empty_sections(tmp_path):
     path = tmp_path / "settings.json"
     assert hooks.install(path)

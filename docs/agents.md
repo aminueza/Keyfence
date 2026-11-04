@@ -137,7 +137,7 @@ Claude Code has declarative hooks and permissions, so
   `["hook", "claude-code"]`, so Claude Code spawns it directly with no
   shell on any platform — paths with spaces or Windows backslashes need
   no quoting and work under Git Bash and PowerShell alike.
-- `permissions.deny` rules for `Read` on `.env` files, `*.pem`, `*.key`,
+- `permissions.deny` rules for `Read` and `Edit` on `.env` files, `*.pem`, `*.key`,
   `credentials*`, `secrets.*`, `*.tfvars` and the home-directory
   credential stores (`DENY_RULES` in `hooks.py`). These need no Python on
   the path and are what managed settings can enforce; the rules keyfence

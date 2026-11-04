@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code` installed `NotebookEdit` deny
+  rules since 0.9.0, and Claude Code never matches them: it checks a file
+  path against `Read` and `Edit` rules only, and an `Edit` rule covers
+  every tool that edits a file. Claude Code 2.1.311 printed one "never
+  matches · use Edit(...)" warning per rule at startup, 21 in all. The
+  installer now adds `Edit` rules for the same patterns, carve-outs
+  included, and removes the `NotebookEdit` rules that
+  `keyfence-deny-rules.json` lists as its own, so running it again cleans
+  up an existing install. A `NotebookEdit` rule the user wrote stays.
+  `--remove --force` also takes out the old rules.
+
 ## 0.10.2 (2026-10-27)
 
 - Seven bundled gitleaks rules stalled the synchronous request hook on
