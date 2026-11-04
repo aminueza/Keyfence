@@ -69,8 +69,6 @@ _DENY_BASE = (
 DENY_RULES = tuple(f"Read({p})" for p in _DENY_BASE) + tuple(f"Edit({p})" for p in _DENY_BASE) + tuple(
     f"Read(!{name})" for name in SAFE_ENV_NAMES
 ) + tuple(f"Edit(!{name})" for name in SAFE_ENV_NAMES)
-# 0.9.0 to 0.10.2 installed these. Claude Code checks file paths against Read and Edit rules
-# only, so a NotebookEdit path rule never matches and it warns about each one at startup.
 STALE_DENY_RULES = tuple(f"NotebookEdit({p})" for p in _DENY_BASE) + tuple(
     f"NotebookEdit(!{name})" for name in SAFE_ENV_NAMES
 )
@@ -363,7 +361,6 @@ def install(path: Path, command: str | None = None) -> bool:
     if changed:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2) + "\n")
-    # The record goes second: if the settings write fails, the record still lists the stale rules for the next run.
     if missing or stale:
         recorded = (set(previous) - stale) | set(missing)
         added_rules_path(path).write_text(json.dumps(sorted(recorded), indent=2) + "\n")

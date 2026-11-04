@@ -302,9 +302,10 @@ the `Read` rules; the Python hook still refuses them. Claude Code 2.1.311
 checks a file path against `Read` and `Edit` rules only, and an `Edit`
 rule covers every tool that edits a file, `Write`, `MultiEdit` and
 `NotebookEdit` included. A `NotebookEdit(path)` or `Write(path)` rule
-never matches there, and Claude Code warns about each one at startup. keyfence 0.9.0 to 0.10.2 installed `NotebookEdit` rules;
-running `keyfence install-hooks claude-code` again removes the ones its
-record lists and adds the `Edit` rules.
+never matches there, and Claude Code warns about each one at startup.
+keyfence 0.9.0 to 0.10.2 installed `NotebookEdit` rules; running
+`keyfence install-hooks claude-code` again removes the ones its record
+lists and adds the `Edit` rules.
 
 `keyfence install-hooks claude-code` also adds a `UserPromptSubmit` hook.
 This hook scans every prompt the user submits before it reaches the model.

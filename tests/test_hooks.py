@@ -720,7 +720,10 @@ def test_install_drops_recorded_stale_rules_when_every_current_rule_is_already_t
     reads = [rule for rule in hooks.DENY_RULES if rule.startswith("Read(")]
     edits = [rule for rule in hooks.DENY_RULES if rule.startswith("Edit(")]
     stale = list(hooks.STALE_DENY_RULES)
-    path.write_text(json.dumps({"permissions": {"deny": [*reads, *stale, *edits]}}))
+    assert hooks.install(path)
+    data = json.loads(path.read_text())
+    data["permissions"]["deny"] = [*reads, *stale, *edits]
+    path.write_text(json.dumps(data))
     record.write_text(json.dumps(reads + stale))
     assert hooks.install(path)
     assert json.loads(path.read_text())["permissions"]["deny"] == reads + edits
