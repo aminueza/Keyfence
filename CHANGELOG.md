@@ -17,7 +17,10 @@
 - `keyfence doctor` and `keyfence install-hooks --list` crashed with an
   `AttributeError` on the same files. They now read such a file the way
   they read one that is not valid JSON: the hook shows as not installed,
-  and `keyfence install-hooks claude-code` names the key to fix.
+  and `keyfence install-hooks claude-code` names the key to fix. A
+  `PreToolUse` entry that Claude Code cannot load counts the same way,
+  so a file keyfence installed into earlier no longer shows the hook as
+  installed while Claude Code applies none of it.
 - `keyfence install-hooks claude-code` installed `NotebookEdit` deny
   rules since 0.9.0, and Claude Code 2.1.311 never matches them: it
   checks a file path against `Read` and `Edit` rules only, and an `Edit`
