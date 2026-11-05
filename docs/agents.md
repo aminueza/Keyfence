@@ -137,14 +137,15 @@ Claude Code has declarative hooks and permissions, so
   `["hook", "claude-code"]`, so Claude Code spawns it directly with no
   shell on any platform — paths with spaces or Windows backslashes need
   no quoting and work under Git Bash and PowerShell alike.
-- `permissions.deny` rules for `Read` on `.env` files, `*.pem`, `*.key`,
-  `credentials*`, `secrets.*`, `*.tfvars` and the home-directory
-  credential stores (`DENY_RULES` in `hooks.py`). These need no Python on
-  the path and are what managed settings can enforce; the rules keyfence
-  added are recorded in `keyfence-deny-rules.json` next to the settings
-  file so `--remove` takes out only those. The block ends in one
-  `Read(!.env.example)`-style carve-out per safe env name, so the two
-  layers agree that an example env file is not a secret. A carve-out
+- `permissions.deny` rules for `Read` and `Edit` on `.env` files,
+  `*.pem`, `*.key`, `credentials*`, `secrets.*`, `*.tfvars` and the
+  home-directory credential stores (`DENY_RULES` in `hooks.py`). These
+  need no Python on the path and are what managed settings can enforce;
+  the rules keyfence added are recorded in `keyfence-deny-rules.json` next
+  to the settings file so `--remove` takes out only those. The block ends
+  in a `Read(!.env.example)`-style and an `Edit(!.env.example)`-style
+  carve-out per safe env name, so the two layers agree that an example
+  env file is not a secret. A carve-out
   cancels only the rules listed before it, which is why they come last.
 
 The Claude Code plugin in `plugin/` attaches the same rules through

@@ -282,12 +282,12 @@ tells the model to ask you instead or to use `keyfence import`.
 
 `keyfence install-hooks claude-code` also adds `permissions.deny` rules
 for `Read` on `.env` files, `*.pem`, `*.key`, `credentials*`, `secrets.*`,
-`*.tfvars` and the home-directory credential stores, and `NotebookEdit`
-rules for the same patterns. These are Claude Code's own declarative rules:
-they need no Python on the path, and they are what managed settings can
+`*.tfvars` and the home-directory credential stores, and `Edit` rules for
+the same patterns. These are Claude Code's own declarative rules: they
+need no Python on the path, and they are what managed settings can
 enforce for a whole organisation. An example env file holds no values, so
 each of the safe `.env` names gets a `Read(!.env.example)`-style and
-`NotebookEdit(!.env.example)`-style carve-out at the end of the block,
+`Edit(!.env.example)`-style carve-out at the end of the block,
 which takes it out of the `.env.*` rules listed before it: `.env`,
 `.env.local` and `.env.production` are still refused, at the project root
 and in a subdirectory. Existing hooks and rules in the settings file are
@@ -298,8 +298,14 @@ keyfence's.
 
 Note: the `Read` deny rules also cover `Edit` on Claude Code 2.1.208+
 and `Write` on 2.1.228+. On older versions those tools are not blocked by
-the declarative rules; the Python hook still refuses them. The
-`NotebookEdit` deny rules work on all versions that support the tool.
+the `Read` rules; the Python hook still refuses them. Claude Code 2.1.311
+checks a file path against `Read` and `Edit` rules only, and an `Edit`
+rule covers every tool that edits a file, `Write`, `MultiEdit` and
+`NotebookEdit` included. A `NotebookEdit(path)` or `Write(path)` rule
+never matches there, and Claude Code warns about each one at startup.
+keyfence 0.9.0 to 0.10.2 installed `NotebookEdit` rules; running
+`keyfence install-hooks claude-code` again removes the ones its record
+lists and adds the `Edit` rules.
 
 `keyfence install-hooks claude-code` also adds a `UserPromptSubmit` hook.
 This hook scans every prompt the user submits before it reaches the model.
@@ -331,9 +337,11 @@ that path would be blocked.
 
 Installations made with 0.4.0 have no such list. There `--remove` takes
 out the hook, leaves every deny rule in place, prints the ones that match
-keyfence's and says that there is no way to tell who added them.
-`--remove --force` removes all of those, yours included, so read the list
-first. `--force` without `--remove` is an error.
+keyfence's and says that there is no way to tell who added them. It
+prints the same for any rule of keyfence's shape the list leaves out,
+such as a `NotebookEdit` rule left from 0.9.0 to 0.10.2 when the list was
+lost. `--remove --force` removes all of those, yours included, so read
+the list first. `--force` without `--remove` is an error.
 
 ### pi
 

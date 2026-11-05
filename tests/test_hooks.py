@@ -449,12 +449,12 @@ def _a_gitignore_pattern_matches(pattern, path):
     return re.fullmatch(regex, path) is not None
 
 
-def _the_deny_block_refuses_a_path(deny, path):
+def _the_deny_block_refuses_a_path(deny, path, tool="Read"):
     matched = []
     for rule in deny:
-        if not rule.startswith("Read(") or rule.startswith("Read(~/"):
+        if not rule.startswith(f"{tool}(") or rule.startswith(f"{tool}(~/"):
             continue
-        pattern = rule[len("Read("):-1]
+        pattern = rule[len(tool) + 1:-1]
         if pattern.startswith("!"):
             matched = [m for m in matched if not _a_gitignore_pattern_matches(pattern[1:], path)]
         elif _a_gitignore_pattern_matches(pattern, path):
@@ -497,12 +497,13 @@ def test_the_carve_outs_are_the_env_names_from_the_safe_list_and_not_the_whole_o
     assert "Read(!*.pub)" not in hooks.DENY_RULES
 
 
-def test_a_carve_out_written_before_the_env_rules_it_cancels_leaves_them_in_force(tmp_path):
+@pytest.mark.parametrize("tool", ["Read", "Edit"])
+def test_a_carve_out_written_before_the_env_rules_it_cancels_leaves_them_in_force(tmp_path, tool):
     deny = _the_deny_block_install(tmp_path)
-    reordered = sorted(deny, key=lambda rule: not rule.startswith("Read(!"))
-    assert reordered[0].startswith("Read(!") and deny.index(reordered[0]) > deny.index("Read(./.env.*)")
-    assert _the_deny_block_refuses_a_path(reordered, ".env.example")
-    assert not _the_deny_block_refuses_a_path(deny, ".env.example")
+    reordered = sorted(deny, key=lambda rule: not rule.startswith(f"{tool}(!"))
+    assert reordered[0].startswith(f"{tool}(!") and deny.index(reordered[0]) > deny.index(f"{tool}(./.env.*)")
+    assert _the_deny_block_refuses_a_path(reordered, ".env.example", tool)
+    assert not _the_deny_block_refuses_a_path(deny, ".env.example", tool)
 
 
 def test_install_uses_exec_form_for_executable_paths(tmp_path):
@@ -691,6 +692,86 @@ def test_install_merges_new_rules_into_an_existing_record(tmp_path):
     assert json.loads(record.read_text()) == sorted(hooks.DENY_RULES)
     assert hooks.uninstall(path).rules == len(hooks.DENY_RULES)
     assert json.loads(path.read_text()) == {}
+
+
+def test_every_deny_rule_names_a_tool_claude_code_checks_paths_against():
+    assert all(rule.startswith(("Read(", "Edit(")) for rule in hooks.DENY_RULES)
+    assert {f"Edit(!{name})" for name in hooks.SAFE_ENV_NAMES} <= set(hooks.DENY_RULES)
+
+
+def test_install_drops_the_stale_notebookedit_rules_it_recorded_and_keeps_a_user_written_one(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    stale = list(hooks.STALE_DENY_RULES)
+    path.write_text(json.dumps({"permissions": {"deny": ["Bash(rm -rf *)", *stale]}}))
+    record.write_text(json.dumps(stale[1:]))
+    assert hooks.install(path)
+    deny = json.loads(path.read_text())["permissions"]["deny"]
+    assert deny[:2] == ["Bash(rm -rf *)", stale[0]] and set(hooks.DENY_RULES) <= set(deny)
+    assert not set(stale[1:]) & set(deny)
+    assert json.loads(record.read_text()) == sorted(hooks.DENY_RULES)
+    assert not hooks.install(path)
+    assert hooks.uninstall(path, force=True).rules == len(hooks.DENY_RULES) + 1
+    assert json.loads(path.read_text()) == {"permissions": {"deny": ["Bash(rm -rf *)"]}}
+
+
+def test_install_drops_recorded_stale_rules_when_every_current_rule_is_already_there(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    reads = [rule for rule in hooks.DENY_RULES if rule.startswith("Read(")]
+    edits = [rule for rule in hooks.DENY_RULES if rule.startswith("Edit(")]
+    stale = list(hooks.STALE_DENY_RULES)
+    assert hooks.install(path)
+    data = json.loads(path.read_text())
+    data["permissions"]["deny"] = [*reads, *stale, *edits]
+    path.write_text(json.dumps(data))
+    record.write_text(json.dumps(reads + stale))
+    assert hooks.install(path)
+    assert json.loads(path.read_text())["permissions"]["deny"] == reads + edits
+    assert json.loads(record.read_text()) == sorted(reads)
+
+
+def test_install_forgets_recorded_stale_rules_the_user_already_took_out(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    path.write_text(json.dumps({"permissions": {"deny": list(hooks.DENY_RULES)}}))
+    record.write_text(json.dumps(list(hooks.STALE_DENY_RULES)))
+    hooks.install(path)
+    assert json.loads(path.read_text())["permissions"]["deny"] == list(hooks.DENY_RULES)
+    assert json.loads(record.read_text()) == []
+
+
+def test_a_migrated_deny_block_keeps_each_edit_carve_out_after_the_rule_it_cancels(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    stale = list(hooks.STALE_DENY_RULES)
+    path.write_text(json.dumps({"permissions": {"deny": stale}}))
+    record.write_text(json.dumps(stale))
+    assert hooks.install(path)
+    deny = json.loads(path.read_text())["permissions"]["deny"]
+    assert not _the_deny_block_refuses_a_path(deny, ".env.example", "Edit")
+    assert _the_deny_block_refuses_a_path(deny, ".env.production", "Edit")
+
+
+def test_install_without_a_record_leaves_stale_rules_that_remove_still_reports(tmp_path):
+    path = tmp_path / "settings.json"
+    reads = [rule for rule in hooks.DENY_RULES if rule.startswith("Read(")]
+    stale = list(hooks.STALE_DENY_RULES)
+    path.write_text(json.dumps({"permissions": {"deny": reads + stale}}))
+    assert hooks.install(path)
+    result = hooks.uninstall(path)
+    assert result.rules == len(hooks.DENY_RULES) - len(reads)
+    assert result.unrecorded == reads + stale
+
+
+def test_install_keeps_a_deny_entry_that_is_not_a_string_and_still_drops_stale_rules(tmp_path):
+    path = tmp_path / "settings.json"
+    record = tmp_path / "keyfence-deny-rules.json"
+    stale = list(hooks.STALE_DENY_RULES)
+    path.write_text(json.dumps({"permissions": {"deny": [{"a": 1}, *stale]}}))
+    record.write_text(json.dumps(stale))
+    assert hooks.install(path)
+    assert json.loads(path.read_text())["permissions"]["deny"] == [{"a": 1}, *hooks.DENY_RULES]
 
 
 def test_install_creates_file_and_uninstall_cleans_empty_sections(tmp_path):
