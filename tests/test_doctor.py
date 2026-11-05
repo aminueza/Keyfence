@@ -330,7 +330,7 @@ def test_hook_check(home, tmp_path, monkeypatch):
     check = doctor.check_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
     (project / "settings.json").write_text("not json")
-    assert doctor.check_hook(tmp_path / "proj").status == doctor.INFO
+    assert doctor.check_hook(tmp_path / "proj").status == doctor.WARN
 
 
 def test_prompt_hook_check(home, tmp_path, monkeypatch):
@@ -348,7 +348,7 @@ def test_prompt_hook_check(home, tmp_path, monkeypatch):
     check = doctor.check_prompt_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
     (project / "settings.json").write_text("not json")
-    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.INFO
+    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.WARN
     (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
         {"hooks": [{"type": "command", "command": "/nonexistent keyfence hook claude-code"}]}]}}))
     assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.FAIL
@@ -362,8 +362,8 @@ def test_a_settings_section_of_the_wrong_type_reads_like_a_file_that_is_not_json
     path.write_text(json.dumps(settings))
     assert not doctor.hook_installed(path) and not doctor.prompt_hook_installed(path)
     assert doctor.keyfence_hook(path, "PreToolUse") is None
-    assert doctor.check_hook(tmp_path / "proj").status == doctor.INFO
-    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.INFO
+    assert doctor.check_hook(tmp_path / "proj").status == doctor.WARN
+    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.WARN
 
 
 @pytest.mark.parametrize("break_pre", [
@@ -384,8 +384,9 @@ def test_a_pre_tool_use_entry_claude_code_cannot_load_shows_an_installed_file_as
     path.write_text(json.dumps(data))
     assert not doctor.hook_installed(path) and not doctor.prompt_hook_installed(path)
     assert doctor.keyfence_hook(path, "PreToolUse") is None
-    assert doctor.check_hook(project).status == doctor.INFO
-    assert doctor.check_prompt_hook(project).status == doctor.INFO
+    for check in (doctor.check_hook(project), doctor.check_prompt_hook(project)):
+        assert check.status == doctor.WARN
+        assert check.detail.startswith("hooks.PreToolUse[0]") and f" in {path} " in check.detail
     assert not any(installed for _, _, installed in doctor.installed_scopes("claude-code", project))
     assert not any(installed for _, _, installed in doctor.prompt_hook_scopes("claude-code", project))
 
@@ -532,7 +533,7 @@ def test_installed_scopes_names_both_locations_for_each_agent(home, tmp_path, mo
     assert [installed for _, _, installed in doctor.installed_scopes("pi", project)] == [False, True]
     (tmp_path / ".claude" / "settings.json").write_text("not json")
     assert not doctor.hook_installed(tmp_path / ".claude" / "settings.json")
-    assert doctor.check_hook(project).status == doctor.INFO
+    assert doctor.check_hook(project).status == doctor.WARN
 
 
 REJECTS = (" — a PreToolUse/PermissionRequest hook that cannot be loaded may be what guards the permissions declared "
