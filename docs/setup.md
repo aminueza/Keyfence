@@ -238,6 +238,18 @@ keyfence install-hooks claude-code --remove           # takes out only what keyf
 keyfence install-hooks claude-code --remove --force   # also deny rules an install before 0.5.0 left unrecorded
 ```
 
+Claude Code applies nothing in a `settings.json` that holds a `PreToolUse`
+entry it cannot load, so the hook and the deny rules in that file are off.
+keyfence cannot follow Claude Code's schema from release to release, so it
+asks Claude Code: before it writes, `install-hooks claude-code` runs
+`claude doctor` and stops when it reports that file, and `keyfence doctor`
+does the same for each scope that holds the hook and fails the check. When
+`claude` is not on `PATH`, does not answer within 10 seconds, or prints
+something keyfence does not recognise, both say the file is not confirmed
+and point at `claude doctor`. `claude doctor` writes `~/.claude.json`, a
+backup of it under `~/.claude/backups` and telemetry files under
+`~/.claude/telemetry`, so running either keyfence command touches those.
+
 The same hook ships as a Claude Code plugin, together with `/keyfence:status`
 and `/keyfence:setup`. In the plugin the hook is a self-contained Python 3
 file, so it protects you even before keyfence itself is installed. Inside

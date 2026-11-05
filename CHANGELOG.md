@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code` and `keyfence doctor` reported
+  the hook as installed in a `settings.json` that Claude Code does not
+  apply. Claude Code ignores the whole file when one `PreToolUse` entry
+  in it cannot be loaded, such as one whose `matcher` is not a string or
+  whose command hook has no `command`. Both now run `claude doctor`:
+  `install-hooks` stops before it writes when Claude Code reports the
+  file, and `doctor` fails both Claude Code hook checks for it with the
+  reason Claude Code gives. A malformed `UserPromptSubmit` entry or deny
+  value does not count, because Claude Code drops only that entry. When
+  `claude` is not on `PATH`, times out or prints something keyfence does
+  not recognise, `doctor` warns that the hook is not confirmed and
+  `install-hooks` says how to check, instead of printing `ok`. Running
+  `claude doctor` writes `~/.claude.json` and files under `~/.claude`.
+- `keyfence doctor` showed the hook as not installed for a settings file
+  it could not read, without saying why, and crashed with a
+  `PermissionError` on one it had no permission to read. It now warns
+  with the file and the reason.
 - `keyfence install-hooks claude-code`, with or without `--remove`,
   crashed with an `AttributeError` on a `settings.json` whose `hooks` or
   `permissions` was not an object, or whose `PreToolUse`,
