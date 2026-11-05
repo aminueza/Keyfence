@@ -681,17 +681,36 @@ def test_a_settings_section_of_the_wrong_type_stops_install_and_remove_before_an
     assert not (tmp_path / "keyfence-deny-rules.json").exists()
 
 
-def test_a_hook_entry_of_the_wrong_type_is_left_in_place_by_install_and_remove(tmp_path):
+def test_a_user_prompt_submit_entry_of_the_wrong_type_is_left_in_place_by_install_and_remove(tmp_path):
     path = tmp_path / "settings.json"
     foreign = ["x", {"hooks": "y"}, {"hooks": ["z"]}]
-    path.write_text(json.dumps({"hooks": {"PreToolUse": foreign, "UserPromptSubmit": foreign}}))
+    path.write_text(json.dumps({"hooks": {"UserPromptSubmit": foreign}}))
     assert hooks.install(path)
     assert not hooks.install(path)
     data = json.loads(path.read_text())
-    for event in ("PreToolUse", "UserPromptSubmit"):
-        assert data["hooks"][event][:3] == foreign and hooks._is_ours(data["hooks"][event][3])
+    assert data["hooks"]["UserPromptSubmit"][:3] == foreign
+    assert hooks._is_ours(data["hooks"]["UserPromptSubmit"][3])
     assert hooks.uninstall(path).hook
-    assert json.loads(path.read_text())["hooks"] == {"PreToolUse": foreign, "UserPromptSubmit": foreign}
+    assert json.loads(path.read_text())["hooks"] == {"UserPromptSubmit": foreign}
+
+
+@pytest.mark.parametrize("entry, key", [
+    ("x", "hooks.PreToolUse[1] in"),
+    ({"hooks": "y"}, "hooks.PreToolUse[1].hooks in"),
+    ({"matcher": "Read"}, "hooks.PreToolUse[1].hooks in"),
+    ({"matcher": "Read", "hooks": [None, "z"]}, "hooks.PreToolUse[1].hooks[0] in"),
+])
+@pytest.mark.parametrize("action", [hooks.install, hooks.uninstall])
+def test_a_pre_tool_use_entry_claude_code_cannot_load_stops_install_and_remove_before_any_write(tmp_path, action,
+                                                                                                entry, key):
+    path = tmp_path / "settings.json"
+    ours = {"matcher": hooks.HOOK_MATCHER, "hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}]}
+    path.write_text(json.dumps({"hooks": {"PreToolUse": [ours, entry]}}))
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match=re.escape(key)):
+        action(path)
+    assert path.read_bytes() == before
+    assert not (tmp_path / "keyfence-deny-rules.json").exists()
 
 
 def test_added_rules_record_is_none_when_missing_or_unreadable(tmp_path):
