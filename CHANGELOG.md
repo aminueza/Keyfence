@@ -14,7 +14,8 @@
   `claude` is not on `PATH`, times out or prints something keyfence does
   not recognise, `doctor` warns that the hook is not confirmed and
   `install-hooks` says how to check, instead of printing `ok`. Running
-  `claude doctor` writes `~/.claude.json` and files under `~/.claude`.
+  `claude doctor` writes `~/.claude.json`, files under `~/.claude` and a
+  debug log under `~/.npm/_logs`.
 - `keyfence doctor` showed the hook as not installed for a settings file
   it could not read, without saying why, and crashed with a
   `PermissionError` on one it had no permission to read. It now warns

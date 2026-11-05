@@ -247,8 +247,9 @@ does the same for each scope that holds the hook and fails the check. When
 `claude` is not on `PATH`, does not answer within 10 seconds, or prints
 something keyfence does not recognise, both say the file is not confirmed
 and point at `claude doctor`. `claude doctor` writes `~/.claude.json`, a
-backup of it under `~/.claude/backups` and telemetry files under
-`~/.claude/telemetry`, so running either keyfence command touches those.
+backup of it under `~/.claude/backups`, telemetry files under
+`~/.claude/telemetry` and a debug log under `~/.npm/_logs`, so running
+either keyfence command touches those.
 
 The same hook ships as a Claude Code plugin, together with `/keyfence:status`
 and `/keyfence:setup`. In the plugin the hook is a self-contained Python 3
