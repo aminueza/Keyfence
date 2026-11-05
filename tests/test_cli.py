@@ -562,7 +562,7 @@ def test_install_hooks_remove_without_record_keeps_user_rules_until_forced(home,
     capsys.readouterr()
     assert cli.main(["install-hooks", "claude-code", "--project", "--remove"]) == 0
     out = capsys.readouterr().out
-    assert "Hook removed" in out and "no record of which ones keyfence added" in out
+    assert "Hook removed" in out and "record of the rules it added does not list them" in out
     assert "  Read(./.env)\n" in out and "Bash(rm -rf *)" not in out
     assert "--remove --force" in out and "rule(s) removed" not in out
     deny = json.loads(settings.read_text())["permissions"]["deny"]

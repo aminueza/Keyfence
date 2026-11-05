@@ -337,9 +337,11 @@ that path would be blocked.
 
 Installations made with 0.4.0 have no such list. There `--remove` takes
 out the hook, leaves every deny rule in place, prints the ones that match
-keyfence's and says that there is no way to tell who added them.
-`--remove --force` removes all of those, yours included, so read the list
-first. `--force` without `--remove` is an error.
+keyfence's and says that there is no way to tell who added them. It
+prints the same for any rule of keyfence's shape the list leaves out,
+such as a `NotebookEdit` rule left from 0.9.0 to 0.10.2 when the list was
+lost. `--remove --force` removes all of those, yours included, so read
+the list first. `--force` without `--remove` is an error.
 
 ### pi
 

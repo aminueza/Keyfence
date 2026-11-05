@@ -350,7 +350,7 @@ def install(path: Path, command: str | None = None) -> bool:
     elif _sync_command(prompt, fields):
         changed = True
     previous = _added_rules(path) or []
-    stale = set(previous) & set(STALE_DENY_RULES)
+    stale = [rule for rule in previous if rule in STALE_DENY_RULES]
     if any(rule in stale for rule in deny):
         deny[:] = [rule for rule in deny if rule not in stale]
         changed = True
@@ -362,7 +362,7 @@ def install(path: Path, command: str | None = None) -> bool:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2) + "\n")
     if missing or stale:
-        recorded = (set(previous) - stale) | set(missing)
+        recorded = (set(previous) - set(stale)) | set(missing)
         added_rules_path(path).write_text(json.dumps(sorted(recorded), indent=2) + "\n")
     return changed
 
@@ -381,9 +381,9 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     unrecorded = []
     if force:
         ours |= set(DENY_RULES + STALE_DENY_RULES)
-    elif recorded is None:
-        unrecorded = [rule for rule in deny if rule in DENY_RULES + STALE_DENY_RULES]
     kept_deny = [rule for rule in deny if rule not in ours]
+    if not force:
+        unrecorded = [rule for rule in kept_deny if rule in DENY_RULES + STALE_DENY_RULES]
     if force or recorded is not None:
         added_rules_path(path).unlink(missing_ok=True)
     result = Removal(

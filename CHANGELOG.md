@@ -13,7 +13,10 @@
   up an existing install. A `NotebookEdit` rule the user wrote stays.
   `--remove --force` takes out the old rules too, and since it removes
   every keyfence-shaped rule, it now also removes hand-written `Edit`
-  rules of the same shape.
+  rules of the same shape. `--remove` without `--force` now lists every
+  keyfence-shaped rule it leaves in place, also when the record exists
+  but does not list it, so `NotebookEdit` rules left by an install whose
+  record was lost still point to `--force`.
 
 ## 0.10.2 (2026-10-27)
 

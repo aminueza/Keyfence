@@ -275,8 +275,8 @@ def _remove_claude_code(path: Path, force: bool) -> int:
     if result.rules:
         print(f"{result.rules} deny rule(s) removed.")
     if result.unrecorded:
-        print(f"{len(result.unrecorded)} deny rule(s) in {path} match the ones keyfence installs, but there is "
-              "no record of which ones keyfence added (installs before 0.5.0 kept none), so they were left in place:")
+        print(f"{len(result.unrecorded)} deny rule(s) in {path} match the ones keyfence installs, but its record "
+              "of the rules it added does not list them (installs before 0.5.0 kept none), so they were left in place:")
         for rule in result.unrecorded:
             print(f"  {rule}")
         print("Re-run with --remove --force to remove all of them.")
@@ -330,7 +330,7 @@ def cmd_install_hooks(args) -> int:
     if changed:
         print(f"Hook installed in {path} for {scope}.")
         print(f"That file also holds a permissions.deny block: keyfence's {len(hooks.DENY_RULES)} rules make "
-              "Claude Code refuse to read .env files, private keys and credential files.")
+              "Claude Code refuse to read or edit .env files, private keys and credential files.")
         _print_deny_rule_versions()
         print(f"The rules keyfence added are listed in {hooks.added_rules_path(path)}, which is the record "
               "--remove reads back.")
@@ -482,8 +482,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="with pi: the keyfence executable the extension calls, baked into the file "
                               "(default: the one running now); a bare name is looked up on PATH at each call")
     p_hooks.add_argument("--force", action="store_true",
-                         help="with claude-code --remove: also remove every deny rule keyfence installs when "
-                              "there is no record of which ones it added (installs before 0.5.0)")
+                         help="with claude-code --remove: also remove every deny rule keyfence installs that "
+                              "its record of the rules it added does not list (installs before 0.5.0 kept none)")
 
     p_doctor = sub.add_parser("doctor", help="check the installation and say what is missing")
     p_doctor.add_argument("-p", "--port", type=int, default=8888,
