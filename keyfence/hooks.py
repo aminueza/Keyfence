@@ -319,6 +319,15 @@ def _read_settings(path: Path) -> dict:
         for key in keys:
             if not isinstance(value.get(key, []), list):
                 raise ValueError(f"{section}.{key} in {path} is not a list; fix it, then run this again")
+    for index, entry in enumerate(data.get("hooks", {}).get("PreToolUse", [])):
+        key = f"hooks.PreToolUse[{index}]"
+        if not isinstance(entry, dict):
+            raise ValueError(f"{key} in {path} is not an object; fix it, then run this again")
+        if not isinstance(entry.get("hooks"), list):
+            raise ValueError(f"{key}.hooks in {path} is not a list; fix it, then run this again")
+        for position, hook in enumerate(entry["hooks"]):
+            if not isinstance(hook, dict):
+                raise ValueError(f"{key}.hooks[{position}] in {path} is not an object; fix it, then run this again")
     return data
 
 
@@ -396,10 +405,10 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     kept_prompt = [e for e in prompt if not _is_ours(e)]
     deny = data.get("permissions", {}).get("deny", [])
     recorded = _added_rules(path)
-    ours = set(recorded or ())
+    ours = tuple(recorded or ())
     unrecorded = []
     if force:
-        ours |= set(DENY_RULES + STALE_DENY_RULES)
+        ours += DENY_RULES + STALE_DENY_RULES
     kept_deny = [rule for rule in deny if rule not in ours]
     if not force:
         unrecorded = [rule for rule in kept_deny if rule in DENY_RULES + STALE_DENY_RULES]
