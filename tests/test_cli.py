@@ -491,6 +491,19 @@ def test_hook_command_blocks_via_stdin(home, monkeypatch, capsys):
     assert "keyfence blocked" in capsys.readouterr().err
 
 
+def test_install_hooks_names_a_settings_section_of_the_wrong_type_and_leaves_the_file_alone(home, tmp_path,
+                                                                                           monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({"permissions": {"deny": {"a": 1}}}))
+    for flags in ([], ["--remove"], ["--remove", "--force"]):
+        assert cli.main(["install-hooks", "claude-code", "--project", *flags]) == 1
+        err = capsys.readouterr().err
+        assert err.startswith("error: permissions.deny in ") and "is not a list" in err
+    assert json.loads(settings.read_text()) == {"permissions": {"deny": {"a": 1}}}
+
+
 def test_install_hooks_project_and_remove(home, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert cli.main(["install-hooks", "claude-code", "--project"]) == 0

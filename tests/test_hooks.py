@@ -662,6 +662,38 @@ def test_uninstall_removes_both_pretooluse_and_prompt(tmp_path):
     assert "hooks" not in data
 
 
+@pytest.mark.parametrize("data, section", [
+    ([], "does not hold a JSON object"),
+    ({"hooks": []}, "hooks in"),
+    ({"permissions": []}, "permissions in"),
+    ({"hooks": {"PreToolUse": {"x": 1}}}, "hooks.PreToolUse in"),
+    ({"hooks": {"UserPromptSubmit": "x"}}, "hooks.UserPromptSubmit in"),
+    ({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}]}]},
+      "permissions": {"deny": {"a": 1}}}, "permissions.deny in"),
+])
+@pytest.mark.parametrize("action", [hooks.install, hooks.uninstall])
+def test_a_settings_section_of_the_wrong_type_stops_install_and_remove_before_any_write(tmp_path, action, data, section):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match=re.escape(section)):
+        action(path)
+    assert json.loads(path.read_text()) == data
+    assert not (tmp_path / "keyfence-deny-rules.json").exists()
+
+
+def test_a_hook_entry_of_the_wrong_type_is_left_in_place_by_install_and_remove(tmp_path):
+    path = tmp_path / "settings.json"
+    foreign = ["x", {"hooks": "y"}, {"hooks": ["z"]}]
+    path.write_text(json.dumps({"hooks": {"PreToolUse": foreign, "UserPromptSubmit": foreign}}))
+    assert hooks.install(path)
+    assert not hooks.install(path)
+    data = json.loads(path.read_text())
+    for event in ("PreToolUse", "UserPromptSubmit"):
+        assert data["hooks"][event][:3] == foreign and hooks._is_ours(data["hooks"][event][3])
+    assert hooks.uninstall(path).hook
+    assert json.loads(path.read_text())["hooks"] == {"PreToolUse": foreign, "UserPromptSubmit": foreign}
+
+
 def test_added_rules_record_is_none_when_missing_or_unreadable(tmp_path):
     path = tmp_path / "settings.json"
     record = tmp_path / "keyfence-deny-rules.json"
