@@ -504,3 +504,202 @@ def test_installed_scopes_names_both_locations_for_each_agent(home, tmp_path, mo
     (tmp_path / ".claude" / "settings.json").write_text("not json")
     assert not doctor.hook_installed(tmp_path / ".claude" / "settings.json")
     assert doctor.check_hook(project).status == doctor.INFO
+
+
+REJECTS = (" — a PreToolUse/PermissionRequest hook that cannot be loaded may be what guards the permissions declared "
+           "beside it, so nothing it sits in is applied until the entry is fixed or removed.")
+MATCHER = ("hooks.PreToolUse.0: Invalid hook matcher (matcher: Invalid input: expected string, received number)",
+           "hooks.PreToolUse.0.matcher: Expected string, but received number")
+COMMAND = ("hooks.PreToolUse.0.hooks.0: Invalid command hook (command: Invalid input: expected string, received undefined)",
+           "hooks.PreToolUse.0.hooks.0.command: Expected string, but received undefined")
+
+
+def claude_says(*lines: str) -> tuple[int, str]:
+    return 0, "\n".join(["Claude Code doctor", "", "Invalid settings", *lines, "", "Remote Control",
+                         "- Not signed in to claude.ai", "", "No installation issues found."]) + "\n"
+
+
+def rejected(path, shape) -> list[str]:
+    return [f"- {path} › {shape[0]}{REJECTS}", f"- {path} › {shape[1]}"]
+
+
+def project_with_hook(tmp_path, monkeypatch, entry=None) -> Path:
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    path = tmp_path / "proj" / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"hooks": {"PreToolUse": [entry]}} if entry else {}))
+    doctor.hooks.install(path)
+    return path
+
+
+@pytest.mark.parametrize("shape, entry", [
+    (MATCHER, {"matcher": 5, "hooks": [{"type": "command", "command": "true"}]}),
+    (COMMAND, {"matcher": "Read", "hooks": [{"type": "command"}]}),
+])
+def test_doctor_fails_both_hooks_when_claude_doctor_says_nothing_in_the_settings_file_is_applied(home, tmp_path, monkeypatch,
+                                                                                                 shape, entry):
+    monkeypatch.setattr(runner, "port_open", lambda port, host: False)
+    path = project_with_hook(tmp_path, monkeypatch, entry)
+    calls = []
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: calls.append(cwd) or claude_says(*rejected(path, shape)))
+    checks = {c.label: c for c in doctor.run_checks(8888, cwd=tmp_path / "proj")}
+    for label in ("Claude Code hook", "Claude Code prompt hook"):
+        assert checks[label].status == doctor.FAIL
+        assert f"installed (project) but Claude Code does not apply {path}: {shape[0]};" in checks[label].detail
+        assert "nothing it sits in" not in checks[label].detail
+    assert calls == [tmp_path / "proj"]
+
+
+@pytest.mark.parametrize("line", [
+    "hooks.UserPromptSubmit.0: Invalid hook matcher (matcher: Invalid input: expected string, received number); matcher ignored.",
+    "hooks.UserPromptSubmit.0: Hook matcher must be an object; received a string; matcher ignored.",
+    "permissions.deny: Non-string value in deny array was removed",
+    'hooks: "hooks" must be an object mapping event names to matcher arrays; received array. This field was ignored.',
+])
+def test_an_entry_claude_code_drops_on_its_own_leaves_both_hooks_ok(tmp_path, monkeypatch, line):
+    path = project_with_hook(tmp_path, monkeypatch, None)
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: claude_says(f"- {path} › {line}"))
+    assert doctor.check_hook(tmp_path / "proj").status == doctor.OK
+    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.OK
+
+
+def test_claude_doctor_is_not_run_when_no_scope_holds_a_keyfence_hook(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "port_open", lambda port, host: False)
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: pytest.fail("claude doctor ran"))
+    checks = {c.label: c for c in doctor.run_checks(8888, cwd=tmp_path / "proj")}
+    assert checks["Claude Code hook"].status == doctor.INFO
+
+
+def test_the_settings_path_matches_resolved_unresolved_or_under_the_home_tilde(tmp_path, monkeypatch):
+    real = tmp_path / "real" / ".claude"
+    real.mkdir(parents=True)
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    path = tmp_path / "link" / ".claude" / "settings.json"
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for shown in (path, real / "settings.json", "~/link/.claude/settings.json"):
+        monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None, shown=shown: claude_says(*rejected(shown, MATCHER)))
+        assert doctor.claude_verdicts([path])[path] == (doctor.FAIL, MATCHER[0])
+    monkeypatch.setattr(doctor, "claude_doctor",
+                        lambda cwd=None: claude_says(*rejected(tmp_path / "other" / "settings.json", MATCHER)))
+    assert doctor.claude_verdicts([path])[path] == (doctor.OK, "")
+
+
+def test_a_rejected_global_file_fails_the_global_scope_only(tmp_path, monkeypatch):
+    project = project_with_hook(tmp_path, monkeypatch)
+    user = tmp_path / "home" / ".claude" / "settings.json"
+    doctor.hooks.install(user)
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: claude_says(*rejected(user, MATCHER)))
+    assert doctor.claude_verdicts([user, project]) == {user: (doctor.FAIL, MATCHER[0]), project: (doctor.OK, "")}
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.FAIL and check.detail.startswith(f"installed (global) but Claude Code does not apply {user}:")
+
+
+@pytest.mark.parametrize("answer, reason", [
+    ("claude is not on PATH", "claude is not on PATH"),
+    ("claude doctor did not finish in 10s", "claude doctor did not finish in 10s"),
+    ((3, "Claude Code doctor\n"), "claude doctor exited 3"),
+    ((0, "Usage: claude [options]\n"), "keyfence does not recognise what claude doctor printed"),
+    ((0, ""), "keyfence does not recognise what claude doctor printed"),
+])
+def test_doctor_warns_with_the_hint_when_claude_doctor_gives_no_answer(tmp_path, monkeypatch, answer, reason):
+    project_with_hook(tmp_path, monkeypatch)
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: answer)
+    for check in (doctor.check_hook(tmp_path / "proj"), doctor.check_prompt_hook(tmp_path / "proj")):
+        assert check.status == doctor.WARN
+        assert check.detail == (f"installed (project), not confirmed: {reason}; claude doctor in {tmp_path / 'proj'} "
+                                'lists any settings file Claude Code does not apply under "Invalid settings"')
+
+
+def test_doctor_warns_on_a_line_about_the_settings_file_it_does_not_recognise(tmp_path, monkeypatch):
+    path = project_with_hook(tmp_path, monkeypatch)
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: claude_says(f"- {path} › model: Expected string, but received number"))
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.WARN
+    assert f'not confirmed: claude doctor reports "model: Expected string, but received number" for {path}, ' \
+           "which keyfence does not recognise;" in check.detail
+
+
+def test_the_reason_claude_doctor_gives_is_capped(tmp_path, monkeypatch):
+    path = project_with_hook(tmp_path, monkeypatch)
+    long = "hooks.PreToolUse.0: " + "x" * 5000
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: claude_says(f"- {path} › {long}{REJECTS}"))
+    status, reason = doctor.claude_verdicts([path])[path]
+    assert status == doctor.FAIL and len(reason) == doctor.REASON_LIMIT and reason == long[:doctor.REASON_LIMIT - 3] + "..."
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: claude_says(f"- {path} › {long}"))
+    status, reason = doctor.claude_verdicts([path])[path]
+    assert status == doctor.WARN and f'"{long[:doctor.REASON_LIMIT - 3]}..."' in reason and "x" * doctor.REASON_LIMIT not in reason
+    assert len(doctor.check_hook(tmp_path / "proj").detail) < 2 * doctor.REASON_LIMIT + 2 * len(str(path)) + 200
+
+
+def test_claude_doctor_runs_the_real_command_without_stdin_and_says_why_it_could_not(claude_doctor, tmp_path, monkeypatch):
+    assert claude_doctor(tmp_path, which=lambda name: None) == "claude is not on PATH"
+    seen = {}
+
+    def finished(command, **kwargs):
+        seen.update(command=command, **kwargs)
+        return doctor.subprocess.CompletedProcess(command, 0, "Claude Code doctor\n", "warning\n")
+
+    monkeypatch.setattr(doctor.subprocess, "run", finished)
+    assert claude_doctor(tmp_path, which=lambda name: "/bin/claude") == (0, "Claude Code doctor\nwarning\n")
+    assert seen["command"] == ["/bin/claude", "doctor"] and seen["cwd"] == tmp_path
+    assert seen["stdin"] == doctor.subprocess.DEVNULL and seen["timeout"] == doctor.CLAUDE_TIMEOUT
+
+    def hangs(command, **kwargs):
+        raise doctor.subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(doctor.subprocess, "run", hangs)
+    assert claude_doctor(tmp_path, which=lambda name: "/bin/claude") == "claude doctor did not finish in 10s"
+
+    def denied(command, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(doctor.subprocess, "run", denied)
+    assert claude_doctor(tmp_path, which=lambda name: "/bin/claude") == "claude doctor did not start: Permission denied"
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads a file whatever its mode")
+def test_doctor_names_a_settings_file_it_has_no_permission_to_read_instead_of_crashing(tmp_path, monkeypatch):
+    path = project_with_hook(tmp_path, monkeypatch)
+    path.chmod(0)
+    try:
+        for check in (doctor.check_hook(tmp_path / "proj"), doctor.check_prompt_hook(tmp_path / "proj")):
+            assert check.status == doctor.WARN
+            assert check.detail == f"cannot read {path}: Permission denied; keyfence cannot tell whether its hook is in it"
+        assert not doctor.installed_scopes("claude-code", tmp_path / "proj")[1][2]
+    finally:
+        path.chmod(0o600)
+
+
+@pytest.mark.parametrize("text, reason", [
+    ("{", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+    ("not json", "Expecting value: line 1 column 1 (char 0)"),
+])
+def test_doctor_names_a_settings_file_that_is_not_json_and_why(tmp_path, monkeypatch, text, reason):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    path = tmp_path / "proj" / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(text)
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.WARN
+    assert check.detail == f"cannot read {path}: {reason}; keyfence cannot tell whether its hook is in it"
+
+
+def test_doctor_names_a_settings_section_of_the_wrong_type_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    path = tmp_path / "proj" / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"hooks": []}))
+    check = doctor.check_prompt_hook(tmp_path / "proj")
+    assert check.status == doctor.WARN
+    assert check.detail.startswith("hooks in ") and check.detail.count(str(path)) == 1 and "cannot read" not in check.detail
+
+
+def test_doctor_keeps_the_scope_it_could_read_when_the_other_cannot_be_read(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    doctor.hooks.install(tmp_path / "home" / ".claude" / "settings.json")
+    path = tmp_path / "proj" / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{")
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.WARN and check.detail.startswith(f"installed (global), but cannot read {path}: ")

@@ -8,6 +8,20 @@ os.environ.pop("KEYFENCE_CONFIG", None)
 os.environ.pop("KEYFENCE_ENV_VAULT", None)
 
 import pytest  # noqa: E402
+from keyfence import doctor  # noqa: E402
+
+CLAUDE_DOCTOR = doctor.claude_doctor
+CLAUDE_DOCTOR_CLEAN = "Claude Code doctor\n\nRunning: package-manager (2.1.311)\n\nNo installation issues found.\n"
+
+
+@pytest.fixture(autouse=True)
+def no_real_claude(monkeypatch):
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: (0, CLAUDE_DOCTOR_CLEAN))
+
+
+@pytest.fixture
+def claude_doctor():
+    return CLAUDE_DOCTOR
 
 
 @pytest.fixture
