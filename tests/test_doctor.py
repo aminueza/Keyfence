@@ -607,6 +607,7 @@ def test_the_settings_path_matches_resolved_unresolved_or_under_the_home_tilde(t
     (tmp_path / "link").symlink_to(tmp_path / "real")
     path = tmp_path / "link" / ".claude" / "settings.json"
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     for shown in (path, real / "settings.json", "~/link/.claude/settings.json"):
         monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None, shown=shown: claude_says(*rejected(shown, MATCHER)))
         assert doctor.claude_verdicts([path])[path] == (doctor.FAIL, MATCHER[0])
