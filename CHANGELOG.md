@@ -17,6 +17,11 @@
   keyfence-shaped rule it leaves in place, also when the record exists
   but does not list it, so `NotebookEdit` rules left by an install whose
   record was lost still point to `--force`.
+- `keyfence install-hooks claude-code --remove` stopped with a
+  `TypeError` when the `deny` list in `settings.json` held an entry that
+  is not a string (an object or a list). It now leaves that entry in
+  place and removes keyfence's rules around it, with or without
+  `--force`.
 
 ## 0.10.2 (2026-10-27)
 
