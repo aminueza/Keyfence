@@ -354,6 +354,26 @@ def test_prompt_hook_check(home, tmp_path, monkeypatch):
     assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.FAIL
 
 
+@pytest.mark.parametrize("settings", [[], {"hooks": []}, {"hooks": {"PreToolUse": {"x": 1}, "UserPromptSubmit": "x"}}])
+def test_a_settings_section_of_the_wrong_type_reads_like_a_file_that_is_not_json(home, tmp_path, monkeypatch, settings):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    path = tmp_path / ".claude" / "settings.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(settings))
+    assert not doctor.hook_installed(path) and not doctor.prompt_hook_installed(path)
+    assert doctor.keyfence_hook(path, "PreToolUse") is None
+    assert doctor.check_hook(tmp_path / "proj").status == doctor.INFO
+    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.INFO
+
+
+def test_keyfence_hook_skips_a_hook_that_is_not_an_object(tmp_path):
+    path = tmp_path / "settings.json"
+    ours = {"type": "command", "command": "/bin/keyfence", "args": ["hook", "claude-code"]}
+    path.write_text(json.dumps({"hooks": {"PreToolUse": ["x", {"hooks": ["y", ours]}]}}))
+    assert doctor.hook_installed(path)
+    assert doctor.keyfence_hook(path, "PreToolUse") == ours
+
+
 def test_prompt_hook_check_parses_quoted_commands_like_a_shell(home, tmp_path, monkeypatch):
     monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
     project = tmp_path / "proj" / ".claude"
