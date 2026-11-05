@@ -366,12 +366,41 @@ def test_a_settings_section_of_the_wrong_type_reads_like_a_file_that_is_not_json
     assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.INFO
 
 
-def test_keyfence_hook_skips_a_hook_that_is_not_an_object(tmp_path):
+@pytest.mark.parametrize("break_pre", [
+    lambda pre: pre.insert(0, "x"),
+    lambda pre: pre.insert(0, {"hooks": "y"}),
+    lambda pre: pre.insert(0, {"matcher": "Read"}),
+    lambda pre: pre.insert(0, {"matcher": "Read", "hooks": [None, "z"]}),
+    lambda pre: pre[0]["hooks"].insert(0, None),
+])
+def test_a_pre_tool_use_entry_claude_code_cannot_load_shows_an_installed_file_as_not_installed(home, tmp_path,
+                                                                                                monkeypatch, break_pre):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    project = tmp_path / "proj"
+    path = doctor.hooks.settings_path(True, project)
+    assert doctor.hooks.install(path, "/bin/keyfence")
+    data = json.loads(path.read_text())
+    break_pre(data["hooks"]["PreToolUse"])
+    path.write_text(json.dumps(data))
+    assert not doctor.hook_installed(path) and not doctor.prompt_hook_installed(path)
+    assert doctor.keyfence_hook(path, "PreToolUse") is None
+    assert doctor.check_hook(project).status == doctor.INFO
+    assert doctor.check_prompt_hook(project).status == doctor.INFO
+    assert not any(installed for _, _, installed in doctor.installed_scopes("claude-code", project))
+    assert not any(installed for _, _, installed in doctor.prompt_hook_scopes("claude-code", project))
+
+
+def test_a_user_prompt_submit_entry_of_the_wrong_type_does_not_hide_the_prompt_hook(tmp_path):
     path = tmp_path / "settings.json"
-    ours = {"type": "command", "command": "/bin/keyfence", "args": ["hook", "claude-code"]}
-    path.write_text(json.dumps({"hooks": {"PreToolUse": ["x", {"hooks": ["y", ours]}]}}))
-    assert doctor.hook_installed(path)
-    assert doctor.keyfence_hook(path, "PreToolUse") == ours
+    assert doctor.hooks.install(path, "/bin/keyfence")
+    data = json.loads(path.read_text())
+    prompt = data["hooks"]["UserPromptSubmit"]
+    ours = prompt[0]["hooks"][0]
+    prompt[0]["hooks"].insert(0, None)
+    prompt[:0] = ["x", {"hooks": "y"}, {"hooks": [None, "z"]}]
+    path.write_text(json.dumps(data))
+    assert doctor.hook_installed(path) and doctor.prompt_hook_installed(path)
+    assert doctor.keyfence_hook(path, "UserPromptSubmit") == ours
 
 
 def test_prompt_hook_check_parses_quoted_commands_like_a_shell(home, tmp_path, monkeypatch):

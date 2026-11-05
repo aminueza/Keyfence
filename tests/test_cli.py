@@ -504,6 +504,25 @@ def test_install_hooks_names_a_settings_section_of_the_wrong_type_and_leaves_the
     assert json.loads(settings.read_text()) == {"permissions": {"deny": {"a": 1}}}
 
 
+@pytest.mark.parametrize("shape, key", [
+    ('{"hooks":{"PreToolUse":["x"]}}', "hooks.PreToolUse[0] in "),
+    ('{"hooks":{"PreToolUse":[{"hooks":"y"}]}}', "hooks.PreToolUse[0].hooks in "),
+    ('{"hooks":{"PreToolUse":[{"matcher":"Read","hooks":[null,"z"]}]}}', "hooks.PreToolUse[0].hooks[0] in "),
+])
+def test_install_hooks_names_a_pre_tool_use_entry_claude_code_cannot_load_and_leaves_the_file_alone(
+        home, tmp_path, monkeypatch, capsys, shape, key):
+    monkeypatch.chdir(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(shape)
+    for flags in ([], ["--remove"], ["--remove", "--force"]):
+        assert cli.main(["install-hooks", "claude-code", "--project", *flags]) == 1
+        err = capsys.readouterr().err
+        assert err.startswith(f"error: {key}") and "is not " in err
+    assert settings.read_text() == shape
+    assert not (tmp_path / ".claude" / "keyfence-deny-rules.json").exists()
+
+
 def test_install_hooks_project_and_remove(home, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert cli.main(["install-hooks", "claude-code", "--project"]) == 0

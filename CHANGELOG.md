@@ -7,13 +7,20 @@
   `permissions` was not an object, or whose `PreToolUse`,
   `UserPromptSubmit` or `deny` was not a list. `--remove` also rewrote a
   `deny` object as the list of its keys when it removed the hook. It now
-  stops with an error that names the key, before it writes anything. A
-  hook entry that is not an object, or whose `hooks` is not a list, is
-  left in place.
+  stops with an error that names the key, before it writes anything. It
+  stops the same way on a `PreToolUse` entry that is not an object, has
+  no `hooks` list, or holds a hook that is not an object: Claude Code
+  2.1.311 applies nothing in a file that holds one, so installing there
+  would report a protection that is not in effect. Such an entry under
+  `UserPromptSubmit` is left in place, because Claude Code ignores only
+  that entry.
 - `keyfence doctor` and `keyfence install-hooks --list` crashed with an
   `AttributeError` on the same files. They now read such a file the way
   they read one that is not valid JSON: the hook shows as not installed,
-  and `keyfence install-hooks claude-code` names the key to fix.
+  and `keyfence install-hooks claude-code` names the key to fix. A
+  `PreToolUse` entry that Claude Code cannot load counts the same way,
+  so a file keyfence installed into earlier no longer shows the hook as
+  installed while Claude Code applies none of it.
 - `keyfence install-hooks claude-code` installed `NotebookEdit` deny
   rules since 0.9.0, and Claude Code 2.1.311 never matches them: it
   checks a file path against `Read` and `Edit` rules only, and an `Edit`
@@ -29,6 +36,11 @@
   keyfence-shaped rule it leaves in place, also when the record exists
   but does not list it, so `NotebookEdit` rules left by an install whose
   record was lost still point to `--force`.
+- `keyfence install-hooks claude-code --remove` stopped with a
+  `TypeError` when the `deny` list in `settings.json` held an entry that
+  is not a string (an object or a list). It now leaves that entry in
+  place and removes keyfence's rules around it, with or without
+  `--force`.
 
 ## 0.10.2 (2026-10-27)
 
