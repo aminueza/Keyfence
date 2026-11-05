@@ -815,6 +815,16 @@ def test_install_creates_file_and_uninstall_cleans_empty_sections(tmp_path):
     assert not missing.changed and missing.unrecorded == []
 
 
+@pytest.mark.parametrize("force", [False, True])
+def test_uninstall_keeps_a_deny_entry_that_is_not_a_string(tmp_path, force):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"permissions": {"deny": [{"a": 1}, ["b"]]}}))
+    assert hooks.install(path)
+    result = hooks.uninstall(path, force=force)
+    assert result.rules == len(hooks.DENY_RULES) and result.unrecorded == []
+    assert json.loads(path.read_text()) == {"permissions": {"deny": [{"a": 1}, ["b"]]}}
+
+
 def test_settings_path(tmp_path, monkeypatch):
     monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path))
     assert hooks.settings_path(project=False) == tmp_path / ".claude" / "settings.json"

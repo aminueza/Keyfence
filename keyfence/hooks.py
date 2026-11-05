@@ -396,10 +396,10 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     kept_prompt = [e for e in prompt if not _is_ours(e)]
     deny = data.get("permissions", {}).get("deny", [])
     recorded = _added_rules(path)
-    ours = set(recorded or ())
+    ours = tuple(recorded or ())
     unrecorded = []
     if force:
-        ours |= set(DENY_RULES + STALE_DENY_RULES)
+        ours += DENY_RULES + STALE_DENY_RULES
     kept_deny = [rule for rule in deny if rule not in ours]
     if not force:
         unrecorded = [rule for rule in kept_deny if rule in DENY_RULES + STALE_DENY_RULES]
