@@ -20,7 +20,7 @@ OK, INFO, WARN, FAIL = "ok", "info", "warn", "fail"
 CLAUDE_TIMEOUT = 10
 CLAUDE_DOCTOR_HEADER = "Claude Code doctor"
 CLAUDE_REJECTS = "nothing it sits in is applied"
-CLAUDE_DROPS_ONLY = ("matcher ignored.", "was removed", "This field was ignored.")
+CLAUDE_DROPS_ONLY = ("matcher ignored.", "was removed", "This field was ignored.", "entry ignored.")
 REASON_LIMIT = 200
 
 

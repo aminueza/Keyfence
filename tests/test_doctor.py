@@ -585,6 +585,7 @@ def test_doctor_fails_both_hooks_when_claude_doctor_says_nothing_in_the_settings
     "hooks.UserPromptSubmit.0: Hook matcher must be an object; received a string; matcher ignored.",
     "permissions.deny: Non-string value in deny array was removed",
     'hooks: "hooks" must be an object mapping event names to matcher arrays; received array. This field was ignored.',
+    "hooks.UserPromptSubmit.0.hooks.0: Hook entry must be an object; received null; entry ignored.",
 ])
 def test_an_entry_claude_code_drops_on_its_own_leaves_both_hooks_ok(tmp_path, monkeypatch, line):
     path = project_with_hook(tmp_path, monkeypatch, None)
