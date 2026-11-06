@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code`, with or without `--remove`,
+  crashed with an `AttributeError` on a `settings.json` whose `hooks` or
+  `permissions` was not an object, or whose `PreToolUse`,
+  `UserPromptSubmit` or `deny` was not a list. `--remove` also rewrote a
+  `deny` object as the list of its keys when it removed the hook. It now
+  stops with an error that names the key, before it writes anything. It
+  stops the same way on a `PreToolUse` entry that is not an object, has
+  no `hooks` list, or holds a hook that is not an object: Claude Code
+  2.1.311 applies nothing in a file that holds one, so installing there
+  would report a protection that is not in effect. Such an entry under
+  `UserPromptSubmit` is left in place, because Claude Code ignores only
+  that entry.
 - `keyfence install-hooks claude-code` installed `NotebookEdit` deny
   rules since 0.9.0, and Claude Code 2.1.311 never matches them: it
   checks a file path against `Read` and `Edit` rules only, and an `Edit`

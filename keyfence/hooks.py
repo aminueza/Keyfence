@@ -109,7 +109,7 @@ def _sync_command(entries: list, fields: dict) -> bool:
     # must repair it, because that entry blocks every prompt meanwhile.
     fixed = False
     for entry in entries:
-        for hook in entry.get("hooks", []):
+        for hook in _entry_hooks(entry):
             if not _is_our_hook(hook):
                 continue
             if hook.get("command") != fields["command"]:
@@ -299,8 +299,36 @@ def settings_path(project: bool, cwd: Path | None = None) -> Path:
     return base / "settings.json"
 
 
-def _is_ours(entry: dict) -> bool:
-    return any(_is_our_hook(h) for h in entry.get("hooks", []))
+def _entry_hooks(entry) -> list:
+    nested = entry.get("hooks") if isinstance(entry, dict) else None
+    return [hook for hook in nested if isinstance(hook, dict)] if isinstance(nested, list) else []
+
+
+def _is_ours(entry) -> bool:
+    return any(_is_our_hook(h) for h in _entry_hooks(entry))
+
+
+def _read_settings(path: Path) -> dict:
+    data = json.loads(path.read_text()) if path.exists() else {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} does not hold a JSON object; fix it, then run this again")
+    for section, keys in (("hooks", ("PreToolUse", "UserPromptSubmit")), ("permissions", ("deny",))):
+        value = data.get(section, {})
+        if not isinstance(value, dict):
+            raise ValueError(f"{section} in {path} is not an object; fix it, then run this again")
+        for key in keys:
+            if not isinstance(value.get(key, []), list):
+                raise ValueError(f"{section}.{key} in {path} is not a list; fix it, then run this again")
+    for index, entry in enumerate(data.get("hooks", {}).get("PreToolUse", [])):
+        key = f"hooks.PreToolUse[{index}]"
+        if not isinstance(entry, dict):
+            raise ValueError(f"{key} in {path} is not an object; fix it, then run this again")
+        if not isinstance(entry.get("hooks"), list):
+            raise ValueError(f"{key}.hooks in {path} is not a list; fix it, then run this again")
+        for position, hook in enumerate(entry["hooks"]):
+            if not isinstance(hook, dict):
+                raise ValueError(f"{key}.hooks[{position}] in {path} is not an object; fix it, then run this again")
+    return data
 
 
 def added_rules_path(path: Path) -> Path:
@@ -329,7 +357,7 @@ class Removal(NamedTuple):
 
 def install(path: Path, command: str | None = None) -> bool:
     fields = _hook_fields(command)
-    data = json.loads(path.read_text()) if path.exists() else {}
+    data = _read_settings(path)
     pre = data.setdefault("hooks", {}).setdefault("PreToolUse", [])
     prompt = data.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
     deny = data.setdefault("permissions", {}).setdefault("deny", [])
@@ -370,7 +398,7 @@ def install(path: Path, command: str | None = None) -> bool:
 def uninstall(path: Path, force: bool = False) -> Removal:
     if not path.exists():
         return Removal(False, 0, [])
-    data = json.loads(path.read_text())
+    data = _read_settings(path)
     pre = data.get("hooks", {}).get("PreToolUse", [])
     prompt = data.get("hooks", {}).get("UserPromptSubmit", [])
     kept_pre = [e for e in pre if not _is_ours(e)]
