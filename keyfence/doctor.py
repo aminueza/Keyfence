@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import platform
 import shlex
@@ -217,7 +216,7 @@ def check_local_mode(run: Callable = _run) -> Check:
 
 def hook_installed(path: Path) -> bool:
     try:
-        data = json.loads(path.read_text()) if path.exists() else {}
+        data = hooks._read_settings(path)
     except ValueError:
         return False
     return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("PreToolUse", []))
@@ -225,7 +224,7 @@ def hook_installed(path: Path) -> bool:
 
 def prompt_hook_installed(path: Path) -> bool:
     try:
-        data = json.loads(path.read_text()) if path.exists() else {}
+        data = hooks._read_settings(path)
     except ValueError:
         return False
     return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("UserPromptSubmit", []))
@@ -233,12 +232,12 @@ def prompt_hook_installed(path: Path) -> bool:
 
 def keyfence_hook(path: Path, event: str) -> dict | None:
     try:
-        data = json.loads(path.read_text()) if path.exists() else {}
+        data = hooks._read_settings(path)
     except ValueError:
         return None
     for entry in data.get("hooks", {}).get(event, []):
         if hooks._is_ours(entry):
-            for hook in entry.get("hooks", []):
+            for hook in hooks._entry_hooks(entry):
                 if hook.get("command"):
                     return hook
     return None
