@@ -325,6 +325,11 @@ def cmd_install_hooks(args) -> int:
     path = hooks.settings_path(args.project)
     if args.remove:
         return _remove_claude_code(path, args.force)
+    verdict, reason = doctor.claude_verdicts([path])[path]
+    if verdict == doctor.FAIL:
+        print(f"error: Claude Code does not apply {path}: {reason}; fix or remove that entry, then run this again",
+              file=sys.stderr)
+        return 1
     changed = hooks.install(path, hooks.keyfence_path())
     scope = "this project" if args.project else "all projects"
     if changed:
@@ -343,6 +348,9 @@ def cmd_install_hooks(args) -> int:
     else:
         print(f"Hook already present in {path}.")
         _print_deny_rule_versions()
+    if verdict == doctor.WARN:
+        print(f"Could not confirm that Claude Code applies {path} ({reason}); claude doctor in {Path.cwd()} lists "
+              "the settings files it does not apply.")
     return 0
 
 

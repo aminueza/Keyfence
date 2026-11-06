@@ -569,6 +569,61 @@ def test_install_hooks_prints_the_claude_code_versions_when_the_hook_is_already_
     assert all(version in out for version in cli.DENY_RULE_MIN_CLAUDE_CODE.values())
 
 
+@pytest.mark.parametrize("entry, reason", [
+    ({"matcher": 5, "hooks": [{"type": "command", "command": "true"}]},
+     "hooks.PreToolUse.0: Invalid hook matcher (matcher: Invalid input: expected string, received number)"),
+    ({"matcher": "Read", "hooks": [{"type": "command"}]},
+     "hooks.PreToolUse.0.hooks.0: Invalid command hook (command: Invalid input: expected string, received undefined)"),
+])
+def test_install_hooks_refuses_a_settings_file_claude_code_does_not_apply_and_leaves_it_alone(home, tmp_path, monkeypatch,
+                                                                                            capsys, entry, reason):
+    monkeypatch.chdir(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": [entry]}}))
+    before = settings.read_bytes()
+    output = (f"Claude Code doctor\n\nInvalid settings\n- {settings.resolve()} › {reason} — a PreToolUse/PermissionRequest "
+              "hook that cannot be loaded may be what guards the permissions declared beside it, so nothing it sits in "
+              "is applied until the entry is fixed or removed.\n")
+    monkeypatch.setattr(cli.doctor, "claude_doctor", lambda cwd=None: (0, output))
+    for _ in range(2):
+        assert cli.main(["install-hooks", "claude-code", "--project"]) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == (f"error: Claude Code does not apply {settings}: {reason}; fix or remove that entry, "
+                                "then run this again\n")
+        assert settings.read_bytes() == before
+        assert not (tmp_path / ".claude" / "keyfence-deny-rules.json").exists()
+
+
+def test_install_hooks_says_how_to_check_when_claude_cannot_confirm_the_file(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.doctor, "claude_doctor", lambda cwd=None: "claude is not on PATH")
+    settings = tmp_path / ".claude" / "settings.json"
+    hint = (f"Could not confirm that Claude Code applies {settings} (claude is not on PATH); claude doctor in {tmp_path} "
+            "lists the settings files it does not apply.")
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    out = capsys.readouterr().out
+    assert "Hook installed" in out and out.splitlines()[-1] == hint
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    out = capsys.readouterr().out
+    assert "Hook already present" in out and out.splitlines()[-1] == hint
+
+
+def test_install_hooks_adds_no_hint_when_claude_code_applies_the_file(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    assert "Could not confirm" not in capsys.readouterr().out
+
+
+def test_install_hooks_remove_does_not_ask_claude(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["install-hooks", "claude-code", "--project"]) == 0
+    monkeypatch.setattr(cli.doctor, "claude_doctor", lambda cwd=None: pytest.fail("claude doctor ran"))
+    assert cli.main(["install-hooks", "claude-code", "--project", "--remove"]) == 0
+    assert "Hook removed" in capsys.readouterr().out
+
+
 def test_install_hooks_remove_does_not_print_the_claude_code_versions(home, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     assert cli.main(["install-hooks", "claude-code", "--project"]) == 0

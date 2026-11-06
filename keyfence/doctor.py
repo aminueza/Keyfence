@@ -17,6 +17,11 @@ from .config import Config
 from .vault import Vault, VaultError
 
 OK, INFO, WARN, FAIL = "ok", "info", "warn", "fail"
+CLAUDE_TIMEOUT = 10
+CLAUDE_DOCTOR_HEADER = "Claude Code doctor"
+CLAUDE_REJECTS = "nothing it sits in is applied"
+CLAUDE_DROPS_ONLY = ("matcher ignored.", "was removed", "This field was ignored.", "entry ignored.")
+REASON_LIMIT = 200
 
 
 @dataclass
@@ -214,10 +219,73 @@ def check_local_mode(run: Callable = _run) -> Check:
     return Check(WARN, "--local capture", "network extension waiting for approval in System Settings > General > Login Items & Extensions > Network Extensions")
 
 
+def claude_doctor(cwd: Path | None = None, which: Callable = shutil.which) -> tuple[int, str] | str:
+    claude = which("claude")
+    if claude is None:
+        return "claude is not on PATH"
+    try:
+        done = subprocess.run([claude, "doctor"], capture_output=True, text=True, timeout=CLAUDE_TIMEOUT,
+                              cwd=cwd, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return f"claude doctor did not finish in {CLAUDE_TIMEOUT}s"
+    except OSError as exc:
+        return f"claude doctor did not start: {exc.strerror or exc}"
+    return done.returncode, done.stdout + done.stderr
+
+
+def _capped(text: str) -> str:
+    return text if len(text) <= REASON_LIMIT else text[:REASON_LIMIT - 3] + "..."
+
+
+def _same_file(shown: str, path: Path) -> bool:
+    return os.path.normcase(os.path.realpath(os.path.expanduser(shown))) == os.path.normcase(os.path.realpath(path))
+
+
+def _claude_verdict(path: Path, output: str) -> tuple[str, str]:
+    found = []
+    for line in output.splitlines():
+        if not line.startswith("- "):
+            continue
+        shown, sep, text = line[2:].partition(" › ")
+        if not sep:
+            shown, sep, text = line[2:].partition(": ")
+        if sep and _same_file(shown, path):
+            found.append(text.strip())
+    rejected = [text for text in found if CLAUDE_REJECTS in text]
+    if rejected:
+        return FAIL, _capped(rejected[0].split(" — ")[0])
+    unknown = [text for text in found if not text.endswith(CLAUDE_DROPS_ONLY)]
+    if unknown:
+        return WARN, f'claude doctor reports "{_capped(unknown[0])}" for {path}, which keyfence does not recognise'
+    return OK, ""
+
+
+def claude_verdicts(paths: list[Path], cwd: Path | None = None) -> dict[Path, tuple[str, str]]:
+    answer = claude_doctor(cwd)
+    if isinstance(answer, str):
+        return {path: (WARN, answer) for path in paths}
+    code, output = answer
+    if code != 0:
+        return {path: (WARN, f"claude doctor exited {code}") for path in paths}
+    if CLAUDE_DOCTOR_HEADER not in (line.strip() for line in output.splitlines()):
+        return {path: (WARN, "keyfence does not recognise what claude doctor printed") for path in paths}
+    return {path: _claude_verdict(path, output) for path in paths}
+
+
+def settings_problem(path: Path) -> str | None:
+    try:
+        hooks._read_settings(path)
+    except OSError as exc:
+        return f"cannot read {path}: {exc.strerror or exc}"
+    except ValueError as exc:
+        return str(exc) if str(path) in str(exc) else f"cannot read {path}: {exc}"
+    return None
+
+
 def hook_installed(path: Path) -> bool:
     try:
         data = hooks._read_settings(path)
-    except ValueError:
+    except (OSError, ValueError):
         return False
     return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("PreToolUse", []))
 
@@ -225,7 +293,7 @@ def hook_installed(path: Path) -> bool:
 def prompt_hook_installed(path: Path) -> bool:
     try:
         data = hooks._read_settings(path)
-    except ValueError:
+    except (OSError, ValueError):
         return False
     return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("UserPromptSubmit", []))
 
@@ -233,7 +301,7 @@ def prompt_hook_installed(path: Path) -> bool:
 def keyfence_hook(path: Path, event: str) -> dict | None:
     try:
         data = hooks._read_settings(path)
-    except ValueError:
+    except (OSError, ValueError):
         return None
     for entry in data.get("hooks", {}).get(event, []):
         if hooks._is_ours(entry):
@@ -286,9 +354,39 @@ def prompt_hook_scopes(agent: str, cwd: Path | None = None) -> list[tuple[str, P
             for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd)))]
 
 
-def check_hook(cwd: Path | None = None) -> Check:
-    scopes = []
+def _claude_hook_check(label: str, found: list[tuple[str, Path]], unreadable: list[str], missing: Check,
+                       cwd: Path | None, verdicts: dict[Path, tuple[str, str]] | None) -> Check:
+    if not found:
+        if unreadable:
+            return Check(WARN, label, f"{unreadable[0]}; keyfence cannot tell whether its hook is in it")
+        return missing
+    scopes = ", ".join(scope for scope, _ in found)
+    if verdicts is None:
+        verdicts = claude_verdicts([path for _, path in found], cwd)
+    unconfirmed = []
+    for scope, path in found:
+        status, reason = verdicts[path]
+        if status == FAIL:
+            return Check(FAIL, label, f"installed ({scope}) but Claude Code does not apply {path}: {reason}; the hooks "
+                                      "and deny rules in that file are off until that entry is fixed or removed")
+        if status == WARN:
+            unconfirmed.append(reason)
+    if unreadable:
+        return Check(WARN, label, f"installed ({scopes}), but {unreadable[0]}; keyfence cannot tell whether its hook is in it")
+    if unconfirmed:
+        return Check(WARN, label, f"installed ({scopes}), not confirmed: {unconfirmed[0]}; claude doctor in "
+                                  f"{cwd or Path.cwd()} lists any settings file Claude Code does not apply under "
+                                  "\"Invalid settings\"")
+    return Check(OK, label, f"installed ({scopes})")
+
+
+def check_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, str]] | None = None) -> Check:
+    scopes, unreadable = [], []
     for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
+        problem = settings_problem(path)
+        if problem:
+            unreadable.append(problem)
+            continue
         if not hook_installed(path):
             continue
         hook = keyfence_hook(path, "PreToolUse")
@@ -301,15 +399,19 @@ def check_hook(cwd: Path | None = None) -> Check:
             return Check(FAIL, "Claude Code hook",
                          f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every Claude Code "
                          "tool call is refused until keyfence install-hooks claude-code runs again")
-        scopes.append(scope)
-    if scopes:
-        return Check(OK, "Claude Code hook", "installed (" + ", ".join(scopes) + ")")
-    return Check(INFO, "Claude Code hook", "not installed; keyfence install-hooks claude-code stops Claude Code from reading secret files")
+        scopes.append((scope, path))
+    return _claude_hook_check("Claude Code hook", scopes, unreadable, Check(
+        INFO, "Claude Code hook", "not installed; keyfence install-hooks claude-code stops Claude Code from reading secret files"),
+        cwd, verdicts)
 
 
-def check_prompt_hook(cwd: Path | None = None) -> Check:
-    scopes = []
+def check_prompt_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, str]] | None = None) -> Check:
+    scopes, unreadable = [], []
     for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
+        problem = settings_problem(path)
+        if problem:
+            unreadable.append(problem)
+            continue
         if not prompt_hook_installed(path):
             continue
         hook = keyfence_hook(path, "UserPromptSubmit")
@@ -322,11 +424,11 @@ def check_prompt_hook(cwd: Path | None = None) -> Check:
             return Check(FAIL, "Claude Code prompt hook",
                          f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every submitted prompt "
                          "is refused until keyfence install-hooks claude-code runs again")
-        scopes.append(scope)
-    if scopes:
-        return Check(OK, "Claude Code prompt hook", "installed (" + ", ".join(scopes) + ")")
-    return Check(INFO, "Claude Code prompt hook",
-                 f"not installed; keyfence install-hooks claude-code adds it (needs Claude Code v{hooks.PROMPT_HOOK_MIN_CLAUDE_CODE}+)")
+        scopes.append((scope, path))
+    return _claude_hook_check("Claude Code prompt hook", scopes, unreadable, Check(
+        INFO, "Claude Code prompt hook",
+        f"not installed; keyfence install-hooks claude-code adds it (needs Claude Code v{hooks.PROMPT_HOOK_MIN_CLAUDE_CODE}+)"),
+        cwd, verdicts)
 
 
 def check_pi_extension(cwd: Path | None = None) -> Check:
@@ -365,6 +467,9 @@ def check_audit() -> Check:
 
 def run_checks(port: int, cwd: Path | None = None) -> list[Check]:
     host, target = proxy_endpoint(os.environ, port)
+    paths = [path for path in (hooks.settings_path(False), hooks.settings_path(True, cwd))
+             if hook_installed(path) or prompt_hook_installed(path)]
+    verdicts = claude_verdicts(paths, cwd) if paths else {}
     return [
         Check(OK, "keyfence", f"{__version__} on Python {sys.version.split()[0]}, {platform.system()}"),
         check_mitmdump(),
@@ -376,8 +481,8 @@ def run_checks(port: int, cwd: Path | None = None) -> list[Check]:
         check_proxy(host, target),
         check_environment(host, target),
         check_local_mode(),
-        check_hook(cwd),
-        check_prompt_hook(cwd),
+        check_hook(cwd, verdicts),
+        check_prompt_hook(cwd, verdicts),
         check_pi_extension(cwd),
         check_audit(),
     ]

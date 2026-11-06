@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code` and `keyfence doctor` reported
+  the hook as installed in a `settings.json` that Claude Code does not
+  apply. Claude Code ignores the whole file when one `PreToolUse` entry
+  in it cannot be loaded, such as one whose `matcher` is not a string or
+  whose command hook has no `command`. Both now run `claude doctor`:
+  `install-hooks` stops before it writes when Claude Code reports the
+  file, and `doctor` fails both Claude Code hook checks for it with the
+  reason Claude Code gives. A malformed `UserPromptSubmit` entry or deny
+  value does not count, because Claude Code drops only that entry. When
+  `claude` is not on `PATH`, times out or prints something keyfence does
+  not recognise, `doctor` warns that the hook is not confirmed and
+  `install-hooks` says how to check, instead of printing `ok`. Running
+  `claude doctor` writes `~/.claude.json`, files under `~/.claude` and a
+  debug log under `~/.npm/_logs`.
+- `keyfence doctor` showed the hook as not installed for a settings file
+  it could not read, without saying why, and crashed with a
+  `PermissionError` on one it had no permission to read. It now warns
+  with the file and the reason.
 - `keyfence install-hooks claude-code`, with or without `--remove`,
   crashed with an `AttributeError` on a `settings.json` whose `hooks` or
   `permissions` was not an object, or whose `PreToolUse`,
@@ -16,8 +34,9 @@
   that entry.
 - `keyfence doctor` and `keyfence install-hooks --list` crashed with an
   `AttributeError` on the same files. They now read such a file the way
-  they read one that is not valid JSON: the hook shows as not installed,
-  and `keyfence install-hooks claude-code` names the key to fix. A
+  they read one that is not valid JSON: `doctor` warns with the file and
+  the key to fix, `--list` shows the hook as not installed, and
+  `keyfence install-hooks claude-code` names the key too. A
   `PreToolUse` entry that Claude Code cannot load counts the same way,
   so a file keyfence installed into earlier no longer shows the hook as
   installed while Claude Code applies none of it.
