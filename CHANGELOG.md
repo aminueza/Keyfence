@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.11.0 (2026-11-16)
 
 - `keyfence install-hooks claude-code` and `keyfence doctor` reported
