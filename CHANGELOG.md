@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 (2026-11-16)
 
 - `keyfence install-hooks claude-code` and `keyfence doctor` reported
   the hook as installed in a `settings.json` that Claude Code does not
