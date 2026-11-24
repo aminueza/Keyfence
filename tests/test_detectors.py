@@ -382,7 +382,6 @@ def test_patterns_disabled_by_config():
 
 
 def test_gitleaks_rules_run_with_patterns_disabled():
-    # scan.patterns and scan.gitleaks are separate switches (docs/configuration.md).
     token = "dop_v1_" + "a1b2c3d4" * 8
     cfg = ScanConfig(
         patterns_enabled=False, entropy_enabled=False, gitleaks=True, rules=load_rules(),

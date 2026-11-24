@@ -414,8 +414,6 @@ def scan_report(text: str, vault=None, config: ScanConfig | None = None, ignore=
     decoded, json_spans = body.text, body.spans
 
     findings.extend(_scan_vault(decoded, vault, json_spans))
-    # Two independent switches: built-in patterns (and the PEM and URL-query
-    # detectors that are part of them) and the bundled gitleaks rules.
     if config.patterns_enabled:
         findings.extend(_scan_pem(decoded))
         findings.extend(_scan_rules(decoded, BUILTIN_RULES))
