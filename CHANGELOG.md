@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
+  non-ASCII characters is no longer refused on a Windows install whose ANSI code
+  page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
+  call `run_hook()` directly. Bytes that are not UTF-8 are still refused as
+  unreadable (issue #185).
 - `keyfence export --otlp` tracks its position by audit-log line instead of by
   timestamp, so two entries written in the same second are both sent. A log
   that was truncated or rotated is read again from the start, which can deliver
