@@ -16,6 +16,10 @@
   and exits 1 when the collector cannot be reached or answers an error status,
   instead of a traceback, and leaves the cursor untouched so the next run
   retries.
+- `hosts` and `extra_hosts` in `config.yaml` must be lists now. A single string
+  used to be split into one-character hosts, so no AI host matched and requests
+  went out unscanned while `doctor` and `status` reported everything fine. A
+  list holding an empty or non-string entry is rejected too (issue #175).
 - The URL query detector stops at `"`, `'`, `}` and `]`, so a `?sig=` value at
   the end of a JSON string no longer swallows the closing quote. It used to
   delete the JSON that followed in compact bodies and refuse harmless requests
