@@ -7,6 +7,15 @@
   page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
   call `run_hook()` directly. Bytes that are not UTF-8 are still refused as
   unreadable (issue #185).
+- `keyfence export --otlp` tracks its position by audit-log line instead of by
+  timestamp, so two entries written in the same second are both sent. A log
+  that was truncated or rotated is read again from the start, which can deliver
+  some entries twice to the collector; losing a detection was the worse trade
+  (issue #178).
+- `keyfence export --otlp` prints one `error: could not send to <url>: ...` line
+  and exits 1 when the collector cannot be reached or answers an error status,
+  instead of a traceback, and leaves the cursor untouched so the next run
+  retries.
 - `install-hooks`, `install-hooks --list` and `doctor` use
   `$CLAUDE_CONFIG_DIR/settings.json` for the global hook when that variable is
   set, the file Claude Code actually reads, instead of always writing
