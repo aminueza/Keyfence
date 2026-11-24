@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
+  non-ASCII characters is no longer refused on a Windows install whose ANSI code
+  page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
+  call `run_hook()` directly. Bytes that are not UTF-8 are still refused as
+  unreadable.
+
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints
   one `error:` line and exits 1 instead of a traceback, and a vault that
