@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from collections.abc import Iterable, Iterator
 from datetime import datetime
@@ -104,22 +105,35 @@ def send_otlp(endpoint: str, entries: list[dict], headers: dict[str, str] | None
     return sent
 
 
-def read_cursor(path: Path) -> int:
-    """Lines of the audit log already exported; 0 when missing or unreadable.
+def log_identity(path: Path) -> int:
+    """The audit log's inode, or 0 when it cannot be read or the platform reports none."""
+    try:
+        return os.stat(path).st_ino
+    except OSError:
+        return 0
+
+
+def read_cursor(path: Path) -> tuple[int, int]:
+    """Lines of the audit log already exported, and the inode they were counted in.
 
     The cursor is positional because the timestamp has one-second resolution:
     two entries written in the same second used to leave the second one behind
-    for good (issue #178). A cursor from an older version held a timestamp and
-    does not parse as an int, so it is treated as absent and the log is read
-    once more.
+    for good (issue #178). The inode catches a rotated log that grew past the
+    line count before the next run: same line count, different file, so the
+    whole new file is read again. A cursor from an older version held a
+    timestamp and does not parse as an int, so it is treated as absent and the
+    log is read once more.
     """
     if not path.exists():
-        return 0
+        return 0, 0
     try:
-        return max(int(path.read_text().strip()), 0)
+        parts = path.read_text().split()
+        lines = max(int(parts[0]), 0)
+        inode = int(parts[1]) if len(parts) > 1 else 0
+        return lines, inode
     except (OSError, ValueError):
-        return 0
+        return 0, 0
 
 
-def write_cursor(path: Path, lines: int) -> None:
-    path.write_text(f"{lines}\n")
+def write_cursor(path: Path, lines: int, inode: int) -> None:
+    path.write_text(f"{lines} {inode}\n")

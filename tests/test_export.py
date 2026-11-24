@@ -97,14 +97,16 @@ def test_send_otlp_raises_on_error_status():
 
 def test_cursor_roundtrip(tmp_path):
     cursor = tmp_path / "export.cursor"
-    assert export.read_cursor(cursor) == 0
-    export.write_cursor(cursor, 2)
-    assert export.read_cursor(cursor) == 2
+    assert export.read_cursor(cursor) == (0, 0)
+    export.write_cursor(cursor, 2, 1234)
+    assert export.read_cursor(cursor) == (2, 1234)
     # A cursor written by the older, timestamp-based version.
     cursor.write_text("2026-09-08T11:00:00-0300")
-    assert export.read_cursor(cursor) == 0
+    assert export.read_cursor(cursor) == (0, 0)
     cursor.write_text("garbage")
-    assert export.read_cursor(cursor) == 0
+    assert export.read_cursor(cursor) == (0, 0)
+    cursor.write_text("-5")
+    assert export.read_cursor(cursor) == (0, 0)
 
 
 def test_entries_in_the_same_second_each_export_once(tmp_path):
@@ -113,14 +115,14 @@ def test_entries_in_the_same_second_each_export_once(tmp_path):
     cursor = tmp_path / "export.cursor"
     log.write_text(json.dumps(ENTRY1) + "\n")
     stop = export.count_lines(log)
-    first = list(export.read_entries(log, start=export.read_cursor(cursor), stop=stop))
-    export.write_cursor(cursor, stop)
+    first = list(export.read_entries(log, start=export.read_cursor(cursor)[0], stop=stop))
+    export.write_cursor(cursor, stop, export.log_identity(log))
     assert [e["host"] for e in first] == ["api.anthropic.com"]
 
     with log.open("a") as fh:   # same ts, written after the first run
         fh.write(json.dumps(second) + "\n")
     stop = export.count_lines(log)
-    rest = list(export.read_entries(log, start=export.read_cursor(cursor), stop=stop))
+    rest = list(export.read_entries(log, start=export.read_cursor(cursor)[0], stop=stop))
     assert [e["path"] for e in rest] == ["/v1/responses"]
 
 

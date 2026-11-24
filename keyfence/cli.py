@@ -407,24 +407,30 @@ def cmd_export(args) -> int:
     since = None
     start = 0
     stop = None
+    log_inode = 0
     if args.since:
         since = export.parse_ts(args.since)
     elif not args.all and args.otlp:
-        start = export.read_cursor(cursor)
+        start, cursor_inode = export.read_cursor(cursor)
         stop = export.count_lines(log)
-        if start > stop:   # the log was truncated or rotated: read it again
+        log_inode = export.log_identity(log)
+        if start > stop or cursor_inode != log_inode:
+            # truncated in place, or rotated into a new file: read it again
             start = 0
     entries = list(export.read_entries(log, since, start, stop))
     if args.otlp:
         headers = dict(h.split("=", 1) for h in args.header)
         try:
             sent = export.send_otlp(args.otlp, entries, headers)
-        except OSError as exc:
-            # URLError and HTTPError are OSError; one line beats a traceback and
+        except (OSError, RuntimeError) as exc:
+            # URLError and HTTPError are OSError; an HTTP status the collector
+            # answers with is a RuntimeError. One line beats a traceback and
             # the cursor stays where it was, so the next run retries.
             print(f"error: could not send to {args.otlp}: {exc}", file=sys.stderr)
             return 1
-        export.write_cursor(cursor, stop if stop is not None else export.count_lines(log))
+        if stop is None:
+            stop, log_inode = export.count_lines(log), export.log_identity(log)
+        export.write_cursor(cursor, stop, log_inode)
         print(f"Sent {sent} entr{'y' if sent == 1 else 'ies'} to {args.otlp}.")
         return 0
     for entry in entries:
