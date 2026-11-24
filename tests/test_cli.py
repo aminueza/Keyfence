@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from keyfence import cli
-from keyfence.vault import Vault
+from keyfence.vault import Vault, VaultError
 
 KEY = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
 ROOT = Path(__file__).resolve().parent.parent
@@ -229,6 +229,89 @@ def test_canary_refuses_duplicate_name_and_accepts_custom(home, tmp_path, capsys
     assert cli.main(["canary", str(env), "--name", "BILLING_KEY"]) == 0
     assert env.read_text().count("=") == 2
     assert Vault().canary_count() == 2
+
+
+def test_canary_fails_cleanly_on_missing_directory(home, tmp_path, capsys):
+    target = tmp_path / "nosuchdir" / ".env"
+    assert cli.main(["canary", str(target)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    err_lines = captured.err.strip().splitlines()
+    assert len(err_lines) == 1
+    assert err_lines[0].startswith(f"error: could not write {target}:")
+    assert "Traceback" not in captured.err
+    assert Vault().canary_count() == 0
+
+
+def test_canary_fails_cleanly_on_directory(home, tmp_path, capsys):
+    target = tmp_path / "somedir"
+    target.mkdir()
+    assert cli.main(["canary", str(target)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    err_lines = captured.err.strip().splitlines()
+    assert len(err_lines) == 1
+    assert err_lines[0].startswith(f"error: could not read {target}:")
+    assert "Traceback" not in captured.err
+    assert Vault().canary_count() == 0
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes a file whatever its mode")
+def test_canary_fails_cleanly_on_readonly_file(home, tmp_path, capsys):
+    target = tmp_path / "readonly.env"
+    target.write_text("PORT=3000\n")
+    target.chmod(0o444)
+    try:
+        assert cli.main(["canary", str(target)]) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        err_lines = captured.err.strip().splitlines()
+        assert len(err_lines) == 1
+        assert err_lines[0].startswith(f"error: could not write {target}:")
+        assert "Traceback" not in captured.err
+        assert Vault().canary_count() == 0
+    finally:
+        target.chmod(0o666)
+
+
+def test_canary_fails_cleanly_on_corrupt_vault(home, tmp_path, capsys):
+    (home / "vault.json").write_text("{not json")
+    target = tmp_path / ".env"
+    target.write_text("PORT=3000\n")
+    assert cli.main(["canary", str(target)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "is not a valid keyfence vault" in captured.err
+    assert "Traceback" not in captured.err
+    assert target.read_text() == "PORT=3000\n"
+
+
+def test_canary_rolls_the_file_back_when_registration_fails(home, tmp_path, capsys, monkeypatch):
+    def boom(self, value, path):
+        raise VaultError("vault is locked")
+
+    monkeypatch.setattr(Vault, "add_canary", boom)
+    target = tmp_path / ".env"
+    target.write_text("PORT=3000\n")
+    assert cli.main(["canary", str(target)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "error: vault is locked"
+    assert "Traceback" not in captured.err
+    assert target.read_text() == "PORT=3000\n"
+
+
+def test_canary_removes_a_new_file_when_registration_fails(home, tmp_path, capsys, monkeypatch):
+    def boom(self, value, path):
+        raise VaultError("vault is locked")
+
+    monkeypatch.setattr(Vault, "add_canary", boom)
+    target = tmp_path / ".env"
+    assert cli.main(["canary", str(target)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.strip() == "error: vault is locked"
+    assert not target.exists()
 
 
 def test_status(home, write_config, capsys):
