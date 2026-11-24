@@ -1154,6 +1154,7 @@ def test_run_times_out_and_kills_stuck_proxy(home, monkeypatch, tmp_path, capsys
 def test_run_starts_the_command_from_path_not_from_the_current_directory(home, monkeypatch, tmp_path, clone):
     seen = {}
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "mitmdump_path", lambda: sys.executable)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: seen.update(command=command) or 0)
     real = clone.plant(clone.bin, "tool", "real")
     clone.plant(clone.repo, "tool", "planted")
@@ -1165,6 +1166,7 @@ def test_run_refuses_a_command_that_is_only_in_the_current_directory(home, monke
     proxy = FakeProxy()
     seen = {}
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    monkeypatch.setattr(runner, "mitmdump_path", lambda: sys.executable)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: pytest.fail("the command must not start"))
     clone.plant(clone.repo, "tool", "planted")
