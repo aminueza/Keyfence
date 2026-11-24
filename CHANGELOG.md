@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
+  non-ASCII characters is no longer refused on a Windows install whose ANSI code
+  page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
+  call `run_hook()` directly. Bytes that are not UTF-8 are still refused as
+  unreadable (issue #185).
 - `install-hooks`, `install-hooks --list` and `doctor` use
   `$CLAUDE_CONFIG_DIR/settings.json` for the global hook when that variable is
   set, the file Claude Code actually reads, instead of always writing
