@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `keyfence exec` hands Ctrl+C to the command: keyfence defers the signal
+  while the child runs, so a command that traps SIGINT finishes and its exit
+  code is returned instead of a traceback with `-2`. mitmdump now starts in its
+  own session (POSIX) or process group (Windows), so the same Ctrl+C no longer
+  stops the proxy while the command is still running.
+
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints
   one `error:` line and exits 1 instead of a traceback, and a vault that
