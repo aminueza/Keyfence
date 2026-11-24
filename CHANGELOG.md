@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code --remove` now removes only Keyfence-owned hooks from a shared hook entry. User-defined hooks, matchers and other entry fields survive when they share an entry with a Keyfence hook.
+
 ## 0.11.1 (2026-11-24)
 
 - On Windows, keyfence ran an executable from the current directory in
