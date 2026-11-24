@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The Docker image's `proxy` entry point now passes `tcp_timeout` to mitmdump
+  from `proxy_tcp_timeout`, like `keyfence exec` and `keyfence run` already
+  did; long requests in a container no longer stop at mitmproxy's 600 s
+  default.
 - `keyfence install-hooks claude-code --remove` now removes only Keyfence-owned hooks from a shared hook entry. User-defined hooks, matchers and other entry fields survive when they share an entry with a Keyfence hook.
 - `keyfence exec` now exits with `128 + N` (e.g. 143 for SIGTERM, 137 for
   SIGKILL) when a signal kills the command, as shells and CI systems report
