@@ -2,9 +2,7 @@
 
 ## Unreleased
 
-- `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
-  with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
-  and with `gitleaks: false` the built-in patterns still do.
+- `keyfence install-hooks claude-code --remove` now removes only Keyfence-owned hooks from a shared hook entry. User-defined hooks, matchers and other entry fields survive when they share an entry with a Keyfence hook.
 - `keyfence exec` now exits with `128 + N` (e.g. 143 for SIGTERM, 137 for
   SIGKILL) when a signal kills the command, as shells and CI systems report
   it, instead of `256 - N`. A positive exit code is unchanged.
@@ -16,6 +14,9 @@
   Before, keyfence loaded such a config and used a wrong value, for
   example `notice: 'false'` turned the notice on. A config that loaded
   with a quoted boolean or number must now use the plain value.
+- `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
+  with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
+  and with `gitleaks: false` the built-in patterns still do.
 
 ## 0.11.1 (2026-11-24)
 
