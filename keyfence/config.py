@@ -108,10 +108,14 @@ class Config:
             else:
                 data = raw_data
             cfg.mode = data.get("mode", cfg.mode)
-            if data.get("hosts"):
-                cfg.hosts = list(data["hosts"])
-            if data.get("extra_hosts"):
-                cfg.hosts.extend(data["extra_hosts"])
+            # A single string here used to be iterated into one-character
+            # "hosts", which silently stopped monitoring (issue #175).
+            hosts = _string_list(data, "hosts")
+            if hosts:
+                cfg.hosts = hosts
+            extra_hosts = _string_list(data, "extra_hosts")
+            if extra_hosts:
+                cfg.hosts.extend(extra_hosts)
             cfg.intercept_all_hosts = bool(
                 data.get("intercept_all_hosts", cfg.intercept_all_hosts))
             raw_timeout = data.get("proxy_tcp_timeout")

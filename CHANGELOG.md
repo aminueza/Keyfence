@@ -16,6 +16,10 @@
   and exits 1 when the collector cannot be reached or answers an error status,
   instead of a traceback, and leaves the cursor untouched so the next run
   retries.
+- `hosts` and `extra_hosts` in `config.yaml` must be lists now. A single string
+  used to be split into one-character hosts, so no AI host matched and requests
+  went out unscanned while `doctor` and `status` reported everything fine. A
+  list holding an empty or non-string entry is rejected too (issue #175).
 - `install-hooks`, `install-hooks --list` and `doctor` use
   `$CLAUDE_CONFIG_DIR/settings.json` for the global hook when that variable is
   set, the file Claude Code actually reads, instead of always writing
