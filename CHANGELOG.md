@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
+  with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
+  and with `gitleaks: false` the built-in patterns still do.
+
 ## 0.11.1 (2026-11-24)
 
 - On Windows, keyfence ran an executable from the current directory in
