@@ -38,13 +38,40 @@ DEFAULT_AI_HOSTS = [
 MODES = ("audit", "block", "redact", "placeholder")
 
 
-def _string_list(data: dict, name: str) -> list[str]:
+def _string_list(data: dict, name: str, label: str | None = None) -> list[str]:
     raw = data.get(name)
     if raw is None:
         return []
     if not isinstance(raw, list) or not all(isinstance(v, str) and v.strip() for v in raw):
-        raise ValueError(f"{name} must be a list of non-empty strings")
+        raise ValueError(f"{label or name} must be a list of non-empty strings")
     return [v.strip() for v in raw]
+
+
+def _bool(data: dict, name: str, default: bool, label: str | None = None) -> bool:
+    if name not in data:
+        return default
+    val = data[name]
+    if not isinstance(val, bool):
+        raise ValueError(f"{label or name} must be a boolean, got {val!r}")
+    return val
+
+
+def _int(data: dict, name: str, default: int, label: str | None = None) -> int:
+    if name not in data:
+        return default
+    val = data[name]
+    if isinstance(val, bool) or not isinstance(val, int):
+        raise ValueError(f"{label or name} must be an integer, got {val!r}")
+    return val
+
+
+def _number(data: dict, name: str, default: float, label: str | None = None) -> int | float:
+    if name not in data:
+        return default
+    val = data[name]
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        raise ValueError(f"{label or name} must be a number, got {val!r}")
+    return val
 
 
 @dataclass
@@ -69,9 +96,17 @@ class Config:
         cfg = cls()
         if cfg_path.exists():
             try:
-                data = yaml.safe_load(cfg_path.read_text()) or {}
+                raw_data = yaml.safe_load(cfg_path.read_text())
             except yaml.YAMLError as exc:
                 raise ValueError(f"{cfg_path} is not valid YAML: {exc}") from None
+            if raw_data is None:
+                data = {}
+            elif not isinstance(raw_data, dict):
+                raise ValueError(
+                    f"{cfg_path} must be a YAML mapping, got {type(raw_data).__name__}"
+                )
+            else:
+                data = raw_data
             cfg.mode = data.get("mode", cfg.mode)
             if data.get("hosts"):
                 cfg.hosts = list(data["hosts"])
@@ -86,18 +121,34 @@ class Config:
                     raise ValueError(
                         f"proxy_tcp_timeout must be a positive integer, got {raw_timeout!r}")
                 cfg.proxy_tcp_timeout = raw_timeout
-            cfg.notice = bool(data.get("notice", cfg.notice))
-            scan = data.get("scan") or {}
+            cfg.notice = _bool(data, "notice", cfg.notice)
+            raw_scan = data.get("scan")
+            if raw_scan is None:
+                scan = {}
+            elif not isinstance(raw_scan, dict):
+                raise ValueError(f"scan must be a mapping, got {raw_scan!r}")
+            else:
+                scan = raw_scan
+            raw_gitleaks_rules = scan.get("gitleaks_rules")
+            if raw_gitleaks_rules is not None and not isinstance(raw_gitleaks_rules, str):
+                raise ValueError(
+                    f"scan.gitleaks_rules must be a string path, got {raw_gitleaks_rules!r}"
+                )
+            gitleaks_disabled = (
+                _string_list(scan, "gitleaks_disabled", label="scan.gitleaks_disabled")
+                if "gitleaks_disabled" in scan
+                else list(DEFAULT_DISABLED)
+            )
             cfg.scan = ScanConfig(
-                patterns_enabled=scan.get("patterns", True),
-                entropy_enabled=scan.get("entropy", True),
-                entropy_min_length=scan.get("entropy_min_length", 24),
-                entropy_threshold=scan.get("entropy_threshold", 4.5),
-                entropy_max_length=scan.get("entropy_max_length", 512),
-                allowlist=scan.get("allowlist") or [],
-                gitleaks=scan.get("gitleaks", True),
-                gitleaks_rules=scan.get("gitleaks_rules"),
-                gitleaks_disabled=list(scan.get("gitleaks_disabled", DEFAULT_DISABLED)),
+                patterns_enabled=_bool(scan, "patterns", True, "scan.patterns"),
+                entropy_enabled=_bool(scan, "entropy", True, "scan.entropy"),
+                entropy_min_length=_int(scan, "entropy_min_length", 24, "scan.entropy_min_length"),
+                entropy_threshold=_number(scan, "entropy_threshold", 4.5, "scan.entropy_threshold"),
+                entropy_max_length=_int(scan, "entropy_max_length", 512, "scan.entropy_max_length"),
+                allowlist=_string_list(scan, "allowlist", label="scan.allowlist"),
+                gitleaks=_bool(scan, "gitleaks", True, "scan.gitleaks"),
+                gitleaks_rules=raw_gitleaks_rules,
+                gitleaks_disabled=gitleaks_disabled,
             )
             if data.get("audit_log"):
                 cfg.audit_log = Path(data["audit_log"]).expanduser()
