@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.11.1 (2026-11-24)
 
 - On Windows, keyfence ran an executable from the current directory in
