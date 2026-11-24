@@ -254,6 +254,7 @@ def test_canary_fails_cleanly_on_directory(home, tmp_path, capsys):
     assert Vault().canary_count() == 0
 
 
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes a file whatever its mode")
 def test_canary_fails_cleanly_on_readonly_file(home, tmp_path, capsys):
     target = tmp_path / "readonly.env"
     target.write_text("PORT=3000\n")

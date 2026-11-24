@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `keyfence canary` writes the file before it registers the canary in the
+  vault, and a path it cannot read or write (missing directory, a directory,
+  a read-only file) now prints one `error:` line and exits 1 instead of a
+  traceback that left an orphan canary in the vault.
+
 ## 0.11.1 (2026-11-24)
 
 - On Windows, keyfence ran an executable from the current directory in
