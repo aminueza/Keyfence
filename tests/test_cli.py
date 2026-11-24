@@ -235,6 +235,7 @@ def test_canary_fails_cleanly_on_missing_directory(home, tmp_path, capsys):
     target = tmp_path / "nosuchdir" / ".env"
     assert cli.main(["canary", str(target)]) == 1
     captured = capsys.readouterr()
+    assert captured.out == ""
     err_lines = captured.err.strip().splitlines()
     assert len(err_lines) == 1
     assert err_lines[0].startswith(f"error: could not write {target}:")
@@ -247,9 +248,10 @@ def test_canary_fails_cleanly_on_directory(home, tmp_path, capsys):
     target.mkdir()
     assert cli.main(["canary", str(target)]) == 1
     captured = capsys.readouterr()
+    assert captured.out == ""
     err_lines = captured.err.strip().splitlines()
     assert len(err_lines) == 1
-    assert err_lines[0].startswith(f"error: could not write {target}:")
+    assert err_lines[0].startswith(f"error: could not read {target}:")
     assert "Traceback" not in captured.err
     assert Vault().canary_count() == 0
 
@@ -262,6 +264,7 @@ def test_canary_fails_cleanly_on_readonly_file(home, tmp_path, capsys):
     try:
         assert cli.main(["canary", str(target)]) == 1
         captured = capsys.readouterr()
+        assert captured.out == ""
         err_lines = captured.err.strip().splitlines()
         assert len(err_lines) == 1
         assert err_lines[0].startswith(f"error: could not write {target}:")

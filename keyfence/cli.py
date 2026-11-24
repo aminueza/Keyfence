@@ -82,7 +82,7 @@ def cmd_canary(args) -> int:
     try:
         existing = path.read_text(errors="replace") if path.exists() else ""
     except OSError as exc:
-        print(f"error: could not write {path}: {exc}", file=sys.stderr)
+        print(f"error: could not read {path}: {exc.strerror or exc}", file=sys.stderr)
         return 1
     if re.search(rf"^\s*(?:export\s+)?{re.escape(name)}\s*=", existing, re.MULTILINE):
         print(f"{path} already defines {name}. Pick another name with --name.")
@@ -93,7 +93,7 @@ def cmd_canary(args) -> int:
         with path.open("a") as fh:
             fh.write(f"{prefix}{name}={value}\n")
     except OSError as exc:
-        print(f"error: could not write {path}: {exc}", file=sys.stderr)
+        print(f"error: could not write {path}: {exc.strerror or exc}", file=sys.stderr)
         return 1
     vault = Vault()
     vault.add_canary(value, str(path.resolve()))

@@ -5,7 +5,7 @@
 - `keyfence canary` writes the file before it registers the canary in the
   vault, and a path it cannot read or write (missing directory, a directory,
   a read-only file) now prints one `error:` line and exits 1 instead of a
-  traceback that left an orphan canary in the vault.
+  traceback that left an orphan canary in the vault (issue #182).
 
 ## 0.11.1 (2026-11-24)
 
