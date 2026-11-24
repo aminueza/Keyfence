@@ -6,7 +6,7 @@
   non-ASCII characters is no longer refused on a Windows install whose ANSI code
   page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
   call `run_hook()` directly. Bytes that are not UTF-8 are still refused as
-  unreadable.
+  unreadable (issue #185).
 
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints

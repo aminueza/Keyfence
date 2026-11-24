@@ -713,6 +713,12 @@ def test_run_hook_reads_stdin_as_utf8_not_the_locale(home, monkeypatch):
                          ensure_ascii=False).encode("utf-8")
     monkeypatch.setattr(hooks.sys, "stdin", io.TextIOWrapper(io.BytesIO(payload), encoding="cp1252"))
     assert hooks.run_hook(stderr=io.StringIO()) == 0
+    # And the text after the emoji still reaches the decision: a sensitive
+    # command behind it is blocked, so a lossy decode cannot pass silently.
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "echo 👍 && cat .env"}},
+                         ensure_ascii=False).encode("utf-8")
+    monkeypatch.setattr(hooks.sys, "stdin", io.TextIOWrapper(io.BytesIO(payload), encoding="cp1252"))
+    assert hooks.run_hook(stderr=io.StringIO()) == 2
 
 
 def test_run_hook_refuses_stdin_that_is_not_utf8(home, monkeypatch, capsys):
