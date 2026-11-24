@@ -328,6 +328,26 @@ def _is_ours(entry) -> bool:
     return any(_is_our_hook(h) for h in _entry_hooks(entry))
 
 
+def _remove_our_hooks(entries: list) -> tuple[list, bool]:
+    kept = []
+    removed = False
+    for entry in entries:
+        nested = entry.get("hooks") if isinstance(entry, dict) else None
+        if not isinstance(nested, list):
+            kept.append(entry)
+            continue
+        remaining = [hook for hook in nested if not (isinstance(hook, dict) and _is_our_hook(hook))]
+        if len(remaining) == len(nested):
+            kept.append(entry)
+            continue
+        removed = True
+        if remaining:
+            updated = dict(entry)
+            updated["hooks"] = remaining
+            kept.append(updated)
+    return kept, removed
+
+
 def _read_settings(path: Path) -> dict:
     data = json.loads(path.read_text()) if path.exists() else {}
     if not isinstance(data, dict):
@@ -421,8 +441,8 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     data = _read_settings(path)
     pre = data.get("hooks", {}).get("PreToolUse", [])
     prompt = data.get("hooks", {}).get("UserPromptSubmit", [])
-    kept_pre = [e for e in pre if not _is_ours(e)]
-    kept_prompt = [e for e in prompt if not _is_ours(e)]
+    kept_pre, removed_pre = _remove_our_hooks(pre)
+    kept_prompt, removed_prompt = _remove_our_hooks(prompt)
     deny = data.get("permissions", {}).get("deny", [])
     recorded = _added_rules(path)
     ours = tuple(recorded or ())
@@ -435,7 +455,7 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     if force or recorded is not None:
         added_rules_path(path).unlink(missing_ok=True)
     result = Removal(
-        (len(kept_pre) < len(pre)) or (len(kept_prompt) < len(prompt)),
+        removed_pre or removed_prompt,
         len(deny) - len(kept_deny),
         unrecorded
     )
