@@ -172,6 +172,28 @@ def test_url_query_keyword_anywhere_in_the_parameter_name(text):
     assert findings[0].value == "Zq8xK2mP9vL4nR7tW3yB6cF1dH5j"
 
 
+def test_url_query_value_stops_at_json_delimiters():
+    # Compact JSON is what SDK clients send; the value must end at the closing
+    # quote rather than run to the next space and delete the JSON around it.
+    body = ('{"messages":['
+            '{"role":"user","content":"see https://x.example.com/f?sig=abcdefgh12"},'
+            '{"role":"assistant","content":"ok then"},'
+            '{"role":"user","content":"thanks"}]}')
+    findings = scan(body, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("url-query-secret", "abcdefgh12")]
+    finding = findings[0]
+    rewritten = body[:finding.start] + "[REDACTED:url-query-secret]" + body[finding.end:]
+    assert json.loads(rewritten)["messages"][1]["content"] == "ok then"
+    assert len(json.loads(rewritten)["messages"]) == 3
+
+
+@pytest.mark.parametrize("suffix", ['"', '"}', '"} ', "'", "]", "}"])
+def test_url_query_value_does_not_swallow_a_closing_delimiter(suffix):
+    text = f"https://x.example.com/f?key=abcdefgh12{suffix}"
+    findings = scan(text, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("url-query-secret", "abcdefgh12")]
+
+
 def test_url_query_without_a_keyword_or_an_equals_sign_is_not_a_finding():
     text = "https://x.com/?a.b=Zq8xK2mP9vL4nR7tW3yB6cF1dH5j&token&key.Zq8xK2mP9vL4nR7tW3yB6cF1dH5j"
     assert scan(text, config=NO_ENTROPY) == []
