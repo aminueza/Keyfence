@@ -14,6 +14,9 @@
   Before, keyfence loaded such a config and used a wrong value, for
   example `notice: 'false'` turned the notice on. A config that loaded
   with a quoted boolean or number must now use the plain value.
+- `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
+  with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
+  and with `gitleaks: false` the built-in patterns still do.
 
 ## 0.11.1 (2026-11-24)
 
