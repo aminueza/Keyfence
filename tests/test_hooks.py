@@ -1165,6 +1165,19 @@ def test_resolve_command_returns_the_path_entry_and_keeps_explicit_paths(clone):
         hooks.resolve_command(["other"])
 
 
+def test_keyfence_path_finds_the_install_scheme_scripts_folder(tmp_path, monkeypatch):
+    # Windows system and `--user` installs put keyfence.exe in a Scripts folder
+    # that is neither beside python.exe nor on PATH (issue #173).
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    exe = scripts / "keyfence.exe"
+    exe.write_text("")
+    monkeypatch.setattr(hooks.sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {"scripts": str(scripts)})
+    monkeypatch.setattr(hooks, "find_executable", lambda _name: None)
+    assert hooks.keyfence_path() == str(exe)
+
+
 def test_keyfence_path_never_picks_a_keyfence_from_the_current_directory(clone, monkeypatch):
     monkeypatch.setattr(hooks.sys, "executable", str(clone.repo.parent / "python"))
     clone.plant(clone.repo, "keyfence", "planted")
