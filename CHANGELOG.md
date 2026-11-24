@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
+  non-ASCII characters is no longer refused on a Windows install whose ANSI code
+  page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
+  call `run_hook()` directly. Bytes that are not UTF-8 are still refused as
+  unreadable (issue #185).
 - `hosts` and `extra_hosts` in `config.yaml` must be lists now. A single string
   used to be split into one-character hosts, so no AI host matched and requests
   went out unscanned while `doctor` and `status` reported everything fine. A
