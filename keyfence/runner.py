@@ -428,8 +428,6 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         code = subprocess.call(resolved, env=child_env(os.environ, port, ca_cert, bundle,
                                                        bypass_loopback=not loopback_monitored(config)))
         if code < 0 and os.name == "posix":
-            # subprocess reports a signal death as -N; shells (and CI systems)
-            # expect 128 + N, so a timeout or OOM kill is recognisable.
             code = 128 - code
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
