@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `keyfence exec` now exits with `128 + N` (e.g. 143 for SIGTERM, 137 for
+  SIGKILL) when a signal kills the command, as shells and CI systems report
+  it, instead of `256 - N`. A positive exit code is unchanged.
+
 ## 0.11.1 (2026-11-24)
 
 - On Windows, keyfence ran an executable from the current directory in
