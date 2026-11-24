@@ -79,16 +79,24 @@ def cmd_import(args) -> int:
 def cmd_canary(args) -> int:
     path = Path(args.file)
     name = args.name
-    existing = path.read_text(errors="replace") if path.exists() else ""
+    try:
+        existing = path.read_text(errors="replace") if path.exists() else ""
+    except OSError as exc:
+        print(f"error: could not write {path}: {exc}", file=sys.stderr)
+        return 1
     if re.search(rf"^\s*(?:export\s+)?{re.escape(name)}\s*=", existing, re.MULTILINE):
         print(f"{path} already defines {name}. Pick another name with --name.")
         return 1
     value = secrets.token_urlsafe(24)
+    prefix = "" if not existing or existing.endswith("\n") else "\n"
+    try:
+        with path.open("a") as fh:
+            fh.write(f"{prefix}{name}={value}\n")
+    except OSError as exc:
+        print(f"error: could not write {path}: {exc}", file=sys.stderr)
+        return 1
     vault = Vault()
     vault.add_canary(value, str(path.resolve()))
-    prefix = "" if not existing or existing.endswith("\n") else "\n"
-    with path.open("a") as fh:
-        fh.write(f"{prefix}{name}={value}\n")
     print(f"Canary planted in {path} as {name} and registered in the vault (hash only).")
     print("If it ever shows up in a request, keyfence logs a 'canary' detection with this file's path.")
     return 0
