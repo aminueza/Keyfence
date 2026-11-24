@@ -20,6 +20,11 @@
   used to be split into one-character hosts, so no AI host matched and requests
   went out unscanned while `doctor` and `status` reported everything fine. A
   list holding an empty or non-string entry is rejected too (issue #175).
+- The URL query detector stops at `"`, `'`, `}` and `]`, so a `?sig=` value at
+  the end of a JSON string no longer swallows the closing quote. It used to
+  delete the JSON that followed in compact bodies and refuse harmless requests
+  with a 403 in spaced ones. A raw delimiter inside a value now cuts it there;
+  such values should have been percent-encoded anyway (issue #174).
 
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints

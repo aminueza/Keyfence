@@ -110,7 +110,7 @@ _HEXISH = re.compile(r"^[0-9a-fA-F]+$")
 _PATHISH = re.compile(r"^[./~]|://|^data:")
 _BASE64ISH = re.compile(r"^[A-Za-z0-9+/_-]+=*$")
 _DATA_URI = re.compile(r"data:[\w/+.-]+;base64,[A-Za-z0-9+/=_-]+")
-_QUERY_VALUE = re.compile(r"[?&](?=[A-Za-z0-9_.-]*(?:token|key|secret|auth|password|pass|sig))[A-Za-z0-9_.-]*+=([^&\s#\\]{8,})", re.IGNORECASE)
+_QUERY_VALUE = re.compile(r"[?&](?=[A-Za-z0-9_.-]*(?:token|key|secret|auth|password|pass|sig))[A-Za-z0-9_.-]*+=([^&\s#\\\"'}\]]{8,})", re.IGNORECASE)
 
 SKIP_PREFIXES = (
     "toolu_", "srvtoolu_", "mcptoolu_", "msg_", "msgbatch_", "req_", "compl_",
