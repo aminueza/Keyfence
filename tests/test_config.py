@@ -167,6 +167,19 @@ def test_hosts_lists_reject_non_string_members(write_config, key):
         Config.load()
 
 
+@pytest.mark.parametrize("key", ["hosts", "extra_hosts"])
+@pytest.mark.parametrize("member", ['""', '" "'])
+def test_hosts_lists_reject_empty_members(write_config, key, member):
+    write_config(f"{key}: [{member}]\n")
+    with pytest.raises(ValueError, match=rf"{key} must be a list of non-empty strings"):
+        Config.load()
+
+
+def test_empty_hosts_list_keeps_the_defaults(write_config, home):
+    write_config("hosts: []\n")
+    assert Config.load().hosts == DEFAULT_AI_HOSTS
+
+
 @pytest.mark.parametrize("text", [
     "ignore_keys: DB_HOST\n",
     "ignore_values: db.internal.example.com\n",
