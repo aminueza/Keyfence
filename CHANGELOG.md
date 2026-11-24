@@ -6,6 +6,9 @@
   from `proxy_tcp_timeout`, like `keyfence exec` and `keyfence run` already
   did; long requests in a container no longer stop at mitmproxy's 600 s
   default.
+- `keyfence exec` now exits with `128 + N` (e.g. 143 for SIGTERM, 137 for
+  SIGKILL) when a signal kills the command, as shells and CI systems report
+  it, instead of `256 - N`. A positive exit code is unchanged.
 - The config loader checks the type of each value. A config that is not
   a mapping, a `scan` that is not a mapping, or a wrong type for
   `notice`, `scan.patterns`, `scan.entropy`, `scan.gitleaks`, the entropy
