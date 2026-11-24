@@ -254,6 +254,20 @@ def test_run_keeps_intercepting_every_host_when_asked_to(home, write_config, mon
     assert not _tunnels_with_argv(seen["cmd"], "evil.com")
 
 
+@pytest.mark.skipif(os.name != "posix", reason="shell exit codes for signals")
+@pytest.mark.parametrize(("signal_number", "expected"), [(15, 143), (9, 137), (2, 130)])
+def test_run_reports_a_signal_death_as_128_plus_the_signal(home, monkeypatch, tmp_path, signal_number, expected):
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: -signal_number)
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == expected
+
+
+def test_run_keeps_a_positive_exit_code_as_it_is(home, monkeypatch, tmp_path):
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 3)
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 3
+
+
 def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     seen = {}
     ca = tmp_path / "ca.pem"
