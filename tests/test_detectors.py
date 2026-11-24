@@ -173,8 +173,6 @@ def test_url_query_keyword_anywhere_in_the_parameter_name(text):
 
 
 def test_url_query_value_stops_at_json_delimiters():
-    # Compact JSON is what SDK clients send; the value must end at the closing
-    # quote rather than run to the next space and delete the JSON around it.
     body = ('{"messages":['
             '{"role":"user","content":"see https://x.example.com/f?sig=abcdefgh12"},'
             '{"role":"assistant","content":"ok then"},'
