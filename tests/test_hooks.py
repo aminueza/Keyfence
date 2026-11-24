@@ -651,6 +651,29 @@ def test_uninstall_removes_only_keyfence_prompt_hooks(tmp_path):
     assert not hooks.uninstall(path).changed
 
 
+@pytest.mark.parametrize("section", ["PreToolUse", "UserPromptSubmit"])
+def test_uninstall_keeps_a_user_hook_that_shares_an_entry_with_keyfence(tmp_path, section):
+    # docs/setup.md: --remove takes out only what keyfence added, even when the
+    # user put their own hook in the same entry.
+    path = tmp_path / "settings.json"
+    assert hooks.install(path)
+    data = json.loads(path.read_text())
+    entry = data["hooks"][section][0]
+    matcher = entry.get("matcher")
+    entry["hooks"].append({"type": "command", "command": "/usr/local/bin/audit-bash-calls"})
+    path.write_text(json.dumps(data))
+
+    result = hooks.uninstall(path)
+
+    assert result.changed and result.hook
+    after = json.loads(path.read_text())["hooks"][section]
+    assert len(after) == 1
+    assert after[0].get("matcher") == matcher
+    assert after[0]["hooks"] == [{"type": "command", "command": "/usr/local/bin/audit-bash-calls"}]
+    # A second run finds nothing of ours and changes nothing.
+    assert not hooks.uninstall(path).changed
+
+
 def test_uninstall_removes_both_pretooluse_and_prompt(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}]}],

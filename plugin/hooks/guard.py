@@ -328,6 +328,29 @@ def _is_ours(entry) -> bool:
     return any(_is_our_hook(h) for h in _entry_hooks(entry))
 
 
+def _without_our_hooks(entries: list) -> tuple[list, int]:
+    """Entries with only keyfence's hooks removed from them.
+
+    An entry can hold a user's hook next to keyfence's (the settings file is
+    shared). Remove just ours and keep the entry, its matcher and the foreign
+    hooks; drop the entry only when nothing is left in it.
+    """
+    kept = []
+    removed = 0
+    for entry in entries:
+        nested = _entry_hooks(entry)
+        foreign = [hook for hook in nested if not _is_our_hook(hook)]
+        removed_here = len(nested) - len(foreign)
+        removed += removed_here
+        if removed_here == 0:
+            kept.append(entry)
+        elif foreign:
+            cleaned = dict(entry)
+            cleaned["hooks"] = foreign
+            kept.append(cleaned)
+    return kept, removed
+
+
 def _read_settings(path: Path) -> dict:
     data = json.loads(path.read_text()) if path.exists() else {}
     if not isinstance(data, dict):
@@ -421,8 +444,8 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     data = _read_settings(path)
     pre = data.get("hooks", {}).get("PreToolUse", [])
     prompt = data.get("hooks", {}).get("UserPromptSubmit", [])
-    kept_pre = [e for e in pre if not _is_ours(e)]
-    kept_prompt = [e for e in prompt if not _is_ours(e)]
+    kept_pre, removed_pre = _without_our_hooks(pre)
+    kept_prompt, removed_prompt = _without_our_hooks(prompt)
     deny = data.get("permissions", {}).get("deny", [])
     recorded = _added_rules(path)
     ours = tuple(recorded or ())
@@ -435,7 +458,7 @@ def uninstall(path: Path, force: bool = False) -> Removal:
     if force or recorded is not None:
         added_rules_path(path).unlink(missing_ok=True)
     result = Removal(
-        (len(kept_pre) < len(pre)) or (len(kept_prompt) < len(prompt)),
+        removed_pre + removed_prompt > 0,
         len(deny) - len(kept_deny),
         unrecorded
     )

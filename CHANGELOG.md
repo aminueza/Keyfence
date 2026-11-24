@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `keyfence install-hooks --remove` takes out only keyfence's own hooks now. A
+  user hook that shares a `PreToolUse` or `UserPromptSubmit` entry with it is
+  kept, together with the entry's matcher, as `docs/setup.md` promises.
+
 ## 0.11.1 (2026-11-24)
 
 - On Windows, keyfence ran an executable from the current directory in
