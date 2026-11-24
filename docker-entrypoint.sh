@@ -33,8 +33,6 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 if [ "$1" = "proxy" ] || [ -z "$1" ]; then
-  # The addon does not read the config, so the same tcp_timeout `keyfence exec`
-  # passes has to be passed here too; otherwise long requests stop at 600 s.
   if ! tcp_timeout=$(python -c 'from keyfence.config import Config; print(Config.load().proxy_tcp_timeout)'); then
     echo "[keyfence] cannot read $CONFIG_FILE" >&2
     exit 1
