@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
+  non-ASCII characters is no longer refused on a Windows install whose ANSI code
+  page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
+  call `run_hook()` directly. Bytes that are not UTF-8 are still refused as
+  unreadable (issue #185).
 - The URL query detector stops at `"`, `'`, `}` and `]`, so a `?sig=` value at
   the end of a JSON string no longer swallows the closing quote. It used to
   delete the JSON that followed in compact bodies and refuse harmless requests

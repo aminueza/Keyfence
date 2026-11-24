@@ -705,6 +705,28 @@ def test_uninstall_removes_only_keyfence_prompt_hooks(tmp_path):
     assert not hooks.uninstall(path).changed
 
 
+def test_run_hook_reads_stdin_as_utf8_not_the_locale(home, monkeypatch):
+    # The reproduction emulates a Western Windows install: the pipe's text
+    # decoding is cp1252, where the emoji's 0x8D byte is undefined.
+    # ensure_ascii=False keeps the emoji as UTF-8 bytes, as an agent writes it.
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "echo 👍"}},
+                         ensure_ascii=False).encode("utf-8")
+    monkeypatch.setattr(hooks.sys, "stdin", io.TextIOWrapper(io.BytesIO(payload), encoding="cp1252"))
+    assert hooks.run_hook(stderr=io.StringIO()) == 0
+    # And the text after the emoji still reaches the decision: a sensitive
+    # command behind it is blocked, so a lossy decode cannot pass silently.
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "echo 👍 && cat .env"}},
+                         ensure_ascii=False).encode("utf-8")
+    monkeypatch.setattr(hooks.sys, "stdin", io.TextIOWrapper(io.BytesIO(payload), encoding="cp1252"))
+    assert hooks.run_hook(stderr=io.StringIO()) == 2
+
+
+def test_run_hook_refuses_stdin_that_is_not_utf8(home, monkeypatch, capsys):
+    monkeypatch.setattr(hooks.sys, "stdin", io.TextIOWrapper(io.BytesIO(b"\xff\xfe{}"), encoding="utf-8"))
+    assert hooks.run_hook() == 2
+    assert "could not read the tool call" in capsys.readouterr().err
+
+
 def test_uninstall_removes_both_pretooluse_and_prompt(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}]}],
