@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The Docker image's `proxy` entry point now passes `tcp_timeout` to mitmdump
+  from `proxy_tcp_timeout`, like `keyfence exec` and `keyfence run` already
+  did; long requests in a container no longer stop at mitmproxy's 600 s
+  default.
+
 ## 0.11.1 (2026-11-24)
 
 - On Windows, keyfence ran an executable from the current directory in

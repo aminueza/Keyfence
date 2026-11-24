@@ -33,6 +33,12 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 if [ "$1" = "proxy" ] || [ -z "$1" ]; then
+  # The addon does not read the config, so the same tcp_timeout `keyfence exec`
+  # passes has to be passed here too; otherwise long requests stop at 600 s.
+  if ! tcp_timeout=$(python -c 'from keyfence.config import Config; print(Config.load().proxy_tcp_timeout)'); then
+    echo "[keyfence] cannot read $CONFIG_FILE" >&2
+    exit 1
+  fi
   echo "[keyfence] starting proxy on port 8888"
   echo "[keyfence] CA certificate: $DATA_DIR/certs/mitmproxy-ca-cert.pem (on the host)"
   exec mitmdump \
@@ -40,7 +46,8 @@ if [ "$1" = "proxy" ] || [ -z "$1" ]; then
     --listen-host 0.0.0.0 \
     --listen-port 8888 \
     --set confdir="$DATA_DIR/certs" \
-    --set block_global=true
+    --set block_global=true \
+    --set tcp_timeout="$tcp_timeout"
 fi
 
 exec keyfence "$@"
