@@ -84,11 +84,16 @@ def cmd_canary(args) -> int:
         print(f"{path} already defines {name}. Pick another name with --name.")
         return 1
     value = secrets.token_urlsafe(24)
-    vault = Vault()
-    vault.add_canary(value, str(path.resolve()))
     prefix = "" if not existing or existing.endswith("\n") else "\n"
-    with path.open("a") as fh:
-        fh.write(f"{prefix}{name}={value}\n")
+    # Write first: a canary in the vault with no file holding it would be a
+    # permanent false positive, and a failed open must not leave one behind.
+    try:
+        with path.open("a") as fh:
+            fh.write(f"{prefix}{name}={value}\n")
+    except OSError as exc:
+        print(f"error: could not write {path}: {exc.strerror or exc}", file=sys.stderr)
+        return 1
+    Vault().add_canary(value, str(path.resolve()))
     print(f"Canary planted in {path} as {name} and registered in the vault (hash only).")
     print("If it ever shows up in a request, keyfence logs a 'canary' detection with this file's path.")
     return 0

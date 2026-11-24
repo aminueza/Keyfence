@@ -221,6 +221,31 @@ def test_canary_creates_and_appends(home, tmp_path, capsys):
     assert value not in capsys.readouterr().out
 
 
+def test_canary_into_a_missing_directory_leaves_no_canary(home, tmp_path, capsys):
+    target = tmp_path / "nosuchdir" / ".env"
+    assert cli.main(["canary", str(target)]) == 1
+    err = capsys.readouterr().err
+    assert "error: could not write" in err and str(target) in err
+    assert "Traceback" not in err
+    assert Vault().canary_count() == 0
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs a read-only file and a non-root user")
+def test_canary_into_a_read_only_file_leaves_no_canary(home, tmp_path, capsys):
+    target = tmp_path / ".env"
+    target.write_text("PORT=3000\n")
+    target.chmod(0o400)
+    try:
+        assert cli.main(["canary", str(target)]) == 1
+        err = capsys.readouterr().err
+        assert "error: could not write" in err
+        assert "Traceback" not in err
+        assert Vault().canary_count() == 0
+        assert target.read_text() == "PORT=3000\n"
+    finally:
+        target.chmod(0o600)
+
+
 def test_canary_refuses_duplicate_name_and_accepts_custom(home, tmp_path, capsys):
     env = tmp_path / ".env"
     assert cli.main(["canary", str(env)]) == 0
