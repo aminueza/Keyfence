@@ -405,15 +405,26 @@ def cmd_export(args) -> int:
     log = Path(cfg.audit_log)
     cursor = DEFAULT_DIR / "export.cursor"
     since = None
+    start = 0
+    stop = None
     if args.since:
         since = export.parse_ts(args.since)
     elif not args.all and args.otlp:
-        since = export.read_cursor(cursor)
-    entries = list(export.read_entries(log, since))
+        start = export.read_cursor(cursor)
+        stop = export.count_lines(log)
+        if start > stop:   # the log was truncated or rotated: read it again
+            start = 0
+    entries = list(export.read_entries(log, since, start, stop))
     if args.otlp:
         headers = dict(h.split("=", 1) for h in args.header)
-        sent = export.send_otlp(args.otlp, entries, headers)
-        export.write_cursor(cursor, entries)
+        try:
+            sent = export.send_otlp(args.otlp, entries, headers)
+        except OSError as exc:
+            # URLError and HTTPError are OSError; one line beats a traceback and
+            # the cursor stays where it was, so the next run retries.
+            print(f"error: could not send to {args.otlp}: {exc}", file=sys.stderr)
+            return 1
+        export.write_cursor(cursor, stop if stop is not None else export.count_lines(log))
         print(f"Sent {sent} entr{'y' if sent == 1 else 'ies'} to {args.otlp}.")
         return 0
     for entry in entries:

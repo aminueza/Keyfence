@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `keyfence export --otlp` tracks its position by audit-log line instead of by
+  timestamp, so two entries written in the same second are both sent, and a
+  truncated or rotated log is read again rather than skipped.
+- `keyfence export --otlp` prints one `error: could not send to <url>: ...` line
+  and exits 1 when the collector cannot be reached, instead of a traceback, and
+  leaves the cursor untouched so the next run retries.
+
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints
   one `error:` line and exits 1 instead of a traceback, and a vault that

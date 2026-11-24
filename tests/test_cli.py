@@ -840,12 +840,62 @@ def test_export_jsonl_and_otlp(home, write_config, monkeypatch, capsys):
     monkeypatch.setattr(cli.export, "send_otlp", lambda url, entries, headers: sent.append((url, len(entries), headers)) or len(entries))
     assert cli.main(["export", "--otlp", "http://c:4318", "--header", "Authorization=Bearer t"]) == 0
     assert sent[-1] == ("http://c:4318", 2, {"Authorization": "Bearer t"})
-    assert (home / "export.cursor").read_text().strip() == "2026-09-08T11:00:00-0300"
+    assert (home / "export.cursor").read_text().strip() == "2"
     assert cli.main(["export", "--otlp", "http://c:4318"]) == 0
     assert sent[-1][1] == 0
     assert cli.main(["export", "--otlp", "http://c:4318", "--all"]) == 0
     assert sent[-1][1] == 2
     assert "Sent 2 entries" in capsys.readouterr().out
+
+
+def test_export_otlp_keeps_two_entries_from_the_same_second(home, write_config, monkeypatch, capsys):
+    write_config("mode: redact\n")
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": "h", "path": "/p", "mode": "redact", "count": 1,
+             "findings": [{"kind": "vault", "preview": "x", "key": None}]}
+    (home / "audit.log").write_text(json.dumps(entry) + "\n")
+    sent = []
+    monkeypatch.setattr(cli.export, "send_otlp",
+                        lambda url, entries, headers: sent.append(len(entries)) or len(entries))
+    assert cli.main(["export", "--otlp", "http://c"]) == 0
+    with (home / "audit.log").open("a") as fh:
+        fh.write(json.dumps({**entry, "host": "h2"}) + "\n")
+    assert cli.main(["export", "--otlp", "http://c"]) == 0
+    assert sent == [1, 1]
+    assert "Sent 1 entry" in capsys.readouterr().out
+
+
+def test_export_otlp_reads_a_truncated_log_again(home, write_config, monkeypatch):
+    write_config("mode: redact\n")
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": "h", "path": "/p", "mode": "redact", "count": 1,
+             "findings": [{"kind": "vault", "preview": "x", "key": None}]}
+    (home / "audit.log").write_text(json.dumps(entry) + "\n" + json.dumps({**entry, "host": "h2"}) + "\n")
+    sent = []
+    monkeypatch.setattr(cli.export, "send_otlp",
+                        lambda url, entries, headers: sent.append(len(entries)) or len(entries))
+    assert cli.main(["export", "--otlp", "http://c"]) == 0
+    # Rotation: the new file is shorter than the cursor.
+    (home / "audit.log").write_text(json.dumps({**entry, "host": "h3"}) + "\n")
+    assert cli.main(["export", "--otlp", "http://c"]) == 0
+    assert sent == [2, 1]
+
+
+def test_export_otlp_reports_an_unreachable_collector_without_a_traceback(home, write_config, monkeypatch, capsys):
+    import urllib.error
+
+    write_config("mode: redact\n")
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": "h", "path": "/p", "mode": "redact", "count": 1,
+             "findings": [{"kind": "vault", "preview": "x", "key": None}]}
+    (home / "audit.log").write_text(json.dumps(entry) + "\n")
+
+    def unreachable(url, entries, headers):
+        raise urllib.error.URLError("Connection refused")
+
+    monkeypatch.setattr(cli.export, "send_otlp", unreachable)
+    assert cli.main(["export", "--otlp", "http://127.0.0.1:1"]) == 1
+    err = capsys.readouterr().err
+    assert "error: could not send to http://127.0.0.1:1: " in err
+    assert "Traceback" not in err
+    assert not (home / "export.cursor").exists()
 
 
 def test_exec_without_command(home, capsys):

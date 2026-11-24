@@ -14,10 +14,23 @@ def parse_ts(value: str) -> datetime:
     return datetime.strptime(value, TS_FORMAT)
 
 
-def read_entries(path: Path, since: datetime | None = None) -> Iterator[dict]:
+def count_lines(path: Path) -> int:
+    """Physical lines in the audit log, used as the export cursor."""
+    if not path.exists():
+        return 0
+    return len(path.read_text().splitlines())
+
+
+def read_entries(path: Path, since: datetime | None = None, start: int = 0,
+                 stop: int | None = None) -> Iterator[dict]:
     if not path.exists():
         return
-    for line in path.read_text().splitlines():
+    lines = path.read_text().splitlines()
+    if stop is not None:
+        lines = lines[:stop]
+    for index, line in enumerate(lines):
+        if index < start:
+            continue
         if not line.strip():
             continue
         try:
@@ -91,15 +104,22 @@ def send_otlp(endpoint: str, entries: list[dict], headers: dict[str, str] | None
     return sent
 
 
-def read_cursor(path: Path) -> datetime | None:
+def read_cursor(path: Path) -> int:
+    """Lines of the audit log already exported; 0 when missing or unreadable.
+
+    The cursor is positional because the timestamp has one-second resolution:
+    two entries written in the same second used to leave the second one behind
+    for good (issue #178). A cursor from an older version held a timestamp and
+    does not parse as an int, so it is treated as absent and the log is read
+    once more.
+    """
     if not path.exists():
-        return None
+        return 0
     try:
-        return parse_ts(path.read_text().strip())
-    except ValueError:
-        return None
+        return max(int(path.read_text().strip()), 0)
+    except (OSError, ValueError):
+        return 0
 
 
-def write_cursor(path: Path, entries: list[dict]) -> None:
-    if entries:
-        path.write_text(entries[-1]["ts"] + "\n")
+def write_cursor(path: Path, lines: int) -> None:
+    path.write_text(f"{lines}\n")
