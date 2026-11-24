@@ -762,6 +762,24 @@ def test_install_hooks_global_uses_home(home, tmp_path, monkeypatch, capsys):
     assert "all projects" in capsys.readouterr().out
 
 
+def test_install_hooks_list_and_remove_follow_claude_config_dir(home, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    config = tmp_path / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    assert cli.main(["install-hooks", "claude-code"]) == 0
+    assert (config / "settings.json").exists()
+    assert not (tmp_path / "home" / ".claude" / "settings.json").exists()
+    capsys.readouterr()
+    assert cli.main(["install-hooks", "--list"]) == 0
+    # The global scope is reported installed only because --list reads the
+    # relocated file; ~/.claude/settings.json does not exist here.
+    assert "global   installed" in capsys.readouterr().out
+    assert cli.main(["install-hooks", "claude-code", "--remove"]) == 0
+    capsys.readouterr()
+    assert cli.main(["install-hooks", "--list"]) == 0
+    assert "global   installed" not in capsys.readouterr().out
+
+
 def test_install_hooks_list_reports_each_agent_and_scope(home, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli.hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
     project = tmp_path / "proj"

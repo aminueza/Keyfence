@@ -124,7 +124,9 @@ and is embedded in the extension when it is installed.
 
 Claude Code has declarative hooks and permissions, so
 `keyfence install-hooks claude-code` writes into `settings.json`
-(`~/.claude/settings.json`, or `./.claude/settings.json` with `--project`):
+(`~/.claude/settings.json` — or `$CLAUDE_CONFIG_DIR/settings.json` when Claude Code's
+config directory is moved with that variable — or `./.claude/settings.json` with
+`--project`):
 
 - a `PreToolUse` entry with the matcher above and the command
   `keyfence hook claude-code`, timeout 10;
