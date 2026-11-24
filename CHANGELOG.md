@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `keyfence install-hooks claude-code --remove` now removes only Keyfence-owned hooks from a shared hook entry. User-defined hooks, matchers and other entry fields survive when they share an entry with a Keyfence hook.
 - `keyfence exec` now exits with `128 + N` (e.g. 143 for SIGTERM, 137 for
   SIGKILL) when a signal kills the command, as shells and CI systems report
   it, instead of `256 - N`. A positive exit code is unchanged.
