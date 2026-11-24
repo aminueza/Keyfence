@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-- `keyfence canary` writes the file before it registers the canary in the
-  vault, and a path it cannot read or write (missing directory, a directory,
-  a read-only file) now prints one `error:` line and exits 1 instead of a
-  traceback that left an orphan canary in the vault (issue #182).
+- `keyfence canary` leaves no orphan behind when it fails: a path it cannot
+  read or write (missing directory, a directory, a read-only file) prints
+  one `error:` line and exits 1 instead of a traceback, and a vault that
+  cannot load or save leaves the file exactly as it was (issue #182).
 - The Docker image's `proxy` entry point now passes `tcp_timeout` to mitmdump
   from `proxy_tcp_timeout`, like `keyfence exec` and `keyfence run` already
   did; long requests in a container no longer stop at mitmproxy's 600 s

@@ -89,14 +89,34 @@ def cmd_canary(args) -> int:
         return 1
     value = secrets.token_urlsafe(24)
     prefix = "" if not existing or existing.endswith("\n") else "\n"
+    # Load the vault before touching the file: a vault that cannot load must
+    # fail while the file is still untouched.
+    vault = Vault()
+    existed = path.exists()
+    prev_size = path.stat().st_size if existed else 0
     try:
         with path.open("a") as fh:
             fh.write(f"{prefix}{name}={value}\n")
     except OSError as exc:
         print(f"error: could not write {path}: {exc.strerror or exc}", file=sys.stderr)
         return 1
-    vault = Vault()
-    vault.add_canary(value, str(path.resolve()))
+    try:
+        vault.add_canary(value, str(path.resolve()))
+    except (VaultError, OSError) as exc:
+        # The line is in the file but not in the vault: undo the append, or a
+        # canary that never trips stays behind and blocks a retry.
+        try:
+            if existed:
+                with path.open("r+") as fh:
+                    fh.truncate(prev_size)
+            else:
+                path.unlink()
+        except OSError as roll_exc:
+            print(f"error: {exc}, and the canary line could not be removed from "
+                  f"{path} ({roll_exc.strerror or roll_exc}); remove it by hand", file=sys.stderr)
+            return 1
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print(f"Canary planted in {path} as {name} and registered in the vault (hash only).")
     print("If it ever shows up in a request, keyfence logs a 'canary' detection with this file's path.")
     return 0
