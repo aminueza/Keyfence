@@ -232,7 +232,7 @@ and fields each agent sends, and how to wire up another agent) is in
 ### Claude Code
 
 ```bash
-keyfence install-hooks claude-code            # all projects (~/.claude/settings.json)
+keyfence install-hooks claude-code            # all projects (~/.claude/settings.json, or $CLAUDE_CONFIG_DIR/settings.json)
 keyfence install-hooks claude-code --project  # this project (./.claude/settings.json)
 keyfence install-hooks claude-code --remove           # takes out only what keyfence added
 keyfence install-hooks claude-code --remove --force   # also deny rules an install before 0.5.0 left unrecorded

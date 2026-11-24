@@ -315,7 +315,12 @@ def run_hook(stdin=None, stderr=None) -> int:
 
 
 def settings_path(project: bool, cwd: Path | None = None) -> Path:
-    base = (cwd or Path.cwd()) / ".claude" if project else Path.home() / ".claude"
+    if project:
+        return (cwd or Path.cwd()) / ".claude" / "settings.json"
+    # Claude Code moves its user directory when CLAUDE_CONFIG_DIR is set, so a
+    # hook written to ~/.claude/settings.json would never be read (issue #184).
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    base = Path(config_dir).expanduser() if config_dir else Path.home() / ".claude"
     return base / "settings.json"
 
 

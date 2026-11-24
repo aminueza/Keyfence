@@ -900,8 +900,30 @@ def test_uninstall_keeps_a_deny_entry_that_is_not_a_string(tmp_path, force):
 
 def test_settings_path(tmp_path, monkeypatch):
     monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     assert hooks.settings_path(project=False) == tmp_path / ".claude" / "settings.json"
     assert hooks.settings_path(project=True, cwd=tmp_path / "proj") == tmp_path / "proj" / ".claude" / "settings.json"
+
+
+def test_settings_path_follows_claude_config_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    config = tmp_path / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    assert hooks.settings_path(project=False) == config / "settings.json"
+    # The project scope stays inside the project even with the variable set.
+    assert hooks.settings_path(project=True, cwd=tmp_path / "proj") == tmp_path / "proj" / ".claude" / "settings.json"
+    # An empty value is the same as unset.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "  ")
+    assert hooks.settings_path(project=False) == tmp_path / "home" / ".claude" / "settings.json"
+
+
+def test_install_and_list_use_claude_config_dir(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    config = tmp_path / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    assert hooks.install(hooks.settings_path(project=False))
+    assert (config / "settings.json").exists()
+    assert not (tmp_path / "home" / ".claude" / "settings.json").exists()
 
 
 def _secret() -> str:
