@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The config loader checks the type of each value. A config that is not
+  a mapping, a `scan` that is not a mapping, or a wrong type for
+  `notice`, `scan.patterns`, `scan.entropy`, `scan.gitleaks`, the entropy
+  limits, `scan.allowlist`, `scan.gitleaks_rules` or
+  `scan.gitleaks_disabled` now stops with an error that names the key.
+  Before, keyfence loaded such a config and used a wrong value, for
+  example `notice: 'false'` turned the notice on. A config that loaded
+  with a quoted boolean or number must now use the plain value.
+
 ## 0.11.1 (2026-11-24)
 
 - On Windows, keyfence ran an executable from the current directory in
