@@ -24,6 +24,32 @@ def claude_doctor():
     return CLAUDE_DOCTOR
 
 
+def plant_executable(directory, name, output, code=0):
+    if os.name == "nt":
+        path = directory / f"{name}.cmd"
+        path.write_text(f"@echo {output}\n@exit /b {code}\n")
+    else:
+        path = directory / name
+        path.write_text(f"#!/bin/sh\necho {output}\nexit {code}\n")
+        path.chmod(0o755)
+    return path
+
+
+def same_path(found, expected):
+    return found is not None and os.path.normcase(str(found)) == os.path.normcase(str(expected))
+
+
+@pytest.fixture
+def clone(tmp_path, monkeypatch):
+    bindir = tmp_path / "bin"
+    repo = tmp_path / "repo"
+    bindir.mkdir()
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("PATH", os.pathsep.join([os.curdir, str(bindir)]))
+    return SimpleNamespace(bin=bindir, repo=repo, plant=plant_executable, same=same_path)
+
+
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setattr("keyfence.vault.DEFAULT_DIR", tmp_path)

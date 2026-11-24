@@ -94,13 +94,21 @@ def test_unknown_source():
         sources.fetch("nope", None, lambda cmd: "")
 
 
-def test_real_runner_reports_missing_and_failing_tools(monkeypatch):
+def test_real_runner_reports_missing_and_failing_tools(clone):
     with pytest.raises(sources.SourceError) as exc:
         sources._run(["definitely-not-a-command-xyz", "x"])
     assert "not installed" in str(exc.value)
-    monkeypatch.setattr(sources.shutil, "which", lambda name: "/bin/false")
+    clone.plant(clone.bin, "failing", "nope", code=3)
     with pytest.raises(sources.SourceError) as exc:
-        sources._run(["false"])
-    assert "exited with" in str(exc.value)
-    monkeypatch.setattr(sources.shutil, "which", lambda name: "/bin/echo")
-    assert sources._run(["echo", "hi"]).strip() == "hi"
+        sources._run(["failing"])
+    assert "exited with 3" in str(exc.value)
+    clone.plant(clone.bin, "greeter", "hi")
+    assert sources._run(["greeter"]).strip() == "hi"
+
+
+def test_real_runner_never_runs_a_secret_manager_cli_from_the_current_directory(clone):
+    clone.plant(clone.repo, "op", "planted")
+    with pytest.raises(sources.SourceError, match="op is not installed or not on PATH"):
+        sources._run(["op", "item", "list"])
+    clone.plant(clone.bin, "op", "real")
+    assert sources._run(["op", "item", "list"]).strip() == "real"

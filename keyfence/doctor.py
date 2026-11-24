@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import platform
 import shlex
-import shutil
 import subprocess
 import sys
 from collections.abc import Callable
@@ -59,7 +58,7 @@ def command_problem(command: str) -> str | None:
         if not os.access(path, os.X_OK):
             return "is not executable"
         return None
-    if shutil.which(command) is None:
+    if hooks.find_executable(command) is None:
         return "not found on PATH"
     return None
 
@@ -157,13 +156,14 @@ def git_ignores_ca(environ=os.environ, run: Callable = _run, system: str | None 
         return None
     if (git_config_in_env(environ, runner.GIT_SCHANNEL_KEY) or "").lower() == "true":
         return None
-    if shutil.which("git") is None:
+    git = hooks.find_executable("git")
+    if git is None:
         return None
-    code, out = run(["git", "config", "--get", "http.sslBackend"])
+    code, out = run([git, "config", "--get", "http.sslBackend"])
     backend = out.strip().lower() if code == 0 else "schannel"
     if backend != "schannel":
         return None
-    code, out = run(["git", "config", "--get", runner.GIT_SCHANNEL_KEY])
+    code, out = run([git, "config", "--get", runner.GIT_SCHANNEL_KEY])
     if code == 0 and out.strip().lower() == "true":
         return None
     return (f"git uses the schannel backend and ignores GIT_SSL_CAINFO until you run "
@@ -219,7 +219,7 @@ def check_local_mode(run: Callable = _run) -> Check:
     return Check(WARN, "--local capture", "network extension waiting for approval in System Settings > General > Login Items & Extensions > Network Extensions")
 
 
-def claude_doctor(cwd: Path | None = None, which: Callable = shutil.which) -> tuple[int, str] | str:
+def claude_doctor(cwd: Path | None = None, which: Callable = hooks.find_executable) -> tuple[int, str] | str:
     claude = which("claude")
     if claude is None:
         return "claude is not on PATH"

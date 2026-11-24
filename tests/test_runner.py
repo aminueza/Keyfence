@@ -210,7 +210,7 @@ def test_run_tells_mitmdump_to_tunnel_the_hosts_it_does_not_monitor(home, write_
     seen = {}
     write_config("mode: audit\nhosts:\n  - api.openai.com\n")
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     assert not _tunnels_with_argv(seen["cmd"], "api.openai.com")
     assert _tunnels_with_argv(seen["cmd"], "evil.com")
     assert not _tunnels_with_argv(seen["cmd"], runner.PROBE_HOST)
@@ -220,14 +220,14 @@ def test_run_tells_mitmdump_the_tcp_timeout_from_the_config(home, write_config, 
     seen = {}
     write_config("proxy_tcp_timeout: 7200\n")
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     assert ["--set", "tcp_timeout=7200"] in _pairs(seen["cmd"])
 
 
 def test_run_tells_mitmdump_the_default_tcp_timeout(home, write_config, monkeypatch, tmp_path):
     seen = {}
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     assert ["--set", "tcp_timeout=3600"] in _pairs(seen["cmd"])
 
 
@@ -236,7 +236,7 @@ def test_run_still_tunnels_the_hosts_it_does_not_monitor_while_recording(home, w
     write_config("mode: audit\nhosts:\n  - api.openai.com\n")
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
     record = tmp_path / "flows"
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, record=record) == 0
     assert ["-w", str(record.resolve())] in _pairs(seen["cmd"])
     assert not _tunnels_with_argv(seen["cmd"], "api.openai.com")
     assert _tunnels_with_argv(seen["cmd"], "evil.com")
@@ -250,7 +250,7 @@ def test_run_keeps_intercepting_every_host_when_asked_to(home, write_config, mon
     seen = {}
     write_config("mode: audit\nintercept_all_hosts: true\n")
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     assert not _tunnels_with_argv(seen["cmd"], "evil.com")
 
 
@@ -266,7 +266,7 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
     slept = []
     monkeypatch.setattr(runner.time, "sleep", lambda s: slept.append(s))
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=tmp_path / "rec" / "s.flows", linger=45) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, record=tmp_path / "rec" / "s.flows", linger=45) == 0
     assert seen["cmd"][-2:] == ["-w", str(tmp_path / "rec" / "s.flows")]
     if os.name == "posix":
         import stat
@@ -299,7 +299,7 @@ def test_run_creates_the_proxy_log_private_from_the_first_moment_it_exists(home,
 
     monkeypatch.setattr(os, "chmod", watching_chmod)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     assert stat.S_IMODE((home / "proxy.log").stat().st_mode) == 0o600
     assert modes_at_chmod in ([], [0o600])
 
@@ -325,7 +325,7 @@ def test_proxy_log_mode_goes_on_the_open_handle_and_never_on_the_path(home, monk
     monkeypatch.setattr(os, "fchmod", watching_fchmod)
     monkeypatch.setattr(os, "chmod", refusing_chmod)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     assert [(ino, mode) for ino, mode in seen if ino == log.stat().st_ino] == [(log.stat().st_ino, 0o600)]
     assert stat.S_IMODE(log.stat().st_mode) == 0o600
 
@@ -335,7 +335,7 @@ def test_run_still_sets_every_mode_it_owns_on_a_python_without_fchmod(home, monk
     monkeypatch.delattr(os, "fchmod")
     record = tmp_path / "rec" / "s.flows"
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, record=record) == 0
     assert stat.S_IMODE((home / "proxy.log").stat().st_mode) == 0o600
     assert stat.S_IMODE(record.stat().st_mode) == 0o600
     assert stat.S_IMODE((home / runner.BUNDLE_NAME).stat().st_mode) == runner.BUNDLE_MODE
@@ -347,7 +347,7 @@ def test_run_tightens_a_proxy_log_left_world_readable_by_an_older_version(home, 
     log.write_text("")
     log.chmod(0o644)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     assert stat.S_IMODE(log.stat().st_mode) == 0o600
 
 
@@ -362,7 +362,7 @@ def test_run_says_on_stderr_when_the_proxy_log_stays_readable(home, monkeypatch,
 
     monkeypatch.setattr(os, "fchmod", refusing_only_the_proxy_log_fchmod)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     err = capsys.readouterr().err
     assert "could not make" in err
     assert "proxy.log" in err
@@ -391,7 +391,7 @@ def test_record_mode_goes_on_the_open_handle_and_never_on_the_path(home, monkeyp
     monkeypatch.setattr(os, "fchmod", watching_fchmod)
     monkeypatch.setattr(os, "chmod", refusing_chmod)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, record=record) == 0
     assert [(ino, mode) for ino, mode in seen if ino == record.stat().st_ino] == [(record.stat().st_ino, 0o600)]
     assert stat.S_IMODE(record.stat().st_mode) == 0o600
 
@@ -401,7 +401,7 @@ def test_run_record_says_on_stderr_when_the_file_will_hold_secrets(home, write_c
     write_config(f"mode: {mode}\n")
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
     record = tmp_path / "rec" / "s.flows"
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=record) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, record=record) == 0
     out, err = capsys.readouterr()
     assert err == f"keyfence: mode is {mode}, so {record} will hold {runner.RECORD_NOTICES[mode]} (file mode 0600)\n"
     assert "secrets included, in clear text" in err
@@ -414,7 +414,7 @@ def test_run_record_stays_quiet_when_the_file_will_not_hold_secrets(home, write_
     if config is not None:
         write_config(config)
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1, record=tmp_path / "s.flows") == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, record=tmp_path / "s.flows") == 0
     assert capsys.readouterr().err == ""
 
 
@@ -423,7 +423,7 @@ def test_run_refuses_an_invalid_config_before_starting_anything(home, write_conf
     write_config(config)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start the proxy"))
     monkeypatch.setattr(runner, "port_open", lambda port: False)
-    assert runner.run(["echo"], 8899, ca_cert=tmp_path / "ca.pem", timeout=1, record=tmp_path / "s.flows") == 1
+    assert runner.run([sys.executable], 8899, ca_cert=tmp_path / "ca.pem", timeout=1, record=tmp_path / "s.flows") == 1
     out, err = capsys.readouterr()
     assert out.startswith("error: ") and err == ""
     assert not (tmp_path / "s.flows").exists()
@@ -432,7 +432,7 @@ def test_run_refuses_an_invalid_config_before_starting_anything(home, write_conf
 def test_run_without_record_says_nothing_in_audit_mode(home, write_config, monkeypatch, tmp_path, capsys):
     write_config("mode: audit\n")
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     assert capsys.readouterr().err == ""
 
 
@@ -449,7 +449,7 @@ def test_record_notice_reads_the_config_keyfence_exec_will_use(home, write_confi
 def test_run_refuses_busy_port(home, monkeypatch, capsys):
     monkeypatch.setattr(runner, "port_open", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start"))
-    assert runner.run(["echo"], 8899) == 1
+    assert runner.run([sys.executable], 8899) == 1
     out, err = capsys.readouterr()
     assert out == "Port 8899 is already in use. Pick another one with -p.\n"
     assert err == ""
@@ -487,7 +487,7 @@ def _run_without_port(monkeypatch, tmp_path, default_busy):
                         lambda port: (default_busy and port == runner.DEFAULT_PORT) or "proxy_cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: seen["probed"].append(port) or True)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: seen.update(env=env) or 0)
-    assert runner.run(["echo"], ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], ca_cert=ca, timeout=1) == 0
     seen["port"] = int(seen["proxy_cmd"][seen["proxy_cmd"].index("--listen-port") + 1])
     return seen
 
@@ -519,9 +519,9 @@ def test_mitmdump_path_prefers_interpreter_bindir(tmp_path, monkeypatch):
 
 def test_mitmdump_path_falls_back_to_path_then_bare_name(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.sys, "executable", str(tmp_path / "python"))
-    monkeypatch.setattr(runner.shutil, "which", lambda _name: "/opt/bin/mitmdump")
+    monkeypatch.setattr(runner, "find_executable", lambda _name: "/opt/bin/mitmdump")
     assert runner.mitmdump_path() == "/opt/bin/mitmdump"
-    monkeypatch.setattr(runner.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(runner, "find_executable", lambda _name: None)
     assert runner.mitmdump_path() == "mitmdump"
 
 
@@ -650,7 +650,7 @@ def _child_env_for_config(write_config, monkeypatch, tmp_path, config_text):
     monkeypatch.delenv("no_proxy", raising=False)
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: seen.update(env=env) or 0)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     return seen["env"]
 
 
@@ -875,7 +875,7 @@ def test_run_hands_the_child_the_bundle_and_the_single_certificate(home, write_c
     ca = _wire_fake_proxy(monkeypatch, tmp_path)
     seen = {}
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: seen.update(env=env) or 0)
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 0
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
     bundle = home / runner.BUNDLE_NAME
     assert bundle.exists() and bundle.read_text().endswith(ca.read_text())
     assert seen["env"]["SSL_CERT_FILE"] == str(bundle)
@@ -894,7 +894,7 @@ def test_run_refuses_to_start_the_command_when_the_bundle_cannot_be_built(home, 
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     only_roots(paths=("/nowhere/ca-bundle.crt",))
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=1) == 1
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 1
     out, err = capsys.readouterr()
     assert "no system trust store" in out and err == ""
     assert not (home / runner.BUNDLE_NAME).exists()
@@ -956,11 +956,11 @@ def test_run_loads_the_config_for_the_env_snapshot(home, write_config, monkeypat
     monkeypatch.setattr(runner, "port_open", lambda port: False)
     monkeypatch.setattr(runner, "build_env_vault", fake_build)
     with pytest.raises(KeyboardInterrupt):
-        runner.run(["true"], 8899)
+        runner.run([sys.executable], 8899)
     assert seen["config"].ignore_keys == ["DB_HOST"]
     write_config("mode: nonsense\n")
     monkeypatch.setattr(runner.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start the proxy"))
-    assert runner.run(["true"], 8899) == 1
+    assert runner.run([sys.executable], 8899) == 1
     assert "error: invalid mode" in capsys.readouterr().out
 
 
@@ -1018,9 +1018,9 @@ def test_run_success(home, monkeypatch, tmp_path):
         return 7
 
     monkeypatch.setattr(runner.subprocess, "call", fake_call)
-    code = runner.run(["echo", "hi"], 8899, ca_cert=ca, timeout=1)
+    code = runner.run([sys.executable, "hi"], 8899, ca_cert=ca, timeout=1)
     assert code == 7
-    assert seen["command"] == ["echo", "hi"]
+    assert seen["command"] == [sys.executable, "hi"]
     assert seen["env"]["HTTPS_PROXY"] == "http://127.0.0.1:8899"
     assert runner.ENV_VAULT_VAR in seen["proxy_env"]
     assert proxy.terminated
@@ -1033,7 +1033,7 @@ def test_run_when_mitmdump_missing(home, monkeypatch, capsys):
         raise FileNotFoundError
 
     monkeypatch.setattr(runner.subprocess, "Popen", missing)
-    assert runner.run(["echo"], 8899) == 1
+    assert runner.run([sys.executable], 8899) == 1
     assert "mitmdump not found" in capsys.readouterr().out
 
 
@@ -1046,7 +1046,7 @@ def test_run_refuses_to_start_the_command_when_the_addon_is_not_answering(home, 
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: False)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: pytest.fail("must not start the command"))
-    assert runner.run(["echo"], 8899, ca_cert=ca, timeout=0.05) == 1
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=0.05) == 1
     assert "addon is not answering" in capsys.readouterr().out
     assert proxy.terminated
 
@@ -1145,7 +1145,42 @@ def test_run_times_out_and_kills_stuck_proxy(home, monkeypatch, tmp_path, capsys
     proxy = FakeProxy(alive_after_terminate=True)
     monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr: proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: False)
-    assert runner.run(["echo"], 8899, ca_cert=tmp_path / "missing.pem", timeout=0.05) == 1
+    assert runner.run([sys.executable], 8899, ca_cert=tmp_path / "missing.pem", timeout=0.05) == 1
     assert "did not come up" in capsys.readouterr().out
     assert (home / "proxy.log").exists()
     assert proxy.terminated and proxy.killed
+
+
+def test_run_starts_the_command_from_path_not_from_the_current_directory(home, monkeypatch, tmp_path, clone):
+    seen = {}
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: seen.update(command=command) or 0)
+    real = clone.plant(clone.bin, "tool", "real")
+    clone.plant(clone.repo, "tool", "planted")
+    assert runner.run(["tool", "-x"], 8899, ca_cert=ca, timeout=1) == 0
+    assert clone.same(seen["command"][0], real) and seen["command"][1:] == ["-x"]
+
+
+def test_run_refuses_a_command_that_is_only_in_the_current_directory(home, monkeypatch, tmp_path, clone, capsys):
+    proxy = FakeProxy()
+    seen = {}
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: pytest.fail("the command must not start"))
+    clone.plant(clone.repo, "tool", "planted")
+    assert runner.run(["tool"], 8899, ca_cert=ca, timeout=1) == 127
+    assert "keyfence: tool not found on PATH" in capsys.readouterr().err
+    assert proxy.terminated
+
+
+def test_start_proxy_never_runs_a_mitmdump_from_the_current_directory(home, monkeypatch, tmp_path, clone):
+    seen = {}
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    monkeypatch.setattr(runner, "mitmdump_path", lambda: "mitmdump")
+    clone.plant(clone.repo, "mitmdump", "planted")
+    with pytest.raises(runner.ProxyError) as exc:
+        runner.start_proxy(8899, {}, None, timeout=1, ca_cert=ca)
+    assert exc.value.stage == runner.MISSING and "cmd" not in seen
+    real = clone.plant(clone.bin, "mitmdump", "real")
+    runner.start_proxy(8899, {}, None, timeout=1, ca_cert=ca)
+    assert clone.same(seen["cmd"][0], real)

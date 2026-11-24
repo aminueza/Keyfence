@@ -3,9 +3,11 @@ from __future__ import annotations
 import fnmatch
 import itertools
 import json
+import os
 import re
 import shutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
@@ -74,13 +76,31 @@ STALE_DENY_RULES = tuple(f"NotebookEdit({p})" for p in _DENY_BASE) + tuple(
 )
 
 
+def find_executable(name: str) -> str | None:
+    for entry in os.environ.get("PATH", os.defpath).split(os.pathsep):
+        if os.path.isabs(entry):
+            found = shutil.which(os.path.join(entry, name))
+            if found:
+                return found
+    return None
+
+
+def resolve_command(command: Sequence[str]) -> list[str]:
+    if os.path.dirname(command[0]):
+        return list(command)
+    found = find_executable(command[0])
+    if found is None:
+        raise FileNotFoundError(f"{command[0]} not found on PATH")
+    return [found, *command[1:]]
+
+
 def keyfence_path() -> str:
     bindir = Path(sys.executable).parent
     for name in ("keyfence", "keyfence.exe"):
         candidate = bindir / name
         if candidate.exists():
             return str(candidate)
-    return shutil.which("keyfence") or "keyfence"
+    return find_executable("keyfence") or "keyfence"
 
 
 def _hook_fields(command: str | None) -> dict:

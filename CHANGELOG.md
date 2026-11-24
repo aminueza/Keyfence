@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- On Windows, keyfence ran an executable from the current directory in
+  place of the one on `PATH` (GHSA-crqf-qwrm-6rwf). `shutil.which` puts
+  the current directory before `PATH` there, and `subprocess` with a bare
+  name lets `CreateProcess` do the same. A `mitmdump`, `op`, `vault`,
+  `doppler`, `aws`, `git` or `claude` planted in a cloned repository ran
+  when you started keyfence in it, and `install-hooks` could write the
+  path of a planted `keyfence` into the hook command. keyfence now looks
+  up every external command in the absolute `PATH` entries only, skips
+  relative entries such as `.`, and starts the command by its full path.
+  `keyfence exec` refuses a command that is only in the current directory
+  with exit code 127; give its path, such as `.\tool.exe`, to run it.
+  If you ran `install-hooks` on Windows before this release, run it again
+  so that the hook command points at the `keyfence` on `PATH`.
+
 ## 0.11.0 (2026-11-16)
 
 - `keyfence install-hooks claude-code` and `keyfence doctor` reported

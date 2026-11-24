@@ -6,7 +6,6 @@ import http.client
 import json
 import os
 import re
-import shutil
 import socket
 import ssl
 import subprocess
@@ -17,6 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from .config import Config
+from .hooks import find_executable, resolve_command
 from .ignore import IgnoreList
 from .importer import env_values
 from .vault import DEFAULT_DIR, Vault
@@ -55,7 +55,7 @@ def mitmdump_path() -> str:
         candidate = bindir / name
         if candidate.exists():
             return str(candidate)
-    return shutil.which("mitmdump") or "mitmdump"
+    return find_executable("mitmdump") or "mitmdump"
 
 
 def listen_args(port: int, local: str | None) -> list[str]:
@@ -155,7 +155,7 @@ def start_proxy(port: int, env: Mapping[str, str], log, timeout: float = 20.0,
                 ca_cert: Path = CA_CERT, local: str | None = None,
                 extra: Sequence[str] = ()) -> subprocess.Popen:
     try:
-        proxy = subprocess.Popen(proxy_command(port, local=local, extra=extra), env=env,
+        proxy = subprocess.Popen(resolve_command(proxy_command(port, local=local, extra=extra)), env=env,
                                  stdout=log, stderr=subprocess.STDOUT)
     except FileNotFoundError:
         raise ProxyError(MISSING, "mitmdump not found. Install it with: pip install mitmproxy") from None
@@ -420,8 +420,13 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         except BundleError as exc:
             print(exc)
             return 1
-        code = subprocess.call(list(command), env=child_env(os.environ, port, ca_cert, bundle,
-                                                            bypass_loopback=not loopback_monitored(config)))
+        try:
+            resolved = resolve_command(command)
+        except FileNotFoundError as exc:
+            print(f"keyfence: {exc}", file=sys.stderr)
+            return 127
+        code = subprocess.call(resolved, env=child_env(os.environ, port, ca_cert, bundle,
+                                                       bypass_loopback=not loopback_monitored(config)))
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
             time.sleep(linger)

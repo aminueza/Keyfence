@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from collections.abc import Callable
+
+from .hooks import find_executable
 
 SOURCES = ("op", "vault", "doppler", "aws")
 OP_CATEGORIES = "API Credential,Login,Password,Secure Note,Database,Server"
@@ -15,10 +16,11 @@ class SourceError(RuntimeError):
 
 
 def _run(command: list[str]) -> str:
-    if shutil.which(command[0]) is None:
+    executable = find_executable(command[0])
+    if executable is None:
         raise SourceError(f"{command[0]} is not installed or not on PATH")
     try:
-        done = subprocess.run(command, capture_output=True, text=True, timeout=120)
+        done = subprocess.run([executable, *command[1:]], capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SourceError(f"{command[0]} failed: {exc}") from None
     if done.returncode != 0:

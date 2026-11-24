@@ -1088,3 +1088,32 @@ def test_prompt_crash_blocks(home, monkeypatch, capsys):
     assert data["hookSpecificOutput"]["suppressOriginalPrompt"] is True
     assert "guard crashed" in data["reason"]
     assert "RuntimeError" in data["reason"]
+
+
+def test_find_executable_skips_the_current_directory_and_relative_path_entries(clone, monkeypatch):
+    real = clone.plant(clone.bin, "tool", "real")
+    clone.plant(clone.repo, "tool", "planted")
+    monkeypatch.setenv("PATH", os.pathsep.join(["", ".", "repo", str(clone.bin)]))
+    assert clone.same(hooks.find_executable("tool"), real)
+    monkeypatch.setenv("PATH", os.pathsep.join(["", ".", str(clone.repo.parent / "missing")]))
+    assert hooks.find_executable("tool") is None
+
+
+def test_resolve_command_returns_the_path_entry_and_keeps_explicit_paths(clone):
+    real = clone.plant(clone.bin, "tool", "real")
+    clone.plant(clone.repo, "tool", "planted")
+    resolved = hooks.resolve_command(["tool", "--flag"])
+    assert clone.same(resolved[0], real) and resolved[1:] == ["--flag"]
+    explicit = [os.path.join(".", "tool"), "x"]
+    assert hooks.resolve_command(explicit) == explicit
+    clone.plant(clone.repo, "other", "planted")
+    with pytest.raises(FileNotFoundError, match="other not found on PATH"):
+        hooks.resolve_command(["other"])
+
+
+def test_keyfence_path_never_picks_a_keyfence_from_the_current_directory(clone, monkeypatch):
+    monkeypatch.setattr(hooks.sys, "executable", str(clone.repo.parent / "python"))
+    clone.plant(clone.repo, "keyfence", "planted")
+    assert hooks.keyfence_path() == "keyfence"
+    real = clone.plant(clone.bin, "keyfence", "real")
+    assert clone.same(hooks.keyfence_path(), real)

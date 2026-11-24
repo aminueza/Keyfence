@@ -282,7 +282,7 @@ def test_environment_check_warns_when_git_for_windows_ignores_the_ca(tmp_path, m
     bundle = tmp_path / "ca-bundle.pem"
     good = shell_env(f"http://127.0.0.1:{live_proxy}", ca, bundle)
     at = lambda **kw: doctor.check_environment("127.0.0.1", live_proxy, good, ca, bundle, **kw)
-    monkeypatch.setattr(doctor.shutil, "which", lambda name: "C:\\Program Files\\Git\\cmd\\git.exe")
+    monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: "C:\\Program Files\\Git\\cmd\\git.exe")
     unset = lambda cmd: (1, "")
     check = at(run=unset, system="Windows")
     assert check.status == doctor.WARN and "schannel" in check.detail
@@ -297,7 +297,7 @@ def test_environment_check_warns_when_git_for_windows_ignores_the_ca(tmp_path, m
     assert doctor.check_environment("127.0.0.1", live_proxy, session, ca, bundle,
                                     run=never, system="Windows").status == doctor.OK
     assert at(run=never, system="Linux").status == doctor.OK
-    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: None)
     assert at(run=never, system="Windows").status == doctor.OK
     assert doctor.git_config_in_env({"GIT_CONFIG_COUNT": "x"}, "a.b") is None
     assert doctor.git_config_in_env({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "A.B", "GIT_CONFIG_VALUE_0": "v"}, "a.b") == "v"
@@ -449,9 +449,9 @@ def test_mitmdump_check(tmp_path, monkeypatch):
     check = doctor.check_mitmdump()
     assert check.status == doctor.FAIL and str(binary) in check.detail and "does not exist" in check.detail
     monkeypatch.setattr(runner, "mitmdump_path", lambda: "mitmdump")
-    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: None)
     assert doctor.check_mitmdump().status == doctor.FAIL and "mitmdump not found on PATH" in doctor.check_mitmdump().detail
-    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/opt/bin/mitmdump")
+    monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: "/opt/bin/mitmdump")
     assert doctor.check_mitmdump().status == doctor.OK
 
 
@@ -464,9 +464,9 @@ def test_command_problem(tmp_path, monkeypatch):
         assert doctor.command_problem(str(plain)) == "is not executable"
     plain.chmod(0o755)
     assert doctor.command_problem(str(plain)) is None
-    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: None)
     assert doctor.command_problem("keyfence") == "not found on PATH"
-    monkeypatch.setattr(doctor.shutil, "which", lambda name: "/usr/local/bin/keyfence")
+    monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: "/usr/local/bin/keyfence")
     assert doctor.command_problem("keyfence") is None
 
 
@@ -506,7 +506,7 @@ def test_pi_extension_check_fails_when_the_baked_command_is_gone(home, tmp_path,
         assert pi.install(pi.extension_path(False), str(plain))
         check = doctor.check_pi_extension(tmp_path / "proj")
         assert check.status == doctor.FAIL and "is not executable" in check.detail
-    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: None)
     assert pi.install(pi.extension_path(False), "keyfence")
     assert "not found on PATH" in doctor.check_pi_extension(tmp_path / "proj").detail
     path = pi.extension_path(False)
@@ -735,3 +735,30 @@ def test_doctor_keeps_the_scope_it_could_read_when_the_other_cannot_be_read(tmp_
     path.write_text("{")
     check = doctor.check_hook(tmp_path / "proj")
     assert check.status == doctor.WARN and check.detail.startswith(f"installed (global), but cannot read {path}: ")
+
+
+def test_claude_doctor_runs_the_claude_on_path_not_one_in_the_project(claude_doctor, clone):
+    clone.plant(clone.bin, "claude", "Claude Code doctor")
+    clone.plant(clone.repo, "claude", "planted")
+    code, output = claude_doctor(clone.repo)
+    assert code == 0 and "Claude Code doctor" in output and "planted" not in output
+
+
+def test_claude_doctor_ignores_a_claude_that_is_only_in_the_project(claude_doctor, clone):
+    clone.plant(clone.repo, "claude", "planted")
+    assert claude_doctor(clone.repo) == "claude is not on PATH"
+
+
+def test_git_check_asks_the_git_on_path_by_its_full_path(monkeypatch):
+    git = "C:\\Program Files\\Git\\cmd\\git.exe"
+    monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: git if name == "git" else None)
+    asked = []
+    doctor.git_ignores_ca({}, run=lambda cmd: asked.append(cmd) or (0, "schannel\n"), system="Windows")
+    assert [cmd[0] for cmd in asked] == [git, git]
+
+
+def test_command_problem_does_not_count_a_command_in_the_current_directory(clone):
+    clone.plant(clone.repo, "keyfence", "planted")
+    assert doctor.command_problem("keyfence") == "not found on PATH"
+    clone.plant(clone.bin, "keyfence", "real")
+    assert doctor.command_problem("keyfence") is None

@@ -170,7 +170,7 @@ def test_user_extra_hosts_are_kept_in_the_copy(addon, ca):
 def test_mitmdump_missing_stops_before_anything_starts(addon, ca, monkeypatch):
     fake = addon("redact")
     monkeypatch.setattr(runner, "mitmdump_path", lambda: "mitmdump")
-    monkeypatch.setattr(doctor.shutil, "which", lambda name: None)
+    monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: None)
     report = fake.run(ca)
     assert labels(report) == ["mitmdump"] and labels(report, FAIL) == ["mitmdump"]
     assert "not found" in detail(report, "mitmdump") and not fake.started
