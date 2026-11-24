@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `hosts` and `extra_hosts` in `config.yaml` must be lists now. A single string
+  used to be split into one-character hosts, so no AI host matched and requests
+  went out unscanned while `doctor` and `status` reported everything fine.
+
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints
   one `error:` line and exits 1 instead of a traceback, and a vault that

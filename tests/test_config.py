@@ -152,6 +152,21 @@ def test_ignore_lists_default_to_empty(write_config, home):
     assert ignore.key_count == 0 and ignore.value_count == 0
 
 
+@pytest.mark.parametrize("key", ["hosts", "extra_hosts"])
+def test_hosts_lists_reject_a_single_string(write_config, key):
+    # `hosts: api.anthropic.com` must not become 17 one-character hosts.
+    write_config(f"{key}: api.anthropic.com\n")
+    with pytest.raises(ValueError, match=rf"{key} must be a list of non-empty strings"):
+        Config.load()
+
+
+@pytest.mark.parametrize("key", ["hosts", "extra_hosts"])
+def test_hosts_lists_reject_non_string_members(write_config, key):
+    write_config(f"{key}: [api.anthropic.com, 3]\n")
+    with pytest.raises(ValueError, match=rf"{key} must be a list of non-empty strings"):
+        Config.load()
+
+
 @pytest.mark.parametrize("text", [
     "ignore_keys: DB_HOST\n",
     "ignore_values: db.internal.example.com\n",
