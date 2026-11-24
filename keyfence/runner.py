@@ -427,6 +427,8 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
             return 127
         code = subprocess.call(resolved, env=child_env(os.environ, port, ca_cert, bundle,
                                                        bypass_loopback=not loopback_monitored(config)))
+        if code < 0 and os.name == "posix":
+            code = 128 - code
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
             time.sleep(linger)

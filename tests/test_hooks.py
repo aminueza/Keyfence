@@ -639,6 +639,60 @@ def test_uninstall_force_removes_every_keyfence_shaped_rule_and_any_recorded_one
     assert not record.exists()
 
 
+def test_uninstall_preserves_user_hooks_sharing_keyfence_entries(tmp_path):
+    path = tmp_path / "settings.json"
+    user_pre_hook = {"type": "command", "command": "/usr/local/bin/audit-bash-calls"}
+    user_prompt_hook = {"type": "command", "command": "echo prompt-audit"}
+    mixed_pre = {
+        "matcher": "Bash",
+        "timeout": 42,
+        "hooks": [
+            {"type": "command", "command": hooks.HOOK_COMMAND},
+            user_pre_hook,
+        ],
+    }
+    mixed_prompt = {
+        "matcher": "submit",
+        "otherField": "preserve me",
+        "hooks": [
+            {"type": "command", "command": hooks.HOOK_COMMAND},
+            user_prompt_hook,
+        ],
+    }
+    keyfence_only_pre = {
+        "matcher": "Read",
+        "hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}],
+    }
+    keyfence_only_prompt = {
+        "hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}],
+    }
+    path.write_text(json.dumps({
+        "model": "opus",
+        "hooks": {
+            "PreToolUse": [mixed_pre, keyfence_only_pre],
+            "UserPromptSubmit": [mixed_prompt, keyfence_only_prompt],
+        },
+    }))
+
+    assert hooks.install(path)
+    result = hooks.uninstall(path)
+
+    assert result.hook and result.rules == len(hooks.DENY_RULES)
+    data = json.loads(path.read_text())
+    assert data["model"] == "opus"
+    assert data["hooks"]["PreToolUse"] == [{
+        "matcher": "Bash",
+        "timeout": 42,
+        "hooks": [user_pre_hook],
+    }]
+    assert data["hooks"]["UserPromptSubmit"] == [{
+        "matcher": "submit",
+        "otherField": "preserve me",
+        "hooks": [user_prompt_hook],
+    }]
+    assert not hooks.uninstall(path).changed
+
+
 def test_uninstall_removes_only_keyfence_prompt_hooks(tmp_path):
     path = tmp_path / "settings.json"
     foreign = {"matcher": "Read", "hooks": [{"type": "command", "command": "echo foreign"}]}

@@ -381,6 +381,21 @@ def test_patterns_disabled_by_config():
     assert scan("token: ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", config=cfg) == []
 
 
+def test_gitleaks_rules_run_with_patterns_disabled():
+    token = "dop_v1_" + "a1b2c3d4" * 8
+    cfg = ScanConfig(
+        patterns_enabled=False, entropy_enabled=False, gitleaks=True, rules=load_rules(),
+    )
+    findings = scan(f"token {token}", config=cfg)
+    assert [f.kind for f in findings] == ["digitalocean-pat"]
+
+
+def test_patterns_run_with_gitleaks_disabled():
+    cfg = ScanConfig(patterns_enabled=True, entropy_enabled=False, gitleaks=False)
+    findings = scan("token: ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", config=cfg)
+    assert findings
+
+
 @pytest.fixture
 def vault(tmp_path):
     return Vault(path=tmp_path / "vault.json")

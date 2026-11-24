@@ -416,8 +416,10 @@ def scan_report(text: str, vault=None, config: ScanConfig | None = None, ignore=
     findings.extend(_scan_vault(decoded, vault, json_spans))
     if config.patterns_enabled:
         findings.extend(_scan_pem(decoded))
-        findings.extend(_scan_rules(decoded, BUILTIN_RULES + config.rules))
+        findings.extend(_scan_rules(decoded, BUILTIN_RULES))
         findings.extend(_scan_url_query(decoded))
+    if config.gitleaks and config.rules:
+        findings.extend(_scan_rules(decoded, config.rules))
     if config.entropy_enabled:
         findings.extend(_scan_entropy(
             decoded, config.entropy_min_length, config.entropy_threshold,

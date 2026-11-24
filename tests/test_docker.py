@@ -319,6 +319,23 @@ def test_entrypoint_starts_mitmdump_with_the_certs_of_the_data_directory(tmp_pat
     assert "--listen-port" in args and "8888" in args
 
 
+def test_entrypoint_passes_the_configured_tcp_timeout_to_mitmdump(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "config.yaml").write_text("proxy_tcp_timeout: 7200\n")
+    args_file = tmp_path / "mitmdump.args"
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    stub = stub_dir / "mitmdump"
+    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$MITMDUMP_ARGS"\n')
+    stub.chmod(0o755)
+    extra_env = {"PATH": f"{stub_dir}{os.pathsep}{host_path()}", "MITMDUMP_ARGS": str(args_file)}
+    done = run_entrypoint(["proxy"], data_dir, extra_env=extra_env)
+    assert done.returncode == 0, done.stderr
+    args = args_file.read_text().split()
+    assert ["--set", "tcp_timeout=7200"] in [args[i:i + 2] for i in range(len(args) - 1)]
+
+
 def test_entrypoint_defaults_to_the_data_directory_of_the_image():
     assert "KEYFENCE_HOME=/data" in environment()
     assert "${KEYFENCE_HOME:-/data}" in ENTRYPOINT.read_text()
