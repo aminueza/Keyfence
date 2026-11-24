@@ -5,7 +5,7 @@
 - `install-hooks`, `install-hooks --list` and `doctor` use
   `$CLAUDE_CONFIG_DIR/settings.json` for the global hook when that variable is
   set, the file Claude Code actually reads, instead of always writing
-  `~/.claude/settings.json`. An empty value is treated as unset.
+  `~/.claude/settings.json`. An empty value is treated as unset (issue #184).
 
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints

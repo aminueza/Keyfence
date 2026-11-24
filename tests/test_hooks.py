@@ -915,9 +915,15 @@ def test_settings_path_follows_claude_config_dir(tmp_path, monkeypatch):
     # An empty value is the same as unset.
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", "  ")
     assert hooks.settings_path(project=False) == tmp_path / "home" / ".claude" / "settings.json"
+    # expanduser resolves ~ from the environment (HOME on POSIX, USERPROFILE
+    # on Windows), not from Path.home, so both have to point at the fake home.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "~/cc")
+    assert hooks.settings_path(project=False) == tmp_path / "home" / "cc" / "settings.json"
 
 
-def test_install_and_list_use_claude_config_dir(tmp_path, monkeypatch, capsys):
+def test_install_writes_into_claude_config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
     config = tmp_path / "claude-config"
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
