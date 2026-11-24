@@ -3,6 +3,14 @@
 ## Unreleased
 
 - `keyfence install-hooks claude-code --remove` now removes only Keyfence-owned hooks from a shared hook entry. User-defined hooks, matchers and other entry fields survive when they share an entry with a Keyfence hook.
+- The config loader checks the type of each value. A config that is not
+  a mapping, a `scan` that is not a mapping, or a wrong type for
+  `notice`, `scan.patterns`, `scan.entropy`, `scan.gitleaks`, the entropy
+  limits, `scan.allowlist`, `scan.gitleaks_rules` or
+  `scan.gitleaks_disabled` now stops with an error that names the key.
+  Before, keyfence loaded such a config and used a wrong value, for
+  example `notice: 'false'` turned the notice on. A config that loaded
+  with a quoted boolean or number must now use the plain value.
 
 ## 0.11.1 (2026-11-24)
 

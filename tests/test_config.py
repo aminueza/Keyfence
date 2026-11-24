@@ -171,3 +171,61 @@ def test_malformed_yaml_is_a_value_error_naming_the_file(home, write_config):
     with pytest.raises(ValueError) as exc:
         Config.load()
     assert "not valid YAML" in str(exc.value) and "config.yaml" in str(exc.value)
+
+
+@pytest.mark.parametrize("text,expected_key", [
+    ("- mode: block\n", "config.yaml"),
+    ("just a string\n", "config.yaml"),
+    ("scan: true\n", "scan"),
+    ("scan: [a, b]\n", "scan"),
+    ("notice: 'false'\n", "notice"),
+    ("notice: 1\n", "notice"),
+    ("scan:\n  patterns: 'false'\n", "scan.patterns"),
+    ("scan:\n  entropy: 1\n", "scan.entropy"),
+    ("scan:\n  gitleaks: 'yes'\n", "scan.gitleaks"),
+    ("scan:\n  entropy_threshold: '4.5'\n", "scan.entropy_threshold"),
+    ("scan:\n  entropy_threshold: true\n", "scan.entropy_threshold"),
+    ("scan:\n  entropy_min_length: '30'\n", "scan.entropy_min_length"),
+    ("scan:\n  entropy_min_length: true\n", "scan.entropy_min_length"),
+    ("scan:\n  entropy_max_length: '512'\n", "scan.entropy_max_length"),
+    ("scan:\n  entropy_max_length: false\n", "scan.entropy_max_length"),
+    ("scan:\n  allowlist: abc\n", "scan.allowlist"),
+    ("scan:\n  gitleaks_disabled: generic-api-key\n", "scan.gitleaks_disabled"),
+    ("scan:\n  gitleaks_rules: 123\n", "scan.gitleaks_rules"),
+])
+def test_config_rejects_non_mapping_and_wrong_typed_values(write_config, text, expected_key):
+    write_config(text)
+    with pytest.raises(ValueError, match=expected_key):
+        Config.load()
+
+
+def test_null_gitleaks_disabled_and_allowlist_default_to_empty(write_config, home):
+    write_config("scan:\n  gitleaks_disabled:\n  allowlist:\n")
+    cfg = Config.load()
+    assert cfg.scan.gitleaks_disabled == []
+    assert cfg.scan.allowlist == []
+    assert "generic-api-key" in {r.name for r in cfg.scan.rules}
+
+
+def test_cli_reports_single_error_line_on_non_mapping_config(home, write_config, capsys):
+    from keyfence import cli
+    write_config("- mode: block\n")
+    assert cli.main(["status"]) == 1
+    err = capsys.readouterr().err.strip()
+    assert err.startswith("error:")
+    assert len(err.splitlines()) == 1
+    assert "Traceback" not in err
+
+
+def test_prompt_hook_reports_config_error_not_guard_crash(home, write_config, capsys):
+    import io
+    import json
+    from keyfence import prompt
+    write_config("scan:\n  entropy_threshold: '4.5'\n")
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "hello"})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["decision"] == "block"
+    assert "configuration failed to load" in data["reason"]
+    assert "guard crashed" not in data["reason"]
+    assert "scan.entropy_threshold" in data["reason"]
