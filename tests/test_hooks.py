@@ -551,8 +551,9 @@ def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
 
 
 def test_installed_exec_form_command_actually_spawns(tmp_path):
-    exe = hooks.keyfence_path()
-    if not Path(exe).is_file():
+    try:
+        exe = hooks.keyfence_path()
+    except ValueError:
         pytest.skip("keyfence console script not installed in this environment")
     path = tmp_path / "settings.json"
     assert hooks.install(path, exe)
