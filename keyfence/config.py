@@ -116,8 +116,7 @@ class Config:
             extra_hosts = _string_list(data, "extra_hosts")
             if extra_hosts:
                 cfg.hosts.extend(extra_hosts)
-            cfg.intercept_all_hosts = bool(
-                data.get("intercept_all_hosts", cfg.intercept_all_hosts))
+            cfg.intercept_all_hosts = _bool(data, "intercept_all_hosts", cfg.intercept_all_hosts)
             raw_timeout = data.get("proxy_tcp_timeout")
             if raw_timeout is not None:
                 if (isinstance(raw_timeout, bool) or not isinstance(raw_timeout, int)
@@ -154,8 +153,11 @@ class Config:
                 gitleaks_rules=raw_gitleaks_rules,
                 gitleaks_disabled=gitleaks_disabled,
             )
-            if data.get("audit_log"):
-                cfg.audit_log = Path(data["audit_log"]).expanduser()
+            raw_audit_log = data.get("audit_log")
+            if raw_audit_log is not None:
+                if not isinstance(raw_audit_log, str) or not raw_audit_log.strip():
+                    raise ValueError(f"audit_log must be a non-empty string path, got {raw_audit_log!r}")
+                cfg.audit_log = Path(raw_audit_log).expanduser()
             cfg.ignore_keys = _string_list(data, "ignore_keys")
             cfg.ignore_values = _string_list(data, "ignore_values")
         if cfg.mode not in MODES:
