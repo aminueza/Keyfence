@@ -4,11 +4,12 @@
 
 - `keyfence`, `mitmdump` and `doctor` now also look in the interpreter's
   install-scheme scripts folder (Windows `<prefix>\Scripts` and the `--user`
-  `%APPDATA%\Python\Python3XX\Scripts`), not only beside `python.exe` and on
-  `PATH`. Those layouts are common when the installer leaves the folder off
-  `PATH`, and the hook used to be written with a bare `keyfence` that the agent
-  could not start. If `install-hooks` wrote a bare `keyfence` before this fix,
-  run it again to rewrite the hook command.
+  `%APPDATA%\Python\Python3XX\Scripts`, and `~/.local/bin` or its macOS
+  equivalent on POSIX), not only beside `python.exe` and on `PATH`. Those
+  layouts are common when the installer leaves the folder off `PATH`, and the
+  hook used to be written with a bare `keyfence` that the agent could not
+  start. If `install-hooks` wrote a bare `keyfence` before this fix, run it
+  again to rewrite the hook command (issue #173).
 
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints

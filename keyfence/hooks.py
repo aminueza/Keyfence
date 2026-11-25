@@ -115,7 +115,7 @@ def script_dirs() -> list[Path]:
     return dirs
 
 
-def find_script(name: str, finder=find_executable) -> str | None:
+def find_script(name: str, finder=None) -> str | None:
     """A console script by name, looking in the interpreter's script folders
     before PATH. Returns None when nothing is found."""
     for folder in script_dirs():
@@ -123,7 +123,12 @@ def find_script(name: str, finder=find_executable) -> str | None:
             candidate = folder / candidate_name
             if candidate.is_file():
                 return str(candidate)
-    return finder(name) or finder(f"{name}.exe")
+    # Only the plain name on PATH: shutil.which already applies PATHEXT on
+    # Windows, and asking for name.exe on WSL can pick up a Windows script
+    # from the interop PATH instead of failing cleanly.
+    if finder is None:
+        finder = find_executable
+    return finder(name)
 
 
 def keyfence_path() -> str:
