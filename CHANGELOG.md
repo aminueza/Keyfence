@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
+  non-ASCII characters is no longer refused on a Windows install whose ANSI code
+  page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
+  call `run_hook()` directly. Bytes that are not UTF-8 are still refused as
+  unreadable (issue #185).
+- `keyfence export --otlp` tracks its position by audit-log line instead of by
+  timestamp, so two entries written in the same second are both sent. A log
+  that was truncated or rotated is read again from the start, which can deliver
+  some entries twice to the collector; losing a detection was the worse trade
+  (issue #178).
+- `keyfence export --otlp` prints one `error: could not send to <url>: ...` line
+  and exits 1 when the collector cannot be reached or answers an error status,
+  instead of a traceback, and leaves the cursor untouched so the next run
+  retries.
+- `hosts` and `extra_hosts` in `config.yaml` must be lists now. A single string
+  used to be split into one-character hosts, so no AI host matched and requests
+  went out unscanned while `doctor` and `status` reported everything fine. A
+  list holding an empty or non-string entry is rejected too (issue #175).
+- The URL query detector stops at `"`, `'`, `}` and `]`, so a `?sig=` value at
+  the end of a JSON string no longer swallows the closing quote. It used to
+  delete the JSON that followed in compact bodies and refuse harmless requests
+  with a 403 in spaced ones. A raw delimiter inside a value now cuts it there;
+  such values should have been percent-encoded anyway (issue #174).
+- `install-hooks`, `install-hooks --list` and `doctor` use
+  `$CLAUDE_CONFIG_DIR/settings.json` for the global hook when that variable is
+  set, the file Claude Code actually reads, instead of always writing
+  `~/.claude/settings.json`. An empty value is treated as unset (issue #184).
 - `keyfence`, `mitmdump` and `doctor` now also look in the interpreter's
   install-scheme scripts folder (Windows `<prefix>\Scripts` and the `--user`
   `%APPDATA%\Python\Python3XX\Scripts`, and `~/.local/bin` or its macOS

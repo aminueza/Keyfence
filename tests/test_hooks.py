@@ -705,6 +705,28 @@ def test_uninstall_removes_only_keyfence_prompt_hooks(tmp_path):
     assert not hooks.uninstall(path).changed
 
 
+def test_run_hook_reads_stdin_as_utf8_not_the_locale(home, monkeypatch):
+    # The reproduction emulates a Western Windows install: the pipe's text
+    # decoding is cp1252, where the emoji's 0x8D byte is undefined.
+    # ensure_ascii=False keeps the emoji as UTF-8 bytes, as an agent writes it.
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "echo 👍"}},
+                         ensure_ascii=False).encode("utf-8")
+    monkeypatch.setattr(hooks.sys, "stdin", io.TextIOWrapper(io.BytesIO(payload), encoding="cp1252"))
+    assert hooks.run_hook(stderr=io.StringIO()) == 0
+    # And the text after the emoji still reaches the decision: a sensitive
+    # command behind it is blocked, so a lossy decode cannot pass silently.
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "echo 👍 && cat .env"}},
+                         ensure_ascii=False).encode("utf-8")
+    monkeypatch.setattr(hooks.sys, "stdin", io.TextIOWrapper(io.BytesIO(payload), encoding="cp1252"))
+    assert hooks.run_hook(stderr=io.StringIO()) == 2
+
+
+def test_run_hook_refuses_stdin_that_is_not_utf8(home, monkeypatch, capsys):
+    monkeypatch.setattr(hooks.sys, "stdin", io.TextIOWrapper(io.BytesIO(b"\xff\xfe{}"), encoding="utf-8"))
+    assert hooks.run_hook() == 2
+    assert "could not read the tool call" in capsys.readouterr().err
+
+
 def test_uninstall_removes_both_pretooluse_and_prompt(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"hooks": {"PreToolUse": [{"hooks": [{"type": "command", "command": hooks.HOOK_COMMAND}]}],
@@ -900,8 +922,36 @@ def test_uninstall_keeps_a_deny_entry_that_is_not_a_string(tmp_path, force):
 
 def test_settings_path(tmp_path, monkeypatch):
     monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     assert hooks.settings_path(project=False) == tmp_path / ".claude" / "settings.json"
     assert hooks.settings_path(project=True, cwd=tmp_path / "proj") == tmp_path / "proj" / ".claude" / "settings.json"
+
+
+def test_settings_path_follows_claude_config_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    config = tmp_path / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    assert hooks.settings_path(project=False) == config / "settings.json"
+    # The project scope stays inside the project even with the variable set.
+    assert hooks.settings_path(project=True, cwd=tmp_path / "proj") == tmp_path / "proj" / ".claude" / "settings.json"
+    # An empty value is the same as unset.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "  ")
+    assert hooks.settings_path(project=False) == tmp_path / "home" / ".claude" / "settings.json"
+    # expanduser resolves ~ from the environment (HOME on POSIX, USERPROFILE
+    # on Windows), not from Path.home, so both have to point at the fake home.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "~/cc")
+    assert hooks.settings_path(project=False) == tmp_path / "home" / "cc" / "settings.json"
+
+
+def test_install_writes_into_claude_config_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    config = tmp_path / "claude-config"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    assert hooks.install(hooks.settings_path(project=False))
+    assert (config / "settings.json").exists()
+    assert not (tmp_path / "home" / ".claude" / "settings.json").exists()
 
 
 def _secret() -> str:
