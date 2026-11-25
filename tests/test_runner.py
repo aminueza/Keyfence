@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 import re
@@ -1264,16 +1265,22 @@ def test_run_lets_the_command_handle_ctrl_c(home, monkeypatch, tmp_path):
     ready = tmp_path / "ready"
     script = tmp_path / "child.py"
     script.write_text(
-        "import signal, sys, time\n"
+        "import os, signal, sys, time\n"
         "def on(signum, frame):\n"
-        "    print('handled', flush=True)\n"
-        "    sys.exit(7)\n"
+        "    os._exit(7)\n"
         "signal.signal(signal.SIGINT, on)\n"
         f"open({str(ready)!r}, 'w').close()\n"
         "time.sleep(5)\n"
     )
 
     finished = threading.Event()
+
+    # CI runs pytest in the runner's own process group, so a killpg on the
+    # current group would signal the runner agent too: take a private group
+    # for the duration of the test and hand it back afterwards.
+    original_pgid = os.getpgrp()
+    os.setpgid(0, 0)
+    private_pgid = os.getpgrp()
 
     def interrupt():
         deadline = time.monotonic() + 3
@@ -1282,13 +1289,15 @@ def test_run_lets_the_command_handle_ctrl_c(home, monkeypatch, tmp_path):
         # A late killpg after run() returned would hit pytest with the
         # restored handler and kill the session instead of failing the test.
         if not finished.is_set():
-            os.killpg(os.getpgrp(), signal.SIGINT)
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(private_pgid, signal.SIGINT)
 
-    threading.Thread(target=interrupt, daemon=True).start()
     try:
+        threading.Thread(target=interrupt, daemon=True).start()
         code = runner.run([sys.executable, str(script)], 8899, ca_cert=ca, timeout=1)
     finally:
         finished.set()
+        os.setpgid(0, original_pgid)
     assert code == 7
     assert seen.get("proxy")
 
