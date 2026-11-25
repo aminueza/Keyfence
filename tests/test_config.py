@@ -220,6 +220,12 @@ def test_malformed_yaml_is_a_value_error_naming_the_file(home, write_config):
     ("scan:\n  allowlist: abc\n", "scan.allowlist"),
     ("scan:\n  gitleaks_disabled: generic-api-key\n", "scan.gitleaks_disabled"),
     ("scan:\n  gitleaks_rules: 123\n", "scan.gitleaks_rules"),
+    ("intercept_all_hosts: 'false'\n", "intercept_all_hosts"),
+    ("intercept_all_hosts:\n", "intercept_all_hosts"),
+    ("audit_log: [1, 2]\n", "audit_log"),
+    ("audit_log: false\n", "audit_log"),
+    ('audit_log: ""\n', "audit_log"),
+    ('audit_log: "   "\n', "audit_log"),
 ])
 def test_config_rejects_non_mapping_and_wrong_typed_values(write_config, text, expected_key):
     write_config(text)
@@ -257,16 +263,8 @@ def test_prompt_hook_reports_config_error_not_guard_crash(home, write_config, ca
     assert "configuration failed to load" in data["reason"]
     assert "guard crashed" not in data["reason"]
     assert "scan.entropy_threshold" in data["reason"]
- 
 
 
-def test_rejects_quoted_boolean_for_intercept_all_hosts(write_config, home):
-    write_config('intercept_all_hosts: "false"\n')
-    with pytest.raises(ValueError, match="intercept_all_hosts"):
-        Config.load()
-
-
-def test_rejects_non_string_audit_log(write_config, home):
-    write_config("audit_log: [1, 2]\n")
-    with pytest.raises(ValueError, match="audit_log"):
-        Config.load()   
+def test_null_audit_log_keeps_the_default(write_config, home):
+    write_config("audit_log:\n")
+    assert Config.load().audit_log == Config().audit_log
