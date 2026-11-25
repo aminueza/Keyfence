@@ -1277,3 +1277,25 @@ def test_run_lets_the_command_handle_ctrl_c(home, monkeypatch, tmp_path):
         finished.set()
     assert code == 7
     assert seen.get("proxy")
+
+
+def test_start_proxy_stops_the_proxy_when_startup_is_interrupted(monkeypatch, tmp_path):
+    # The proxy starts in its own group, so a Ctrl+C during startup reaches
+    # keyfence only: start_proxy must stop it or it would be orphaned (#179).
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    log = (tmp_path / "log").open("w")
+    proxy = FakeProxy()
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr, **_kwargs: proxy)
+
+    def interrupt(predicate, timeout, interval=0.1):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(runner, "wait_for", interrupt)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            runner.start_proxy(8899, {}, log, timeout=1, ca_cert=ca)
+    finally:
+        log.close()
+    assert proxy.terminated

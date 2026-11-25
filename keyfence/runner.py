@@ -164,12 +164,16 @@ def start_proxy(port: int, env: Mapping[str, str], log, timeout: float = 20.0,
                                  stdout=log, stderr=subprocess.STDOUT, **group)
     except FileNotFoundError:
         raise ProxyError(MISSING, "mitmdump not found. Install it with: pip install mitmproxy") from None
-    if not wait_for(lambda: proxy.poll() is None and port_open(port) and ca_cert.exists(), timeout):
+    try:
+        # The proxy is in its own group now, so a Ctrl+C during startup no
+        # longer reaches it: stop it here or any exit would orphan it.
+        if not wait_for(lambda: proxy.poll() is None and port_open(port) and ca_cert.exists(), timeout):
+            raise ProxyError(NOT_UP, f"keyfence proxy did not come up on port {port} within {timeout:.0f}s")
+        if not wait_for(lambda: proxy.poll() is None and addon_live(port), timeout):
+            raise ProxyError(NOT_LIVE, f"mitmdump is listening on port {port} but the keyfence addon is not answering")
+    except BaseException:
         stop_proxy(proxy)
-        raise ProxyError(NOT_UP, f"keyfence proxy did not come up on port {port} within {timeout:.0f}s")
-    if not wait_for(lambda: proxy.poll() is None and addon_live(port), timeout):
-        stop_proxy(proxy)
-        raise ProxyError(NOT_LIVE, f"mitmdump is listening on port {port} but the keyfence addon is not answering")
+        raise
     return proxy
 
 
