@@ -58,6 +58,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setattr("keyfence.runner.DEFAULT_DIR", tmp_path)
     monkeypatch.setenv("KEYFENCE_CONFIG", str(tmp_path / "config.yaml"))
     monkeypatch.delenv("KEYFENCE_ENV_VAULT", raising=False)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     return tmp_path
 
 

@@ -293,12 +293,24 @@ def _reason(path: str) -> str:
             "protected in transit.")
 
 
+def _read_hook_input(stdin) -> str:
+    # A piped stdin is decoded with the locale codec, which on Windows is the
+    # ANSI code page, so a UTF-8 tool call holding a byte undefined there (the
+    # 0x8D in an emoji, for example) fails as unreadable. Read the bytes and
+    # decode them as UTF-8, the encoding the agent writes (issue #185).
+    if stdin is not None:
+        return stdin.read()
+    buffer = getattr(sys.stdin, "buffer", None)
+    if buffer is None:  # replaced stdin without a byte stream, as in tests
+        return sys.stdin.read()
+    return buffer.read().decode("utf-8")
+
+
 def run_hook(stdin=None, stderr=None) -> int:
-    stdin = stdin or sys.stdin
     stderr = stderr or sys.stderr
     try:
         try:
-            payload = json.loads(stdin.read())
+            payload = json.loads(_read_hook_input(stdin))
         except ValueError:
             payload = None
         if not isinstance(payload, dict):
@@ -315,7 +327,12 @@ def run_hook(stdin=None, stderr=None) -> int:
 
 
 def settings_path(project: bool, cwd: Path | None = None) -> Path:
-    base = (cwd or Path.cwd()) / ".claude" if project else Path.home() / ".claude"
+    if project:
+        return (cwd or Path.cwd()) / ".claude" / "settings.json"
+    # Claude Code moves its user directory when CLAUDE_CONFIG_DIR is set, so a
+    # hook written to ~/.claude/settings.json would never be read (issue #184).
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    base = Path(config_dir).expanduser() if config_dir else Path.home() / ".claude"
     return base / "settings.json"
 
 
