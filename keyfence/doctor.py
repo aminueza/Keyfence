@@ -67,6 +67,8 @@ def check_mitmdump() -> Check:
     path = runner.mitmdump_path()
     problem = command_problem(path)
     if problem:
+        if path == "mitmdump":
+            return Check(FAIL, "mitmdump", hooks.missing_script("mitmdump"))
         return Check(FAIL, "mitmdump", f"{path} {problem}; reinstall keyfence (pip install keyfence)")
     return Check(OK, "mitmdump", path)
 

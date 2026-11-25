@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `install-hooks` refuses an unresolved automatic `keyfence` command before
+  writing settings or an extension. Missing-script errors now name the Python
+  script folders searched; pi's explicit `--command` override still works.
+  This completes the failure handling for issue #173 after PR #200 added
+  install-scheme discovery.
 - The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
   non-ASCII characters is no longer refused on a Windows install whose ANSI code
   page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which

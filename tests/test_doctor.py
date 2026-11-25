@@ -450,7 +450,7 @@ def test_mitmdump_check(tmp_path, monkeypatch):
     assert check.status == doctor.FAIL and str(binary) in check.detail and "does not exist" in check.detail
     monkeypatch.setattr(runner, "mitmdump_path", lambda: "mitmdump")
     monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: None)
-    assert doctor.check_mitmdump().status == doctor.FAIL and "mitmdump not found on PATH" in doctor.check_mitmdump().detail
+    assert doctor.check_mitmdump().status == doctor.FAIL and "mitmdump not found" in doctor.check_mitmdump().detail
     monkeypatch.setattr(doctor.hooks, "find_executable", lambda name: "/opt/bin/mitmdump")
     assert doctor.check_mitmdump().status == doctor.OK
 

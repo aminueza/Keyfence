@@ -1257,6 +1257,7 @@ def test_keyfence_path_never_picks_a_keyfence_from_the_current_directory(clone, 
     monkeypatch.setattr(hooks.sys, "executable", str(clone.repo.parent / "python"))
     monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {})
     clone.plant(clone.repo, "keyfence", "planted")
-    assert hooks.keyfence_path() == "keyfence"
+    with pytest.raises(ValueError, match="keyfence not found"):
+        hooks.keyfence_path()
     real = clone.plant(clone.bin, "keyfence", "real")
     assert clone.same(hooks.keyfence_path(), real)

@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from .config import Config
-from .hooks import find_executable, find_script, resolve_command
+from .hooks import find_executable, find_script, missing_script, resolve_command
 from .ignore import IgnoreList
 from .importer import env_values
 from .vault import DEFAULT_DIR, Vault
@@ -158,7 +158,7 @@ def start_proxy(port: int, env: Mapping[str, str], log, timeout: float = 20.0,
         proxy = subprocess.Popen(resolve_command(proxy_command(port, local=local, extra=extra)), env=env,
                                  stdout=log, stderr=subprocess.STDOUT, **group)
     except FileNotFoundError:
-        raise ProxyError(MISSING, "mitmdump not found. Install it with: pip install mitmproxy") from None
+        raise ProxyError(MISSING, missing_script("mitmdump")) from None
     try:
         # The proxy is in its own group now, so a Ctrl+C during startup no
         # longer reaches it: stop it here or any exit would orphan it.
