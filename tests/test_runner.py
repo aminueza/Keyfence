@@ -1,10 +1,14 @@
+import contextlib
 import json
 import os
 import re
+import signal
 import socket
 import stat
 import subprocess
 import sys
+import threading
+import time
 import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
@@ -192,7 +196,7 @@ def test_run_local_defaults_to_command_name(home, monkeypatch, tmp_path):
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or FakeProxy())
+                        lambda cmd, env, stdout, stderr, **_kwargs: seen.update(cmd=cmd) or FakeProxy())
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
@@ -274,7 +278,7 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     ca.write_text(CA_PEM)
     proxy = FakeProxy()
     monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
+                        lambda cmd, env, stdout, stderr, **_kwargs: seen.update(cmd=cmd) or proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
@@ -294,7 +298,7 @@ def _wire_fake_proxy(monkeypatch, tmp_path, seen=None):
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or FakeProxy())
+                        lambda cmd, env, stdout, stderr, **_kwargs: seen.update(cmd=cmd) or FakeProxy())
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 0)
@@ -496,7 +500,7 @@ def _run_without_port(monkeypatch, tmp_path, default_busy):
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda cmd, env, stdout, stderr: seen.update(proxy_cmd=cmd) or FakeProxy())
+                        lambda cmd, env, stdout, stderr, **_kwargs: seen.update(proxy_cmd=cmd) or FakeProxy())
     monkeypatch.setattr(runner, "port_open",
                         lambda port: (default_busy and port == runner.DEFAULT_PORT) or "proxy_cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: seen["probed"].append(port) or True)
@@ -915,7 +919,7 @@ def test_run_refuses_to_start_the_command_when_the_bundle_cannot_be_built(home, 
     seen = {}
     proxy = FakeProxy()
     monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
+                        lambda cmd, env, stdout, stderr, **_kwargs: seen.update(cmd=cmd) or proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: True)
     monkeypatch.setattr(runner.subprocess, "call", lambda *a, **k: pytest.fail("must not start the command"))
@@ -1036,7 +1040,7 @@ def test_run_success(home, monkeypatch, tmp_path):
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
     monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda cmd, env, stdout, stderr: seen.update(proxy_cmd=cmd, proxy_env=env, stdout=stdout) or proxy)
+                        lambda cmd, env, stdout, stderr, **_kwargs: seen.update(proxy_cmd=cmd, proxy_env=env, stdout=stdout) or proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: "proxy_cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: True)
 
@@ -1070,7 +1074,7 @@ def test_run_refuses_to_start_the_command_when_the_addon_is_not_answering(home, 
     seen = {}
     ca = tmp_path / "ca.pem"
     ca.write_text(CA_PEM)
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr, **_kwargs: seen.update(cmd=cmd) or proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: "cmd" in seen)
     monkeypatch.setattr(runner, "addon_live", lambda port: False)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: pytest.fail("must not start the command"))
@@ -1138,7 +1142,7 @@ def test_start_proxy_reports_each_stage_and_stops_what_it_started(monkeypatch, t
     log = (tmp_path / "log").open("w")
     started = []
     monkeypatch.setattr(runner.subprocess, "Popen",
-                        lambda cmd, env, stdout, stderr: started.append((cmd, env, stdout)) or started[-1] and FakeProxy())
+                        lambda cmd, env, stdout, stderr, **_kwargs: started.append((cmd, env, stdout)) or started[-1] and FakeProxy())
     monkeypatch.setattr(runner, "port_open", lambda port: False)
     with pytest.raises(runner.ProxyError) as exc:
         runner.start_proxy(8899, {"A": "1"}, log, timeout=0.05, ca_cert=ca)
@@ -1171,7 +1175,7 @@ def test_start_proxy_reports_each_stage_and_stops_what_it_started(monkeypatch, t
 
 def test_run_times_out_and_kills_stuck_proxy(home, monkeypatch, tmp_path, capsys):
     proxy = FakeProxy(alive_after_terminate=True)
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr: proxy)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr, **_kwargs: proxy)
     monkeypatch.setattr(runner, "port_open", lambda port: False)
     assert runner.run([sys.executable], 8899, ca_cert=tmp_path / "missing.pem", timeout=0.05) == 1
     assert "did not come up" in capsys.readouterr().out
@@ -1195,7 +1199,7 @@ def test_run_refuses_a_command_that_is_only_in_the_current_directory(home, monke
     seen = {}
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
     monkeypatch.setattr(runner, "mitmdump_path", lambda: sys.executable)
-    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr: seen.update(cmd=cmd) or proxy)
+    monkeypatch.setattr(runner.subprocess, "Popen", lambda cmd, env, stdout, stderr, **_kwargs: seen.update(cmd=cmd) or proxy)
     monkeypatch.setattr(runner.subprocess, "call", lambda command, env: pytest.fail("the command must not start"))
     clone.plant(clone.repo, "tool", "planted")
     assert runner.run(["tool"], 8899, ca_cert=ca, timeout=1) == 127
@@ -1214,3 +1218,107 @@ def test_start_proxy_never_runs_a_mitmdump_from_the_current_directory(home, monk
     real = clone.plant(clone.bin, "mitmdump", "real")
     runner.start_proxy(8899, {}, None, timeout=1, ca_cert=ca)
     assert clone.same(seen["cmd"][0], real)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process sessions")
+def test_start_proxy_starts_mitmdump_in_its_own_session(monkeypatch, tmp_path):
+    log = (tmp_path / "proxy.log").open("w")
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    seen = {}
+
+    def popen(cmd, env, stdout, stderr, **kwargs):
+        seen.update(kwargs)
+        return FakeProxy()
+
+    monkeypatch.setattr(runner.subprocess, "Popen", popen)
+    monkeypatch.setattr(runner, "port_open", lambda port: True)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
+    try:
+        runner.start_proxy(8899, {}, log, ca_cert=ca)
+    finally:
+        log.close()
+    assert seen.get("start_new_session") is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+def test_run_lets_the_command_handle_ctrl_c(home, monkeypatch, tmp_path):
+    # A fake proxy, but the real child: it traps SIGINT, exits 7, and the
+    # signal goes to the whole foreground group, as a terminal sends it.
+    real_popen = subprocess.Popen
+    seen = {}
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+
+    def popen(cmd, env=None, stdout=None, stderr=None, **kwargs):
+        if "mitmdump" in Path(str(cmd[0])).name:
+            seen["proxy"] = True
+            return FakeProxy()
+        return real_popen(cmd, env=env, stdout=stdout, stderr=stderr, **kwargs)
+
+    monkeypatch.setattr(runner.subprocess, "Popen", popen)
+    monkeypatch.setattr(runner.subprocess, "call", subprocess.call)
+    # Free before start_proxy, then listening once the fake proxy started.
+    monkeypatch.setattr(runner, "port_open", lambda port: "proxy" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
+
+    ready = tmp_path / "ready"
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import os, signal, sys, time\n"
+        "def on(signum, frame):\n"
+        "    os._exit(7)\n"
+        "signal.signal(signal.SIGINT, on)\n"
+        f"open({str(ready)!r}, 'w').close()\n"
+        "time.sleep(5)\n"
+    )
+
+    finished = threading.Event()
+
+    # CI runs pytest in the runner's own process group, so a killpg on the
+    # current group would signal the runner agent too: take a private group
+    # for the duration of the test and hand it back afterwards.
+    original_pgid = os.getpgrp()
+    os.setpgid(0, 0)
+    private_pgid = os.getpgrp()
+
+    def interrupt():
+        deadline = time.monotonic() + 3
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        # A late killpg after run() returned would hit pytest with the
+        # restored handler and kill the session instead of failing the test.
+        if not finished.is_set():
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(private_pgid, signal.SIGINT)
+
+    try:
+        threading.Thread(target=interrupt, daemon=True).start()
+        code = runner.run([sys.executable, str(script)], 8899, ca_cert=ca, timeout=1)
+    finally:
+        finished.set()
+        os.setpgid(0, original_pgid)
+    assert code == 7
+    assert seen.get("proxy")
+
+
+def test_start_proxy_stops_the_proxy_when_startup_is_interrupted(monkeypatch, tmp_path):
+    # The proxy starts in its own group, so a Ctrl+C during startup reaches
+    # keyfence only: start_proxy must stop it or it would be orphaned (#179).
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    log = (tmp_path / "log").open("w")
+    proxy = FakeProxy()
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr, **_kwargs: proxy)
+
+    def interrupt(predicate, timeout, interval=0.1):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(runner, "wait_for", interrupt)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            runner.start_proxy(8899, {}, log, timeout=1, ca_cert=ca)
+    finally:
+        log.close()
+    assert proxy.terminated

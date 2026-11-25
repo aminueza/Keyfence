@@ -37,6 +37,11 @@
   hook used to be written with a bare `keyfence` that the agent could not
   start. If `install-hooks` wrote a bare `keyfence` before this fix, run it
   again to rewrite the hook command (issue #173).
+- `keyfence exec` hands Ctrl+C to the command: keyfence defers the signal
+  while the child runs, so a command that traps SIGINT finishes and its exit
+  code is returned instead of a traceback with `-2`. mitmdump now starts in its
+  own session (POSIX) or process group (Windows), so the same Ctrl+C no longer
+  stops the proxy while the command is still running (issue #179).
 
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints

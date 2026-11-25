@@ -6,6 +6,7 @@ import http.client
 import json
 import os
 import re
+import signal
 import socket
 import ssl
 import subprocess
@@ -149,17 +150,25 @@ def stop_proxy(proxy: subprocess.Popen) -> None:
 def start_proxy(port: int, env: Mapping[str, str], log, timeout: float = 20.0,
                 ca_cert: Path = CA_CERT, local: str | None = None,
                 extra: Sequence[str] = ()) -> subprocess.Popen:
+    # Own session/process group, so a Ctrl+C meant for the command does not
+    # take the proxy down with it (issue #179).
+    group = ({"start_new_session": True} if os.name == "posix"
+             else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP})
     try:
         proxy = subprocess.Popen(resolve_command(proxy_command(port, local=local, extra=extra)), env=env,
-                                 stdout=log, stderr=subprocess.STDOUT)
+                                 stdout=log, stderr=subprocess.STDOUT, **group)
     except FileNotFoundError:
         raise ProxyError(MISSING, "mitmdump not found. Install it with: pip install mitmproxy") from None
-    if not wait_for(lambda: proxy.poll() is None and port_open(port) and ca_cert.exists(), timeout):
+    try:
+        # The proxy is in its own group now, so a Ctrl+C during startup no
+        # longer reaches it: stop it here or any exit would orphan it.
+        if not wait_for(lambda: proxy.poll() is None and port_open(port) and ca_cert.exists(), timeout):
+            raise ProxyError(NOT_UP, f"keyfence proxy did not come up on port {port} within {timeout:.0f}s")
+        if not wait_for(lambda: proxy.poll() is None and addon_live(port), timeout):
+            raise ProxyError(NOT_LIVE, f"mitmdump is listening on port {port} but the keyfence addon is not answering")
+    except BaseException:
         stop_proxy(proxy)
-        raise ProxyError(NOT_UP, f"keyfence proxy did not come up on port {port} within {timeout:.0f}s")
-    if not wait_for(lambda: proxy.poll() is None and addon_live(port), timeout):
-        stop_proxy(proxy)
-        raise ProxyError(NOT_LIVE, f"mitmdump is listening on port {port} but the keyfence addon is not answering")
+        raise
     return proxy
 
 
@@ -353,6 +362,30 @@ def build_env_vault(environ: Mapping[str, str], everything: bool = False,
     return env_vault
 
 
+def _run_foreground(command: Sequence[str], env: Mapping[str, str]) -> int:
+    """Run the command and let it own Ctrl+C.
+
+    The terminal signals every process in the foreground group, so the child
+    gets its own SIGINT; keyfence must not raise KeyboardInterrupt, or
+    subprocess.call kills the child and its exit code is lost. A Python-level
+    handler is not inherited across exec (the child gets SIG_DFL), unlike
+    SIG_IGN, which would make the child ignore Ctrl+C too.
+    """
+    def defer(_signum, _frame):
+        pass
+
+    previous = None
+    try:
+        previous = signal.signal(signal.SIGINT, defer)
+    except (ValueError, OSError):
+        previous = None  # not the main thread (or no signals): keep the old behaviour
+    try:
+        return subprocess.call(command, env=env)
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
+
+
 def run(command: Sequence[str], port: int | None = None, everything: bool = False,
         timeout: float = 20.0, ca_cert: Path = CA_CERT, local: str | None = None,
         record: Path | None = None, linger: float = 0.0) -> int:
@@ -420,8 +453,8 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         except FileNotFoundError as exc:
             print(f"keyfence: {exc}", file=sys.stderr)
             return 127
-        code = subprocess.call(resolved, env=child_env(os.environ, port, ca_cert, bundle,
-                                                       bypass_loopback=not loopback_monitored(config)))
+        code = _run_foreground(resolved, child_env(os.environ, port, ca_cert, bundle,
+                                                   bypass_loopback=not loopback_monitored(config)))
         if code < 0 and os.name == "posix":
             code = 128 - code
         if linger > 0 and proxy.poll() is None:
