@@ -121,13 +121,13 @@ def find_script(name: str, finder=find_executable) -> str | None:
     for folder in script_dirs():
         for candidate_name in (name, f"{name}.exe"):
             candidate = folder / candidate_name
-            if candidate.exists():
+            if candidate.is_file():
                 return str(candidate)
     return finder(name) or finder(f"{name}.exe")
 
 
 def keyfence_path() -> str:
-    return find_script("keyfence") or "keyfence"
+    return find_script("keyfence", find_executable) or "keyfence"
 
 
 def _hook_fields(command: str | None) -> dict:

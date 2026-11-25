@@ -1178,6 +1178,31 @@ def test_keyfence_path_finds_the_install_scheme_scripts_folder(tmp_path, monkeyp
     assert hooks.keyfence_path() == str(exe)
 
 
+def test_keyfence_path_prefers_the_scheme_folder_over_path(tmp_path, monkeypatch):
+    # The scheme folder belongs to the running interpreter, so it outranks PATH.
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    exe = scripts / "keyfence"
+    exe.write_text("")
+    monkeypatch.setattr(hooks.sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {"scripts": str(scripts)})
+    monkeypatch.setattr(hooks, "find_executable", lambda _name: str(tmp_path / "elsewhere" / "keyfence"))
+    assert hooks.keyfence_path() == str(exe)
+
+
+def test_keyfence_path_prefers_the_interpreter_folder_over_the_scheme(tmp_path, monkeypatch):
+    bindir = tmp_path / "interp"
+    bindir.mkdir()
+    near = bindir / "keyfence"
+    near.write_text("")
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    (scripts / "keyfence").write_text("")
+    monkeypatch.setattr(hooks.sys, "executable", str(bindir / "python"))
+    monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {"scripts": str(scripts)})
+    assert hooks.keyfence_path() == str(near)
+
+
 def test_keyfence_path_never_picks_a_keyfence_from_the_current_directory(clone, monkeypatch):
     monkeypatch.setattr(hooks.sys, "executable", str(clone.repo.parent / "python"))
     monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {})
