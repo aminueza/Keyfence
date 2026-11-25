@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from .config import Config
-from .hooks import find_executable, resolve_command
+from .hooks import find_executable, find_script, resolve_command
 from .ignore import IgnoreList
 from .importer import env_values
 from .vault import DEFAULT_DIR, Vault
@@ -50,12 +50,7 @@ DEFAULT_PORT = 8888
 
 
 def mitmdump_path() -> str:
-    bindir = Path(sys.executable).parent
-    for name in ("mitmdump", "mitmdump.exe"):
-        candidate = bindir / name
-        if candidate.exists():
-            return str(candidate)
-    return find_executable("mitmdump") or "mitmdump"
+    return find_script("mitmdump", find_executable) or "mitmdump"
 
 
 def listen_args(port: int, local: str | None) -> list[str]:

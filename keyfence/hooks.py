@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sys
+import sysconfig
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -94,13 +95,44 @@ def resolve_command(command: Sequence[str]) -> list[str]:
     return [found, *command[1:]]
 
 
+def script_dirs() -> list[Path]:
+    """Folders that may hold console scripts for this interpreter.
+
+    A venv puts them next to the interpreter, but the install schemes can put
+    them in a Scripts/bin folder that is not beside python and not on PATH —
+    the Windows system and `--user` layouts (issue #173).
+    """
+    dirs = [Path(sys.executable).parent]
+    schemes = (None, "nt_user", "posix_user")
+    for scheme in schemes:
+        try:
+            paths = sysconfig.get_paths() if scheme is None else sysconfig.get_paths(scheme=scheme)
+        except (KeyError, ValueError):
+            continue
+        scripts = paths.get("scripts")
+        if scripts and Path(scripts) not in dirs:
+            dirs.append(Path(scripts))
+    return dirs
+
+
+def find_script(name: str, finder=None) -> str | None:
+    """A console script by name, looking in the interpreter's script folders
+    before PATH. Returns None when nothing is found."""
+    for folder in script_dirs():
+        for candidate_name in (name, f"{name}.exe"):
+            candidate = folder / candidate_name
+            if candidate.is_file():
+                return str(candidate)
+    # Only the plain name on PATH: shutil.which already applies PATHEXT on
+    # Windows, and asking for name.exe on WSL can pick up a Windows script
+    # from the interop PATH instead of failing cleanly.
+    if finder is None:
+        finder = find_executable
+    return finder(name)
+
+
 def keyfence_path() -> str:
-    bindir = Path(sys.executable).parent
-    for name in ("keyfence", "keyfence.exe"):
-        candidate = bindir / name
-        if candidate.exists():
-            return str(candidate)
-    return find_executable("keyfence") or "keyfence"
+    return find_script("keyfence", find_executable) or "keyfence"
 
 
 def _hook_fields(command: str | None) -> dict:
