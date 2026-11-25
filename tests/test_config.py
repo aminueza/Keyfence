@@ -257,3 +257,16 @@ def test_prompt_hook_reports_config_error_not_guard_crash(home, write_config, ca
     assert "configuration failed to load" in data["reason"]
     assert "guard crashed" not in data["reason"]
     assert "scan.entropy_threshold" in data["reason"]
+ 
+
+
+def test_rejects_quoted_boolean_for_intercept_all_hosts(write_config, home):
+    write_config('intercept_all_hosts: "false"\n')
+    with pytest.raises(ValueError, match="intercept_all_hosts"):
+        Config.load()
+
+
+def test_rejects_non_string_audit_log(write_config, home):
+    write_config("audit_log: [1, 2]\n")
+    with pytest.raises(ValueError, match="audit_log"):
+        Config.load()   
