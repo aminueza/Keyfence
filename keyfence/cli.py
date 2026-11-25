@@ -250,9 +250,10 @@ def cmd_run(args) -> int:
     command = runner.proxy_command(args.port, local=args.local,
                                    extra=runner.tcp_timeout_args(config))
     try:
+        command = hooks.resolve_command(command)
         os.execvp(command[0], command)
     except FileNotFoundError:
-        print("mitmdump not found. Install it with: pip install mitmproxy")
+        print(hooks.missing_script("mitmdump"))
         return 1
 
 

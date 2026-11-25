@@ -551,8 +551,9 @@ def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
 
 
 def test_installed_exec_form_command_actually_spawns(tmp_path):
-    exe = hooks.keyfence_path()
-    if not Path(exe).is_file():
+    try:
+        exe = hooks.keyfence_path()
+    except ValueError:
         pytest.skip("keyfence console script not installed in this environment")
     path = tmp_path / "settings.json"
     assert hooks.install(path, exe)
@@ -1257,6 +1258,7 @@ def test_keyfence_path_never_picks_a_keyfence_from_the_current_directory(clone, 
     monkeypatch.setattr(hooks.sys, "executable", str(clone.repo.parent / "python"))
     monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {})
     clone.plant(clone.repo, "keyfence", "planted")
-    assert hooks.keyfence_path() == "keyfence"
+    with pytest.raises(ValueError, match="keyfence not found"):
+        hooks.keyfence_path()
     real = clone.plant(clone.bin, "keyfence", "real")
     assert clone.same(hooks.keyfence_path(), real)

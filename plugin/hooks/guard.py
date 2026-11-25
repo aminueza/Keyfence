@@ -131,8 +131,17 @@ def find_script(name: str, finder=None) -> str | None:
     return finder(name)
 
 
+def missing_script(name: str) -> str:
+    folders = ", ".join(str(folder) for folder in script_dirs())
+    return (f"{name} not found. Searched {folders}, then absolute PATH entries. "
+            f"Install keyfence in the Python environment at {sys.executable}.")
+
+
 def keyfence_path() -> str:
-    return find_script("keyfence", find_executable) or "keyfence"
+    path = find_script("keyfence", find_executable)
+    if path is None or not Path(path).is_absolute():
+        raise ValueError(missing_script("keyfence") + " For pi, you can also use install-hooks pi --command PATH.")
+    return path
 
 
 def _hook_fields(command: str | None) -> dict:

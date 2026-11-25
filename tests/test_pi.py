@@ -127,7 +127,8 @@ def test_keyfence_path_prefers_the_current_interpreters_bindir(tmp_path, monkeyp
     binary.unlink()
     monkeypatch.setattr(hooks.shutil, "which", lambda name: None)
     monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {})
-    assert pi.keyfence_path() == "keyfence"
+    with pytest.raises(ValueError, match="keyfence not found"):
+        pi.keyfence_path()
 
 
 def test_cli_installs_and_removes_the_extension(home, tmp_path, monkeypatch, capsys):
