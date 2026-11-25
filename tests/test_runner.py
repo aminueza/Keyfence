@@ -534,8 +534,22 @@ def test_mitmdump_path_prefers_interpreter_bindir(tmp_path, monkeypatch):
     assert runner.mitmdump_path() == str(fake)
 
 
+def test_mitmdump_path_finds_the_install_scheme_scripts_folder(tmp_path, monkeypatch):
+    from keyfence import hooks
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    fake = scripts / "mitmdump.exe"
+    fake.write_text("")
+    monkeypatch.setattr(runner.sys, "executable", str(tmp_path / "python.exe"))
+    monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {"scripts": str(scripts)})
+    monkeypatch.setattr(runner, "find_executable", lambda _name: None)
+    assert runner.mitmdump_path() == str(fake)
+
+
 def test_mitmdump_path_falls_back_to_path_then_bare_name(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.sys, "executable", str(tmp_path / "python"))
+    # Ignore this environment's own scripts folder; the fallback is PATH -> bare name.
+    monkeypatch.setattr(runner, "find_script", lambda name, finder: finder(name) or finder(f"{name}.exe"))
     monkeypatch.setattr(runner, "find_executable", lambda _name: "/opt/bin/mitmdump")
     assert runner.mitmdump_path() == "/opt/bin/mitmdump"
     monkeypatch.setattr(runner, "find_executable", lambda _name: None)

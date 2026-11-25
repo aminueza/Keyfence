@@ -29,6 +29,14 @@
   `$CLAUDE_CONFIG_DIR/settings.json` for the global hook when that variable is
   set, the file Claude Code actually reads, instead of always writing
   `~/.claude/settings.json`. An empty value is treated as unset (issue #184).
+- `keyfence`, `mitmdump` and `doctor` now also look in the interpreter's
+  install-scheme scripts folder (Windows `<prefix>\Scripts` and the `--user`
+  `%APPDATA%\Python\Python3XX\Scripts`, and `~/.local/bin` or its macOS
+  equivalent on POSIX), not only beside `python.exe` and on `PATH`. Those
+  layouts are common when the installer leaves the folder off `PATH`, and the
+  hook used to be written with a bare `keyfence` that the agent could not
+  start. If `install-hooks` wrote a bare `keyfence` before this fix, run it
+  again to rewrite the hook command (issue #173).
 - `keyfence exec` hands Ctrl+C to the command: keyfence defers the signal
   while the child runs, so a command that traps SIGINT finishes and its exit
   code is returned instead of a traceback with `-2`. mitmdump now starts in its
