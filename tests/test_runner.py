@@ -1259,12 +1259,21 @@ def test_run_lets_the_command_handle_ctrl_c(home, monkeypatch, tmp_path):
         "time.sleep(5)\n"
     )
 
+    finished = threading.Event()
+
     def interrupt():
         deadline = time.monotonic() + 3
         while not ready.exists() and time.monotonic() < deadline:
             time.sleep(0.02)
-        os.killpg(os.getpgrp(), signal.SIGINT)
+        # A late killpg after run() returned would hit pytest with the
+        # restored handler and kill the session instead of failing the test.
+        if not finished.is_set():
+            os.killpg(os.getpgrp(), signal.SIGINT)
 
     threading.Thread(target=interrupt, daemon=True).start()
-    assert runner.run([sys.executable, str(script)], 8899, ca_cert=ca, timeout=1) == 7
+    try:
+        code = runner.run([sys.executable, str(script)], 8899, ca_cert=ca, timeout=1)
+    finally:
+        finished.set()
+    assert code == 7
     assert seen.get("proxy")
