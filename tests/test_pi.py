@@ -126,6 +126,7 @@ def test_keyfence_path_prefers_the_current_interpreters_bindir(tmp_path, monkeyp
     assert pi.keyfence_path() == str(binary)
     binary.unlink()
     monkeypatch.setattr(hooks.shutil, "which", lambda name: None)
+    monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {})
     assert pi.keyfence_path() == "keyfence"
 
 

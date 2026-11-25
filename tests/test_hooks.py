@@ -1180,6 +1180,7 @@ def test_keyfence_path_finds_the_install_scheme_scripts_folder(tmp_path, monkeyp
 
 def test_keyfence_path_never_picks_a_keyfence_from_the_current_directory(clone, monkeypatch):
     monkeypatch.setattr(hooks.sys, "executable", str(clone.repo.parent / "python"))
+    monkeypatch.setattr(hooks.sysconfig, "get_paths", lambda *a, **k: {})
     clone.plant(clone.repo, "keyfence", "planted")
     assert hooks.keyfence_path() == "keyfence"
     real = clone.plant(clone.bin, "keyfence", "real")
