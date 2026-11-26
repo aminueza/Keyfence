@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A request holding a lone surrogate escape such as `\ud83d` (an emoji cut in
+  half, which Node writes as valid JSON) and a secret is redacted, gets the
+  notice and is sent, instead of being refused with a 403 for an internal
+  `UnicodeEncodeError`. The notice rewrite now writes lone surrogates back as
+  escapes; every other character is kept as it was (issue #237).
+
 - `install-hooks` refuses an unresolved automatic `keyfence` command before
   writing settings or an extension. Missing-script errors now name the Python
   script folders searched; pi's explicit `--command` override still works.
