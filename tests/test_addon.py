@@ -7,6 +7,7 @@ import zlib
 from pathlib import Path
 
 import pytest
+from typing import Optional
 from mitmproxy import http
 from mitmproxy.test import tflow, tutils
 from mitmproxy.websocket import Opcode, WebSocketData, WebSocketMessage
@@ -1123,3 +1124,18 @@ def test_a_decodable_compressed_body_is_still_redacted(guard, encoding):
     text = flow.request.get_text(strict=True)
     assert KEY not in text
     json.loads(text)
+def test_running_turns_stream_large_bodies_off(guard, caplog):
+    from mitmproxy.test import taddons
+
+    kf = guard("redact")
+    with taddons.context(kf) as tctx:
+        tctx.options.add_option("stream_large_bodies", Optional[str], None, "doc")
+        tctx.options.stream_large_bodies = "1k"
+        with caplog.at_level("WARNING", logger="keyfence"):
+            kf.running()
+        assert tctx.options.stream_large_bodies is None
+        assert "stream_large_bodies was 1k" in caplog.text
+        caplog.clear()
+        kf.running()
+        assert tctx.options.stream_large_bodies is None
+        assert "stream_large_bodies was" not in caplog.text

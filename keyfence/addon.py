@@ -166,6 +166,12 @@ class KeyFence:
             ctx.options.websocket = True
             log.warning("websocket interception was off in the mitmproxy configuration; "
                         "keyfence turned it on, otherwise frames pass unscanned")
+        streaming = getattr(ctx.options, "stream_large_bodies", None)
+        if streaming:
+            log.warning("stream_large_bodies was %s in the mitmproxy configuration; keyfence turned "
+                        "it off, otherwise bodies above that size pass unscanned",
+                        streaming)
+            ctx.options.stream_large_bodies = None
 
     def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
