@@ -30,6 +30,10 @@
   delete the JSON that followed in compact bodies and refuse harmless requests
   with a 403 in spaced ones. A raw delimiter inside a value now cuts it there;
   such values should have been percent-encoded anyway (issue #174).
+- `install-hooks` and `--remove` read and write `settings.json` and
+  `keyfence-deny-rules.json` as UTF-8, so non-ASCII text in a settings file is
+  no longer corrupted on Windows or under a non-UTF-8 locale. A settings file
+  saved with a byte order mark now loads too (issue #228).
 - `install-hooks`, `install-hooks --list` and `doctor` use
   `$CLAUDE_CONFIG_DIR/settings.json` for the global hook when that variable is
   set, the file Claude Code actually reads, instead of always writing

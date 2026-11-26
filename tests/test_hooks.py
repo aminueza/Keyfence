@@ -10,8 +10,6 @@ import pytest
 
 from keyfence import hooks
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -1280,7 +1278,7 @@ def test_install_and_uninstall_keep_non_ascii_text_whatever_the_locale(tmp_path)
         "import json, sys; from pathlib import Path; from keyfence import hooks;"
         f"p = Path({str(path)!r}); hooks.install(p); hooks.uninstall(p)"
     )
-    env = dict(os.environ, LC_ALL="en_US.ISO8859-1", PYTHONUTF8="0", PYTHONPATH=str(_REPO_ROOT))
+    env = dict(os.environ, LC_ALL="en_US.ISO8859-1", PYTHONUTF8="0", PYTHONPATH=str(ROOT))
     done = subprocess.run([sys.executable, "-c", script], capture_output=True, env=env)
     assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
     assert json.loads(path.read_text(encoding="utf-8"))["statusLine"]["command"] == "echo 'Olá ✓ ←'"
