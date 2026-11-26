@@ -186,7 +186,9 @@ def _sync_command(entries: list, fields: dict) -> bool:
 
 
 def is_sensitive(path: str) -> bool:
-    posix = PurePosixPath(path.replace("\\", "/").lower())
+    # casefold, not lower: macOS's APFS folds U+017F (long s) to `s`, so `.ſsh` opens `.ssh` there,
+    # while `str.lower()` leaves it as `ſ` and the name then matches nothing (#230).
+    posix = PurePosixPath(path.replace("\\", "/").casefold())
     name = posix.name
     if any(fnmatch.fnmatch(name, pattern) for pattern in SAFE_NAMES):
         return False

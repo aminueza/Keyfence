@@ -31,6 +31,18 @@ def test_safe_paths(path):
     assert not hooks.is_sensitive(path)
 
 
+def test_a_case_folding_letter_that_opens_a_sensitive_name_is_refused():
+    """APFS folds these to the ASCII letters; `str.lower()` does not (#230).
+
+    macOS's default volume is case-insensitive and folds U+017F (long s) to `s`, so `~/.ſsh/deploy`
+    opens `~/.ssh/deploy`. Comparing lowercased strings alone misses it on every name with an `s`,
+    and the hook then allows the read on the one platform where the file really opens.
+    """
+    for path in ["/home/u/.\u017fsh/deploy", "/home/u/.\u017fsh/id_rsa", "/work/prod.tfvar\u017f",
+                 "/work/credential\u017f.json", "/work/\u017fecrets.yaml"]:
+        assert hooks.is_sensitive(path), path
+
+
 def test_the_private_key_beside_the_mitmproxy_ca_certificate_is_still_refused():
     path = "~/.mitmproxy/mitmproxy-ca.pem"
     assert hooks.is_sensitive(path)
