@@ -13,7 +13,7 @@ authors = [{ name = "Amanda Souza" }]
 requires-python = ">=3.12"
 dependencies = [
     "certifi>=2026.1.4",
-    "mitmproxy>=10.0",
+    "mitmproxy>=12.2.1",
     "PyYAML>=6.0",
 ]
 keywords = ["llm", "secrets", "proxy", "redaction", "security", "claude-code", "coding-agents"]
