@@ -96,6 +96,30 @@ GitHub Actions runs the unit tests on Linux (Python 3.12 to 3.14), macOS and
 Windows, the integration script on Linux and macOS, and builds the wheel to
 check that the bundled rules ship in the package.
 
+## Pinned build tools
+
+The release build and the Docker image install only what two hashed
+requirements files list, with `pip install --require-hashes`:
+
+| file | used by | Python |
+|---|---|---|
+| `requirements-release.txt` | the `build` and `sbom` jobs of `release.yml`, the `package` job of `ci.yml` | 3.13 |
+| `requirements-docker.txt` | the `Dockerfile` | 3.12 |
+
+Both are compiled from the `.in` file next to them with pip-tools, on the
+Python version in the table, so the markers and hashes match the job that
+installs them:
+
+```bash
+pip-compile --allow-unsafe --generate-hashes --no-emit-index-url --strip-extras \
+  --output-file=requirements-release.txt requirements-release.in
+pip-compile --allow-unsafe --generate-hashes --no-emit-index-url --strip-extras \
+  --output-file=requirements-docker.txt requirements-docker.in
+```
+
+Dependabot proposes updates for both files, for the base image digest in the
+`Dockerfile` and for the actions.
+
 ## Benchmark
 
 ```bash
@@ -146,11 +170,14 @@ To release:
 
 The workflow checks that the `ci.yml` push run on `main` passed for the
 tagged commit and that the commit is on `main`,
-builds the sdist and wheel, checks that the tag matches the package
-version, publishes to PyPI, and then creates the GitHub release for the
+builds the sdist and wheel from the hashed `requirements-release.txt` and
+records their SHA-256, installs the wheel in a clean virtual environment in a
+separate job to check that the tag matches the package version and to write
+a CycloneDX SBOM, publishes to PyPI after checking that the files still match
+the recorded SHA-256, and then creates the GitHub release for the
 tag with a one-line summary of the `CHANGELOG.md` section of that version
-as its body, linking to the section itself, and the sdist and wheel
-attached. A tag pushed on a commit whose suite fails will
+as its body, linking to the section itself, and the sdist, the wheel and
+`sbom.cdx.json` attached. A tag pushed on a commit whose suite fails will
 not publish, and a tag whose version has no changelog section fails the
 release step with the sections it did find, so the release never goes out
 empty.
