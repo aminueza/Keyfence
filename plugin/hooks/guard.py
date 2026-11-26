@@ -48,19 +48,24 @@ _NAMED_DUMP = re.compile(
     _START + r"(?:printenv\s+" + _SECRET_VAR + r"\b|(?:echo|printf)\b[^;&|\n]*\$\{?" + _SECRET_VAR + r"\b)|"
     r"/proc/(?:self|\d+)/environ", re.IGNORECASE | re.MULTILINE)
 _HERESTRING_DUMP = re.compile(r"<<<(?!<)[^;&|\n]*\$\{?" + _SECRET_VAR + r"\b", re.IGNORECASE)
+_O = r"(?:\s+-[^\s=;&|]+(?:=[^\s;&|]*|\s+[^-\s;&|][^\s;&|]*)?)*"
+_KUBECTL_SECRET = r"(?<!\S)(?:[\w.-]+,)*secrets?(?:/\S*)?(?:,[\w.-]+)*(?!\S)"
+_KUBECTL_DATA_FORMAT = (r"(?:(?:-o|--output)[\s=]*[\"']?"
+                        r"(?:yaml|kyaml|json|jsonpath|go-template|custom-columns|template)|--template\b)")
 _SECRET_COMMANDS = re.compile(
     _START + r"(?P<cmd>"
-    r"aws\s+secretsmanager\s+get-secret-value|aws\s+ssm\s+get-parameters?\b.*--with-decryption|"
-    r"aws\s+configure\s+(?:get\s+\S*(?:secret|token|key)|export-credentials)|"
-    r"aws\s+sts\s+(?:get-session-token|get-federation-token|assume-role\S*)|aws\s+ecr\s+get-login-password|"
-    r"op\s+read|op\s+item\s+get\b(?=.*(?:--reveal|--format[= ]json|--fields))|"
-    r"vault\s+(?:kv\s+get|read)|doppler\s+secrets(?:\s+(?:download|get)\b|(?![^;&|\n]*--only-names))|"
-    r"kubectl\s+get\s+secrets?\b(?=.*(?:-o|--output)[\s=]*(?:yaml|json|jsonpath|go-template|custom-columns))|"
-    r"kubectl\s+config\s+view\b(?=.*--raw)|"
-    r"gcloud\s+secrets\s+versions\s+access|gcloud\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token|"
-    r"az\s+keyvault\s+secret\s+show|az\s+account\s+get-access-token|"
-    r"gh\s+auth\s+(?:token|status\b(?=.*--show-token))|heroku\s+config(?::get)?|infisical\s+(?:secrets|export)|"
-    r"bw\s+(?:get|list\s+items)"
+    rf"aws{_O}\s+secretsmanager\s+get-secret-value|aws{_O}\s+ssm\s+get-parameters?\b.*--with-decryption|"
+    rf"aws{_O}\s+configure\s+(?:get\s+\S*(?:secret|token|key)|export-credentials)|"
+    rf"aws{_O}\s+sts\s+(?:get-session-token|get-federation-token|assume-role\S*)|aws{_O}\s+ecr\s+get-login-password|"
+    rf"op{_O}\s+read|op(?=[^;&|\n]*(?:--reveal|--format[= ]json|--fields)){_O}\s+item\s+get\b|"
+    rf"vault{_O}\s+(?:kv\s+get|read)|doppler{_O}\s+secrets(?:\s+(?:download|get)\b|(?![^;&|\n]*--only-names))|"
+    rf"kubectl(?=[^;&|\n]*{_KUBECTL_DATA_FORMAT}){_O}\s+get\b(?=[^;&|\n]*{_KUBECTL_SECRET})|"
+    rf"kubectl{_O}\s+config\s+view\b(?=.*--raw)|"
+    rf"gcloud{_O}\s+secrets\s+versions\s+access|"
+    rf"gcloud{_O}\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token|"
+    rf"az{_O}\s+keyvault\s+secret\s+show|az{_O}\s+account\s+get-access-token|"
+    rf"gh{_O}\s+auth\s+(?:token|status\b(?=.*--show-token))|heroku{_O}\s+config(?::get)?|"
+    rf"infisical{_O}\s+(?:secrets|export)|bw{_O}\s+(?:get|list\s+items)"
     r")\b", re.IGNORECASE | re.MULTILINE)
 HOOK_COMMAND = "keyfence hook claude-code"
 HOOK_ARGS = ["hook", "claude-code"]

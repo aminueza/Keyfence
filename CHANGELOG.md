@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- The hook refuses a secret-printing command when a global option comes
+  before the subcommand, as in `kubectl -n prod get secret db -o yaml`,
+  `aws --profile prod secretsmanager get-secret-value` or `op --account a
+  read ...`. For kubectl it finds `secret`, `secrets` or `secret/<name>` in
+  the resource list and the output format anywhere in the command, `-o`
+  before `get` included, and it also treats `kyaml`, `template`, a quoted
+  format such as `-o 'jsonpath=...'`, and `--template` without `-o` as
+  printing the data (issue #224).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,

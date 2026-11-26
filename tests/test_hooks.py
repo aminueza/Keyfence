@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -366,6 +367,61 @@ def test_bash_commands_that_print_secrets_are_blocked(command):
 ])
 def test_ordinary_commands_pass(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("command", [
+    "aws --profile prod secretsmanager get-secret-value --secret-id app",
+    "aws --region us-east-1 ssm get-parameter --name db --with-decryption",
+    "aws --debug --profile=prod secretsmanager get-secret-value --secret-id app",
+    "kubectl -n prod get secret db -o yaml",
+    "kubectl --context prod get secret db -o jsonpath='{.data}'",
+    "kubectl get -o yaml secret db",
+    "kubectl get cm,secret -o yaml",
+    "kubectl get secret/db -o json",
+    "kubectl get secret db -o kyaml",
+    "kubectl get secret db -o template --template='{{.data}}'",
+    "kubectl get secret db -o templatefile=t.tmpl",
+    "gcloud --project p secrets versions access latest --secret s",
+    "op --account my read op://vault/item/field",
+    "az --subscription s keyvault secret show --name n --vault-name v",
+    "doppler --project p secrets download --no-file",
+    "gh --hostname example.com auth token",
+    "kubectl get secret db -o 'jsonpath={.data.password}'",
+    "kubectl get secret db --output=\"yaml\"",
+    "kubectl get secret db --template='{{.data.password}}'",
+    "kubectl -n prod --request-timeout=-1 get secret db -o yaml",
+    "kubectl -o yaml get secret db",
+    "kubectl --output=json -n prod get secret db",
+    "op --format json item get x",
+])
+def test_a_global_option_before_the_subcommand_does_not_hide_a_secret_command(command):
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert reason and "keyfence blocked" in reason
+
+
+@pytest.mark.parametrize("command", [
+    "kubectl -n prod get secrets", "kubectl -n prod get pods -o yaml", "aws --profile prod s3 ls",
+    "gcloud --project p secrets list", "doppler --project p secrets --only-names",
+    "kubectl get configmap my-secret-config -o yaml", "kubectl get pods -o yaml; echo secret",
+    "kubectl -n prod get secret db -o name",
+])
+def test_listing_and_unrelated_commands_with_global_options_still_pass(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("binary", ["aws", "kubectl", "gcloud", "op"])
+def test_a_long_run_of_key_value_options_is_decided_quickly(binary):
+    command = binary + " --a=b" * 16 + " --p v" * 40 + " s3 ls"
+    started = time.monotonic()
+    hooks.refusal_for_command(command)
+    assert time.monotonic() - started < 1
+
+
+@pytest.mark.parametrize("segment", ["aws --p v;", "op --a b|", "op item get x;", "kubectl -n p get secret x&"])
+def test_many_chained_commands_with_options_are_decided_quickly(segment):
+    started = time.monotonic()
+    hooks.refusal_for_command(segment * 3000)
+    assert time.monotonic() - started < 1
 
 
 def test_prefixed_secret_command_is_named_without_its_prefix():
