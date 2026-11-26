@@ -776,3 +776,65 @@ def test_surrogateescape_byte_next_to_registered_secret_is_found_without_excepti
     body = raw_bytes.decode("utf-8", errors="surrogateescape")
     findings = scan(body, vault=vault, config=NO_ENTROPY)
     assert [(f.kind, f.value) for f in findings] == [("vault", secret)]
+
+
+VAULT_DELIMITER_SECRET = "hunter" + "2" + "pass"
+
+
+@pytest.mark.parametrize("template", [
+    "https://h.example/{S}/x",
+    "path/{S}",
+    "#{S}",
+    "a@{S}",
+    "{S}+b",
+    "{S}%20",
+    "*{S}*",
+    "~{S}",
+    "a:{S}:b",
+    "-p{S}",
+    "${S}",
+    "https://h.example/hook/{S}",
+    "/api?x=1&token={S}",
+    "[{S}]",
+    "({S})",
+    "mysql -u root --password={S} db",
+    "curl -u admin:{S} https://h",
+])
+def test_vault_catches_secret_across_url_paths_colons_flags_and_symbols(vault, template):
+    vault.add(VAULT_DELIMITER_SECRET)
+    cfg = ScanConfig(patterns_enabled=False, entropy_enabled=False, gitleaks=False)
+    case = template.format(S=VAULT_DELIMITER_SECRET)
+    body = json.dumps({"messages": [{"role": "user", "content": case}]})
+    findings = scan(body, vault=vault, config=cfg)
+    assert [(f.kind, f.value) for f in findings] == [("vault", VAULT_DELIMITER_SECRET)]
+    f = findings[0]
+    assert body[f.start:f.end] == VAULT_DELIMITER_SECRET
+    rewritten = body[:f.start] + "[REDACTED:vault]" + body[f.end:]
+    assert json.loads(rewritten)["messages"][0]["content"] == template.format(S="[REDACTED:vault]")
+
+
+def test_vault_delimiter_split_skips_pieces_shorter_than_min_length(vault, monkeypatch):
+    vault.add(VAULT_DELIMITER_SECRET)
+    checked = []
+    orig_contains = vault.contains
+
+    def tracking_contains(val):
+        checked.append(val)
+        return orig_contains(val)
+
+    monkeypatch.setattr(vault, "contains", tracking_contains)
+    cfg = ScanConfig(patterns_enabled=False, entropy_enabled=False, gitleaks=False)
+    scan("https://h.example/a/bb/ccc/" + VAULT_DELIMITER_SECRET, vault=vault, config=cfg)
+    assert all(len(c) >= vault.min_length for c in checked)
+
+
+VAULT_PUNCTUATED_SECRET = "Pa" + ";ss,w0rd(x)9"
+
+
+@pytest.mark.parametrize("template", ["DB_PASSWORD={S} next", "password: {S} next", "x={S}"])
+def test_vault_catches_a_secret_with_token_split_characters_after_an_assignment(vault, template):
+    vault.add(VAULT_PUNCTUATED_SECRET)
+    cfg = ScanConfig(patterns_enabled=False, entropy_enabled=False, gitleaks=False)
+    body = json.dumps({"messages": [{"role": "user", "content": template.format(S=VAULT_PUNCTUATED_SECRET)}]})
+    findings = scan(body, vault=vault, config=cfg)
+    assert [(f.kind, f.value) for f in findings] == [("vault", VAULT_PUNCTUATED_SECRET)]
