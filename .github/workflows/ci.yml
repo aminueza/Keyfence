@@ -65,6 +65,20 @@ jobs:
       - run: python -m build
       - run: pip install dist/*.whl && keyfence --help
       - run: python -c "import zipfile,glob; names=zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert 'keyfence/rules/gitleaks.toml' in names, names"
+      # The tests read files from the repository root and import tests/fakes.py, so a source
+      # distribution that carries only test_*.py cannot run them (#220).
+      - run: |
+          python - <<'PY'
+          import glob
+          import tarfile
+
+          names = tarfile.open(glob.glob('dist/*.tar.gz')[0]).getnames()
+          root = names[0].split('/')[0]
+          shipped = [n for n in names if n.startswith(f'{root}/tests/')]
+          assert not shipped, f'the sdist carries tests: {shipped[:5]}'
+          for needed in ('LICENSE', 'keyfence/rules/gitleaks.toml', 'keyfence/rules/GITLEAKS-LICENSE'):
+              assert f'{root}/{needed}' in names, f'the sdist is missing {needed}'
+          PY
       - run: cyclonedx-py environment --output-format json --output-file sbom.cdx.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
