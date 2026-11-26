@@ -262,6 +262,19 @@ def test_notice_follows_the_configured_mode(guard, mode, promise):
     assert promise in json.loads(flow.request.get_text())["system"]
 
 
+def test_notice_keeps_a_lone_surrogate_escape_and_sends_the_request(guard):
+    kf = guard("redact")
+    body = ('{"system": "sys", "messages": [{"role": "user", "content": '
+            '"cut emoji \\ud83d then key ' + KEY + '"}]}').encode()
+    flow = make_flow(body=body, host="api.anthropic.com")
+    kf.request(flow)
+    assert flow.response is None
+    assert b"\\ud83d" in flow.request.content
+    out = json.loads(flow.request.get_text())
+    assert "keyfence" in out["system"]
+    assert out["messages"][0]["content"] == "cut emoji \ud83d then key [REDACTED:github-token]"
+
+
 def test_notice_can_be_disabled(guard):
     kf = guard("redact", "notice: false\n")
     body = json.dumps({"system": "sys", "messages": [{"role": "user", "content": f"key {KEY}"}]}).encode()
