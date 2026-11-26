@@ -78,6 +78,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install build
+      - run: python tools/release_notes.py "${GITHUB_REF_NAME}" > /dev/null
       - run: python -m build
       - run: |
           pip install dist/*.whl
