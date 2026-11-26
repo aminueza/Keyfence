@@ -117,6 +117,32 @@ def test_import_from_secret_manager(home, monkeypatch, capsys):
     assert "op is not installed" in capsys.readouterr().err
 
 
+def test_import_from_registers_a_password_inside_a_connection_url(home, monkeypatch, capsys):
+    url = "postgres://app:s3cret-url-password@db.internal:5432/app"
+    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: [("DATABASE_URL", url)])
+    assert cli.main(["import", "--from", "doppler"]) == 0
+    assert Vault().contains("s3cret-url-password")
+    assert "looked like secrets" in capsys.readouterr().out
+    assert cli.main(["scan", '{"content": "the db password is s3cret-url-password"}']) == 2
+    assert "[vault]" in capsys.readouterr().out
+
+
+def test_import_from_with_all_registers_the_url_and_its_password(home, monkeypatch):
+    url = "postgres://app:s3cret-url-password@db.internal:5432/app"
+    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: [("DATABASE_URL", url)])
+    assert cli.main(["import", "--from", "doppler", "--all"]) == 0
+    assert Vault().contains(url)
+    assert Vault().contains("s3cret-url-password")
+
+
+def test_import_from_skips_a_url_password_listed_in_ignore_values(home, write_config, monkeypatch):
+    write_config("ignore_values: [s3cret-url-password]\n")
+    url = "postgres://app:s3cret-url-password@db.internal:5432/app"
+    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: [("DATABASE_URL", url)])
+    assert cli.main(["import", "--from", "doppler"]) == 0
+    assert not Vault().contains("s3cret-url-password")
+
+
 def test_doctor_and_demo_commands(home, monkeypatch, capsys):
     monkeypatch.setattr(cli.runner, "port_open", lambda port, host: False)
     assert cli.main(["doctor"]) == 0
@@ -1425,3 +1451,10 @@ def test_entry_prompt_import_failure_blocks(home, write_config, monkeypatch, cap
     assert data["hookSpecificOutput"] == {"hookEventName": "UserPromptSubmit",
                                           "suppressOriginalPrompt": True}
     assert "guard crashed" in data["reason"]
+
+
+def test_import_from_keeps_a_value_that_starts_with_a_slash(home, monkeypatch, capsys):
+    value = "/" + "Abc123" * 6
+    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: [("AWS_SECRET_ACCESS_KEY", value)])
+    assert cli.main(["import", "--from", "doppler"]) == 0
+    assert Vault().contains(value)
