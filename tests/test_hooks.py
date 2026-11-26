@@ -10,6 +10,8 @@ import pytest
 
 from keyfence import hooks
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -1267,3 +1269,34 @@ def test_keyfence_path_never_picks_a_keyfence_from_the_current_directory(clone, 
         hooks.keyfence_path()
     real = clone.plant(clone.bin, "keyfence", "real")
     assert clone.same(hooks.keyfence_path(), real)
+
+
+def _settings_with_a_non_ascii_command(tmp_path):
+    path = tmp_path / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"statusLine": {"command": "echo 'Olá ✓ ←'"}}, ensure_ascii=False),
+                    encoding="utf-8")
+    return path
+
+
+def test_install_and_uninstall_keep_non_ascii_text_whatever_the_locale(tmp_path):
+    path = _settings_with_a_non_ascii_command(tmp_path)
+    script = (
+        "import json, sys; from pathlib import Path; from keyfence import hooks;"
+        f"p = Path({str(path)!r}); hooks.install(p); hooks.uninstall(p)"
+    )
+    env = dict(os.environ, LC_ALL="en_US.ISO8859-1", PYTHONUTF8="0", PYTHONPATH=str(_REPO_ROOT))
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True, env=env)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    assert json.loads(path.read_text(encoding="utf-8"))["statusLine"]["command"] == "echo 'Olá ✓ ←'"
+
+
+def test_a_settings_file_with_a_byte_order_mark_installs(tmp_path):
+    path = tmp_path / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps({"statusLine": {"command": "echo 'Olá'"}},
+                                                  ensure_ascii=False).encode("utf-8"))
+    hooks.install(path)
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    assert "permissions" in data
+    assert data["statusLine"]["command"] == "echo 'Olá'"

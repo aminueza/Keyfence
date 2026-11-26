@@ -421,7 +421,7 @@ def _remove_our_hooks(entries: list) -> tuple[list, bool]:
 
 
 def _read_settings(path: Path) -> dict:
-    data = json.loads(path.read_text()) if path.exists() else {}
+    data = json.loads(path.read_text(encoding="utf-8-sig")) if path.exists() else {}
     if not isinstance(data, dict):
         raise ValueError(f"{path} does not hold a JSON object; fix it, then run this again")
     for section, keys in (("hooks", ("PreToolUse", "UserPromptSubmit")), ("permissions", ("deny",))):
@@ -449,7 +449,7 @@ def added_rules_path(path: Path) -> Path:
 
 def _added_rules(path: Path) -> list[str] | None:
     try:
-        rules = json.loads(added_rules_path(path).read_text())
+        rules = json.loads(added_rules_path(path).read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return None
     if not isinstance(rules, list) or not all(isinstance(rule, str) for rule in rules):
@@ -500,10 +500,10 @@ def install(path: Path, command: str | None = None) -> bool:
         changed = True
     if changed:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2) + "\n")
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     if missing or stale:
         recorded = (set(previous) - set(stale)) | set(missing)
-        added_rules_path(path).write_text(json.dumps(sorted(recorded), indent=2) + "\n")
+        added_rules_path(path).write_text(json.dumps(sorted(recorded), indent=2) + "\n", encoding="utf-8")
     return changed
 
 
@@ -548,7 +548,7 @@ def uninstall(path: Path, force: bool = False) -> Removal:
             del data["permissions"]["deny"]
         if not data["permissions"]:
             del data["permissions"]
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return result
 
 
