@@ -466,7 +466,10 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
             code = 128 - code
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
-            time.sleep(linger)
+            try:
+                time.sleep(linger)
+            except KeyboardInterrupt:
+                pass
         return code
     finally:
         stop_proxy(proxy)

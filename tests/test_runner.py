@@ -293,6 +293,18 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     assert proxy.terminated
 
 
+def test_run_returns_the_command_code_when_ctrl_c_ends_the_linger(home, monkeypatch, tmp_path, capsys):
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 3)
+
+    def interrupted(_seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(runner.time, "sleep", interrupted)
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, linger=30) == 3
+    assert "keeping the proxy up for 30s" in capsys.readouterr().out
+
+
 def _wire_fake_proxy(monkeypatch, tmp_path, seen=None):
     seen = {} if seen is None else seen
     ca = tmp_path / "ca.pem"
