@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `build-system.requires` asks for setuptools 77 or later, the first version
+  that reads the PEP 639 `license` expression in `pyproject.toml`. A build
+  with `--no-build-isolation`, a constraints file or a distribution setuptools
+  between 68 and 76 used to satisfy the requirement and then stop with a
+  configuration error (issue #217).
 - `install-hooks` refuses an unresolved automatic `keyfence` command before
   writing settings or an extension. Missing-script errors now name the Python
   script folders searched; pi's explicit `--command` override still works.
