@@ -96,11 +96,6 @@ def test_unknown_shapes_are_left_alone():
 
 
 def test_unicode_survives_reserialisation():
-    """Unicode in the body is kept, though the notice now escapes non-ASCII on the wire (#237).
-
-    The text is preserved as JSON, not as raw bytes: the notice is serialized with ensure_ascii so a
-    lone surrogate stays an escape, and a provider decodes both forms to the same string.
-    """
     body = json.dumps({"system": "ação", "messages": []}, ensure_ascii=False)
     out = add_notice(body, "api.anthropic.com")
     assert json.loads(out)["system"].startswith("ação")
@@ -116,15 +111,9 @@ def test_each_mode_gets_a_notice_that_matches_what_happens_to_the_tokens():
 
 
 def test_a_lone_surrogate_escape_survives_the_notice():
-    """Node clients write an emoji cut in half as a `\\ud83d` escape, which is valid JSON (#237).
-
-    The body is re-serialized to add the notice. With ensure_ascii=False the lone surrogate goes out
-    as a raw character that cannot encode to UTF-8, and the request dies with a 403 for a body that
-    was fine.
-    """
     content = "truncated emoji \ud83d then key"
     body = json.dumps({"system": "s", "messages": [{"role": "user", "content": content}]})
     out = add_notice(body, "api.anthropic.com")
-    out.encode("utf-8")  # raises UnicodeEncodeError on the old code
+    out.encode("utf-8")
     assert json.loads(out)["messages"][0]["content"] == content
     assert NOTICE in json.loads(out)["system"]
