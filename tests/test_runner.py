@@ -1326,12 +1326,6 @@ def test_start_proxy_stops_the_proxy_when_startup_is_interrupted(monkeypatch, tm
 
 def test_run_with_a_record_path_that_is_a_directory_says_so_and_leaves_no_vault(
         home, write_config, monkeypatch, tmp_path, capsys):
-    """`os.open` on a directory raised IsADirectoryError straight through (#212).
-
-    The env vault was built before that point, and since the proxy never started nothing consumed
-    it, so a `keyfence-env-*.json` stayed in the state directory. One `error:` line and exit 1 are
-    what the issue asks for.
-    """
     seen = {}
     write_config("mode: redact\n")
     ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
@@ -1343,7 +1337,7 @@ def test_run_with_a_record_path_that_is_a_directory_says_so_and_leaves_no_vault(
     assert code == 1
     out = capsys.readouterr()
     assert out.out.count("error:") + out.err.count("error:") == 1
-    assert "Is a directory" in (out.out + out.err)
+    assert "cannot write the record file" in (out.out + out.err)
     env_dir = runner.DEFAULT_DIR / "env"
     assert not env_dir.exists() or list(env_dir.iterdir()) == []
     assert "cmd" not in seen, "the proxy was started for a record path that cannot be written"

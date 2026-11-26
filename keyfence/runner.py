@@ -401,9 +401,6 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
     except ValueError as exc:
         print(f"error: {exc}")
         return 1
-    # Prepared before the env vault, and with its own error: an --record path that cannot be written
-    # (a directory, or a parent that cannot be created) used to raise through `os.open` after the
-    # vault was built, and nothing then consumed or removed it (#212).
     if record:
         notice = record_notice(record)
         if notice:
