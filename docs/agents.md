@@ -98,10 +98,10 @@ Claude Code:
 
 | tool | field the hook reads | how the hook is attached |
 |---|---|---|
-| `Read`, `Edit`, `Write`, `MultiEdit` | `file_path` | `PreToolUse` hook, matcher `Read\|Edit\|Write\|MultiEdit\|NotebookEdit\|Grep\|Bash` |
+| `Read`, `Edit`, `Write`, `MultiEdit` | `file_path` | `PreToolUse` hook, matcher `Read\|Edit\|Write\|MultiEdit\|NotebookEdit\|Grep\|Bash\|PowerShell` |
 | `NotebookEdit` | `notebook_path` | same |
 | `Grep` | `path`, `glob` | same |
-| `Bash` | `command` | same |
+| `Bash`, `PowerShell` | `command` | same |
 
 Claude Code sends `tool_name` and `tool_input` on stdin under exactly those
 keys, which is where the wire format comes from.

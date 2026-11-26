@@ -262,8 +262,8 @@ Claude Code:
 ```
 
 It adds a `PreToolUse` hook for Read, Edit, Write, MultiEdit, NotebookEdit,
-Grep and Bash that refuses `.env` files, private keys, `.netrc`, `.npmrc`,
-`.pypirc`, `.git-credentials`, `credentials*`, `secrets.*`, `*.tfvars`,
+Grep, Bash and PowerShell that refuses `.env` files, private keys, `.netrc`,
+`.npmrc`, `.pypirc`, `.git-credentials`, `credentials*`, `secrets.*`, `*.tfvars`,
 service account files, anything under `.ssh`, `.aws/credentials`,
 `.docker/config.json` and `.kube/config`. `.env.example`, the other
 `.env` templates and `*.pub` are allowed: they hold no values and a

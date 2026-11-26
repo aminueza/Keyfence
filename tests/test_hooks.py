@@ -566,6 +566,42 @@ def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
     assert not hooks.install(path, str(binary))
 
 
+def test_the_matcher_sends_every_tool_the_hook_checks_and_no_other():
+    assert {tool.lower() for tool in hooks.HOOK_MATCHER.split("|")} == hooks.FILE_TOOLS | hooks.GREP_TOOLS | hooks.SHELL_TOOLS
+
+
+def test_install_updates_the_matcher_of_its_own_entry_and_leaves_other_entries_alone(tmp_path):
+    binary = tmp_path / "bin" / "keyfence"
+    own = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "timeout": 10}
+    foreign = {"type": "command", "command": "/opt/agentlog/bin/agentlog hook claude-code"}
+    old = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash"
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": old, "hooks": [dict(own)]},
+        {"matcher": "Bash", "hooks": [dict(foreign)]},
+        {"matcher": "Read", "hooks": [dict(foreign), dict(own)]},
+    ]}}))
+    assert hooks.install(path, str(binary))
+    pre = json.loads(path.read_text())["hooks"]["PreToolUse"]
+    assert pre[0]["matcher"] == hooks.HOOK_MATCHER
+    assert pre[1]["matcher"] == "Bash"
+    assert pre[2]["matcher"] == "Read"
+    assert not hooks.install(path, str(binary))
+
+
+def test_install_moves_its_hook_out_of_a_shared_entry_into_its_own(tmp_path):
+    binary = tmp_path / "bin" / "keyfence"
+    own = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "timeout": 10}
+    foreign = {"type": "command", "command": "/opt/agentlog/bin/agentlog hook claude-code"}
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [dict(foreign), dict(own)]}]}}))
+    assert hooks.install(path, str(binary))
+    pre = json.loads(path.read_text())["hooks"]["PreToolUse"]
+    assert pre[0] == {"matcher": "Read", "hooks": [foreign]}
+    assert pre[1]["matcher"] == hooks.HOOK_MATCHER and pre[1]["hooks"][0]["args"] == ["hook", "claude-code"]
+    assert not hooks.install(path, str(binary))
+
+
 FOREIGN = "/opt/agentlog/bin/agentlog hook claude-code"
 
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The Claude Code hook and the plugin also match the `PowerShell` tool, which
+  Claude Code uses on Windows without Git Bash or with
+  `CLAUDE_CODE_USE_POWERSHELL_TOOL`. Before, no PowerShell call reached the
+  hook, so `Get-Content .env` ran unchecked. Running `keyfence install-hooks
+  claude-code` again updates the matcher of an existing install, and `keyfence
+  doctor` warns while it is out of date (issue #225).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
