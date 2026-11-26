@@ -231,10 +231,24 @@ class _ExpansionTooLarge(Exception):
 def _bracket_expansion_size(word: str) -> int:
     size = 1
     for match in _BRACKET_CLASS.finditer(word):
-        size *= len(match.group(1))
+        size *= len(_bracket_class_chars(match.group(1)))
         if size > _BRACKET_EXPANSION_LIMIT:
             raise _ExpansionTooLarge(word)
     return size
+
+
+def _bracket_class_chars(body: str) -> list[str]:
+    chars: list[str] = []
+    index = 0
+    while index < len(body):
+        low = body[index]
+        if index + 2 < len(body) and body[index + 1] == "-" and ord(low) <= ord(body[index + 2]):
+            chars.extend(chr(code) for code in range(ord(low), ord(body[index + 2]) + 1))
+            index += 3
+            continue
+        chars.append(low)
+        index += 1
+    return chars
 
 
 def _expand_bracket_classes(word: str) -> list[str]:
@@ -243,7 +257,7 @@ def _expand_bracket_classes(word: str) -> list[str]:
         return []
     _bracket_expansion_size(word)
     expanded = []
-    for combination in itertools.product(*(match.group(1) for match in classes)):
+    for combination in itertools.product(*(_bracket_class_chars(match.group(1)) for match in classes)):
         result = []
         cursor = 0
         for match, ch in zip(classes, combination):
