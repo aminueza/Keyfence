@@ -1267,7 +1267,6 @@ def test_keyfence_path_never_picks_a_keyfence_from_the_current_directory(clone, 
 
 
 def _settings_with_a_non_ascii_command(tmp_path):
-    """A settings file holding a statusLine command with characters a cp1252 locale cannot encode."""
     path = tmp_path / ".claude" / "settings.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"statusLine": {"command": "echo 'Olá ✓ ←'"}}, ensure_ascii=False),
@@ -1276,26 +1275,18 @@ def _settings_with_a_non_ascii_command(tmp_path):
 
 
 def test_install_and_uninstall_keep_non_ascii_text_whatever_the_locale(tmp_path):
-    """read_text/write_text default to the locale encoding, which corrupts a UTF-8 file (#228).
-
-    On Windows that is cp1252 and `install` writes `OlÃ¡ âœ“` back, corrupting a file it only meant
-    to add rules to. A subprocess with a non-UTF-8 locale reproduces the same default here.
-    """
     path = _settings_with_a_non_ascii_command(tmp_path)
     script = (
         "import json, sys; from pathlib import Path; from keyfence import hooks;"
         f"p = Path({str(path)!r}); hooks.install(p); hooks.uninstall(p)"
     )
     env = dict(os.environ, LC_ALL="en_US.ISO8859-1", PYTHONUTF8="0", PYTHONPATH=str(_REPO_ROOT))
-    # text=False: this child runs under a latin-1 locale, so its own stdout cannot carry the check
-    # mark; the file it wrote is what the test asserts.
     done = subprocess.run([sys.executable, "-c", script], capture_output=True, env=env)
     assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
     assert json.loads(path.read_text(encoding="utf-8"))["statusLine"]["command"] == "echo 'Olá ✓ ←'"
 
 
 def test_a_settings_file_with_a_byte_order_mark_installs(tmp_path):
-    """A file saved with a BOM has to load, so the read tolerates it (#228)."""
     path = tmp_path / ".claude" / "settings.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"\xef\xbb\xbf" + json.dumps({"statusLine": {"command": "echo 'Olá'"}},
