@@ -66,6 +66,7 @@ Decide in code instead:
 | path | role |
 |---|---|
 | `keyfence/addon.py` | mitmproxy addon: request and WebSocket frame scanning, response restoration, audit log |
+| `keyfence/audit.py` | the audit log's line boundary, UTF-8 reader and one-line JSON encoder |
 | `keyfence/detectors.py` | vault, pattern and entropy detection, JSON key tracking |
 | `keyfence/rules.py` | gitleaks TOML loader |
 | `keyfence/rules/gitleaks.toml` | bundled ruleset (MIT, see `GITLEAKS-LICENSE`) |

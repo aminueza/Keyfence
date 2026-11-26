@@ -1063,6 +1063,20 @@ def test_prompt_audit_mode_logs(home, write_config, capsys):
     assert _secret() not in lines[0]
 
 
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\u0085"])
+def test_prompt_audit_entry_with_a_separator_in_a_finding_key_stays_one_ascii_line(home, write_config, separator):
+    from keyfence import prompt
+    write_config("mode: audit\n")
+    text = json.dumps({f"note{separator}x": f"token: {_secret()}"}, ensure_ascii=False)
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": text})
+    assert prompt.run(io.StringIO(payload), io.StringIO()) == 0
+    logged = (home / "audit.log").read_text(encoding="utf-8")
+    lines = logged.splitlines()
+    assert len(lines) == 1
+    assert lines[0].isascii()
+    assert json.loads(lines[0])["findings"][0]["key"] == f"note{separator}x"
+
+
 def test_prompt_block_mode_also_logs(home, write_config, capsys):
     from keyfence import prompt
     write_config("mode: block\n")

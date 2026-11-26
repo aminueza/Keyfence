@@ -435,6 +435,19 @@ def test_audit_check(home, write_config):
     assert doctor.check_audit().status == doctor.OK
 
 
+def test_audit_check_counts_a_legacy_line_with_raw_unicode_separators_once(home, write_config):
+    write_config("mode: redact\n")
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": "legacy.example", "path": "/p",
+             "mode": "redact", "count": 2,
+             "findings": [{"kind": "vault", "preview": "x", "key": "note\u2028x"},
+                          {"kind": "vault", "preview": "y", "key": "note\u0085y"}]}
+    line = json.dumps(entry, ensure_ascii=False)
+    assert len(line.splitlines()) == 3
+    (home / "audit.log").write_text(line + "\n", encoding="utf-8")
+    check = doctor.check_audit()
+    assert check.status == doctor.OK and "1 request(s)" in check.detail
+
+
 def test_mitmdump_check(tmp_path, monkeypatch):
     binary = tmp_path / "mitmdump"
     binary.write_text("")

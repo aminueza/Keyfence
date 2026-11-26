@@ -377,6 +377,21 @@ def test_status(home, write_config, capsys):
     assert "Ignore lists:    0 key(s), 0 value(s)" in out
 
 
+def test_status_shows_a_legacy_entry_with_raw_unicode_separators(home, write_config, capsys):
+    write_config("mode: redact\n")
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": "legacy.example", "path": "/p",
+             "mode": "redact", "count": 2,
+             "findings": [{"kind": "vault", "preview": "x", "key": "note\u2028x"},
+                          {"kind": "vault", "preview": "y", "key": "note\u0085y"}]}
+    line = json.dumps(entry, ensure_ascii=False)
+    assert len(line.splitlines()) == 3
+    (home / "audit.log").write_text(line + "\n", encoding="utf-8")
+    assert cli.main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert "legacy.example" in out
+    assert "[vault x2]" in out
+
+
 HOST = "db.internal.example.com"
 ISSUE_ENV = (
     "DB_PASSWORD=hunter2hunter2!\n"
@@ -950,6 +965,50 @@ def test_export_otlp_keeps_two_entries_from_the_same_second(home, write_config, 
     assert cli.main(["export", "--otlp", "http://c"]) == 0
     assert sent == [1, 1]
     assert "Sent 1 entry" in capsys.readouterr().out
+
+
+def test_export_otlp_sends_a_legacy_line_with_raw_unicode_separators_once(home, write_config, monkeypatch, capsys):
+    write_config("mode: redact\n")
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": "legacy.example", "path": "/p",
+             "mode": "redact", "count": 2,
+             "findings": [{"kind": "vault", "preview": "x", "key": "note\u2028x"},
+                          {"kind": "vault", "preview": "y", "key": "note\u0085y"}]}
+    line = json.dumps(entry, ensure_ascii=False)
+    assert len(line.splitlines()) == 3
+    (home / "audit.log").write_text(line + "\n", encoding="utf-8")
+    sent = []
+    monkeypatch.setattr(cli.export, "send_otlp",
+                        lambda url, entries, headers: sent.append(entries) or len(entries))
+    assert cli.main(["export", "--otlp", "http://c"]) == 0
+    assert [e["host"] for e in sent[0]] == ["legacy.example"]
+    assert (home / "export.cursor").read_text().split()[0] == "1"
+    assert "Sent 1 entry" in capsys.readouterr().out
+
+
+def test_export_jsonl_escapes_separators_so_each_entry_is_one_line(home, write_config, capsys):
+    write_config("mode: redact\n")
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": "legacy.example", "path": "/p",
+             "mode": "redact", "count": 2,
+             "findings": [{"kind": "vault", "preview": "x", "key": "note\u2028x"},
+                          {"kind": "vault", "preview": "y", "key": "note\u0085y"}]}
+    (home / "audit.log").write_text(json.dumps(entry, ensure_ascii=False) + "\n", encoding="utf-8")
+    assert cli.main(["export"]) == 0
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert len(lines) == 1
+    assert lines[0].isascii() and json.loads(lines[0]) == entry
+
+
+def test_export_jsonl_from_a_log_written_by_this_version_is_one_line_each(home, write_config, capsys):
+    write_config("mode: audit\n")
+    separator = "\u2028"
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": f"h{separator}x", "path": "/p",
+             "mode": "redact", "count": 1,
+             "findings": [{"kind": "vault", "preview": "x", "key": None}]}
+    (home / "audit.log").write_text(cli.export.encode_entry(entry), encoding="utf-8")
+    assert cli.main(["export"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1 and json.loads(lines[0]) == entry
 
 
 def test_export_otlp_reads_a_truncated_log_again(home, write_config, monkeypatch):

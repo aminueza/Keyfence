@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 
+from .audit import encode_entry
 from .config import Config
 from .detectors import Finding, scan_report
 from .vault import Vault, VaultError
@@ -49,7 +50,7 @@ def _write_audit_entry(config: Config, vault: Vault, findings: list[Finding],
         fd = os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
         with os.fdopen(fd, "a", encoding="utf-8") as fh:
             os.chmod(path, 0o600)
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            fh.write(encode_entry(entry))
     except OSError as exc:
         print(f"keyfence: could not write audit log: {exc}", file=stderr)
 

@@ -452,7 +452,7 @@ def cmd_export(args) -> int:
         print(f"Sent {sent} entr{'y' if sent == 1 else 'ies'} to {args.otlp}.")
         return 0
     for entry in entries:
-        print(json.dumps(entry, ensure_ascii=False))
+        print(export.encode_entry(entry), end="")
     return 0
 
 
@@ -472,7 +472,7 @@ def cmd_status(_args) -> int:
     print(f"Audit log:       {cfg.audit_log}")
     log = Path(cfg.audit_log)
     if log.exists():
-        lines = log.read_text().strip().splitlines()[-5:]
+        lines = export.split_lines(export.read_text(log).strip())[-5:]
         if lines:
             print("\nRecent detections:")
             for line in lines:
