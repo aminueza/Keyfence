@@ -376,7 +376,8 @@ def _run_foreground(command: Sequence[str], env: Mapping[str, str]) -> int:
 
     previous = None
     try:
-        previous = signal.signal(signal.SIGINT, defer)
+        if signal.getsignal(signal.SIGINT) != signal.SIG_IGN:
+            previous = signal.signal(signal.SIGINT, defer)
     except (ValueError, OSError):
         previous = None  # not the main thread (or no signals): keep the old behaviour
     try:
@@ -403,6 +404,8 @@ def _stop_on_termination_signals():
 
     previous: dict[signal.Signals, object] = {}
     for signum in numbers:
+        if signal.getsignal(signum) == signal.SIG_IGN:
+            continue
         with contextlib.suppress(ValueError, OSError):
             previous[signum] = signal.signal(signum, terminate)
     try:
