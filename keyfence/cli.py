@@ -412,9 +412,6 @@ def cmd_export(args) -> int:
     if args.since:
         since = export.parse_ts(args.since)
     if args.otlp:
-        # The line count is taken before the read, in every mode: an entry the
-        # proxy appends while the send runs is past `stop`, so the cursor does
-        # not move over it and the next run sends it (#209).
         stop = export.count_lines(log)
         log_inode = export.log_identity(log)
         if not args.all and not args.since:
