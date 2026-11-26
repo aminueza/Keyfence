@@ -87,6 +87,8 @@ Decide in code instead:
 ## Conventions
 
 - No comments or docstrings in code. Rationale goes in the commit message.
+  `tests/test_conventions.py` enforces it for `keyfence/` and `plugin/hooks/`;
+  a bare `# noqa`, `# type: ignore` or `# pragma: no cover` is allowed.
 - Every change ships with tests.
 - Commit messages describe the problem and the fix in plain English.
 

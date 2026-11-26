@@ -150,8 +150,6 @@ def stop_proxy(proxy: subprocess.Popen) -> None:
 def start_proxy(port: int, env: Mapping[str, str], log, timeout: float = 20.0,
                 ca_cert: Path = CA_CERT, local: str | None = None,
                 extra: Sequence[str] = ()) -> subprocess.Popen:
-    # Own session/process group, so a Ctrl+C meant for the command does not
-    # take the proxy down with it (issue #179).
     group = ({"start_new_session": True} if os.name == "posix"
              else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP})
     try:
@@ -160,8 +158,6 @@ def start_proxy(port: int, env: Mapping[str, str], log, timeout: float = 20.0,
     except FileNotFoundError:
         raise ProxyError(MISSING, missing_script("mitmdump")) from None
     try:
-        # The proxy is in its own group now, so a Ctrl+C during startup no
-        # longer reaches it: stop it here or any exit would orphan it.
         if not wait_for(lambda: proxy.poll() is None and port_open(port) and ca_cert.exists(), timeout):
             raise ProxyError(NOT_UP, f"keyfence proxy did not come up on port {port} within {timeout:.0f}s")
         if not wait_for(lambda: proxy.poll() is None and addon_live(port), timeout):
@@ -363,14 +359,6 @@ def build_env_vault(environ: Mapping[str, str], everything: bool = False,
 
 
 def _run_foreground(command: Sequence[str], env: Mapping[str, str]) -> int:
-    """Run the command and let it own Ctrl+C.
-
-    The terminal signals every process in the foreground group, so the child
-    gets its own SIGINT; keyfence must not raise KeyboardInterrupt, or
-    subprocess.call kills the child and its exit code is lost. A Python-level
-    handler is not inherited across exec (the child gets SIG_DFL), unlike
-    SIG_IGN, which would make the child ignore Ctrl+C too.
-    """
     def defer(_signum, _frame):
         pass
 
@@ -378,7 +366,7 @@ def _run_foreground(command: Sequence[str], env: Mapping[str, str]) -> int:
     try:
         previous = signal.signal(signal.SIGINT, defer)
     except (ValueError, OSError):
-        previous = None  # not the main thread (or no signals): keep the old behaviour
+        previous = None
     try:
         return subprocess.call(command, env=env)
     finally:
