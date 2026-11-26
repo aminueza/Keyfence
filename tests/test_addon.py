@@ -1,7 +1,9 @@
+import gzip
 import json
 import os
 import re
 import stat
+import zlib
 from pathlib import Path
 
 import pytest
@@ -1062,3 +1064,62 @@ def test_a_placeholder_restored_in_a_json_websocket_frame_keeps_it_valid(guard):
     token = next(t for t, value in flow.metadata[MAPPING_KEY].items() if value == PEM)
     message = send_frame(kf, flow, json.dumps({"text": f"key {token}"}), from_client=False)
     assert json.loads(message.text)["text"] == f"key {PEM}"
+
+
+def _compressed(encoding: str, body: bytes) -> bytes:
+    if encoding == "gzip":
+        return gzip.compress(body)
+    if encoding == "deflate":
+        return zlib.compress(body)
+    if encoding == "br":
+        pytest.importorskip("brotli")
+        import brotli
+        return brotli.compress(body)
+    if encoding == "zstd":
+        pytest.importorskip("zstandard")
+        import zstandard
+        return zstandard.ZstdCompressor().compress(body)
+    raise AssertionError(encoding)
+
+
+@pytest.mark.parametrize("encoding", ["x-gzip", "gzip, gzip"])
+@pytest.mark.parametrize("mode", ["redact", "placeholder", "block"])
+def test_a_body_that_cannot_be_decoded_is_refused_rather_than_sent_unscanned(guard, encoding, mode):
+    kf = guard(mode)
+    flow = make_flow(body=gzip.compress(BODY))
+    flow.request.headers["content-encoding"] = encoding
+    kf.request(flow)
+    assert flow.response is not None, f"{encoding} in {mode} forwarded the raw key"
+    assert flow.response.status_code == 403
+
+
+def test_a_body_that_cannot_be_decoded_is_only_reported_in_audit_mode(guard, caplog):
+    kf = guard("audit")
+    flow = make_flow(body=gzip.compress(BODY))
+    flow.request.headers["content-encoding"] = "x-gzip"
+    kf.request(flow)
+    assert flow.response is None
+    assert flow.request.raw_content == gzip.compress(BODY)
+    assert "cannot be decoded" in caplog.text
+
+
+def test_an_empty_body_with_an_undecodable_encoding_is_not_refused(guard):
+    kf = guard("redact")
+    flow = make_flow(body=b"")
+    flow.request.headers["content-encoding"] = "x-gzip"
+    kf.request(flow)
+    assert flow.response is None
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "deflate", "br", "zstd"])
+def test_a_decodable_compressed_body_is_still_redacted(guard, encoding):
+    kf = guard("redact")
+    flow = make_flow(body=_compressed(encoding, BODY))
+    flow.request.headers["content-encoding"] = encoding
+    kf.request(flow)
+    assert flow.response is None, f"{encoding} was refused though it decodes"
+    assert flow.request.headers["content-encoding"] == encoding
+    assert flow.request.headers["content-length"] == str(len(flow.request.raw_content))
+    text = flow.request.get_text(strict=True)
+    assert KEY not in text
+    json.loads(text)

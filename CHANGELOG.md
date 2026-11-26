@@ -35,6 +35,10 @@
   used to be split into one-character hosts, so no AI host matched and requests
   went out unscanned while `doctor` and `status` reported everything fine. A
   list holding an empty or non-string entry is rejected too (issue #175).
+- A request body whose `Content-Encoding` mitmproxy cannot decode, such as
+  `x-gzip` or a stacked `gzip, gzip`, is refused with a 403 in `redact`,
+  `placeholder` and `block` mode instead of going out unscanned. `audit` mode
+  logs a warning and forwards it unchanged (issue #236).
 - The URL query detector stops at `"`, `'`, `}` and `]`, so a `?sig=` value at
   the end of a JSON string no longer swallows the closing quote. It used to
   delete the JSON that followed in compact bodies and refuse harmless requests
