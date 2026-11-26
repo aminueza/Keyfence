@@ -100,7 +100,7 @@ def _scan_rules(text: str, rules: list[Rule]) -> list[Finding]:
     return findings
 
 
-_TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\\x00-\x1f\ufffd]+""")
+_TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\\x00-\x1f\ud800-\udfff\ufffd]+""")
 
 
 def _split_tokens(text: str) -> list[str]:

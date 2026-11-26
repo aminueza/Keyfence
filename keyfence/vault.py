@@ -31,7 +31,7 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
 def value_digest(salt: bytes, value: str) -> str:
-    return hmac.new(salt, value.encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.new(salt, value.encode("utf-8", errors="surrogateescape"), hashlib.sha256).hexdigest()
 
 
 def _try_lock(handle) -> bool:
@@ -167,7 +167,7 @@ class Vault:
         return value_digest(self._salt, value)
 
     def placeholder_digest(self, value: str) -> str:
-        return hmac.new(self._salt, b"placeholder:" + value.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.new(self._salt, b"placeholder:" + value.encode("utf-8", errors="surrogateescape"), hashlib.sha256).hexdigest()
 
     def add(self, value: str) -> bool:
         return self.add_many([value]) == 1
