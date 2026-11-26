@@ -272,9 +272,11 @@ public key is meant to be distributed. So is
 and the exception is the name, not the `*.pem` rule: `mitmproxy-ca.pem`,
 the private key next to it, is still refused. Bash commands that mention
 such a path are refused too, and so are commands that print secrets:
-`env`, `printenv`, `export`, `set`,
-`declare -x`, `printenv NAME` when the name looks like a secret, `echo` or
-`printf` of a `$VARIABLE` whose name looks like a secret,
+`env`, `printenv`, `export`, `set`, `declare` and `typeset` with any option
+or none (`declare -f` and `declare -F` print only functions and are
+allowed), `printenv NAME` when the name looks like a
+secret, `echo` or `printf` of a `$VARIABLE` whose name looks like a secret, a
+here-string of one (`cat <<< "$API_KEY"`),
 `/proc/*/environ`, and the read commands of `aws secretsmanager`, `aws ssm`
 with decryption, `aws configure get` of a key, `aws configure
 export-credentials`, `aws sts get-session-token`, `get-federation-token`
@@ -286,9 +288,10 @@ keyvault`, `az account get-access-token`, `gh auth token`, `gh auth status
 --show-token`, `heroku config`, `infisical`, `bw get` and `bw list items`.
 The command is recognised at the start of a line, after `;`, `&&`, `||`,
 `|`, `(`, `{`, a backtick, `then`, `do` or `else`, and behind `sudo`,
-`command`, `eval`, `exec`, `xargs`, `nohup`, `time`, `bash -c` and the
+`command`, `eval`, `exec`, `xargs`, `nohup`, `time`, `nice`, `bash -c` and the
 like, a `VAR=value` assignment, or an absolute path to the binary, so
-`sudo env`, `LC_ALL=C env` and `/usr/bin/env` are refused like `env`.
+`sudo env`, `nice env`, `LC_ALL=C env` and `/usr/bin/env` are refused like
+`env`. The command name may be quoted, so `"env"` is refused too.
 Listing names without values, such as `kubectl get secrets`, `gh secret
 list` or `doppler secrets --only-names`, is allowed. The refusal message
 tells the model to ask you instead or to use `keyfence import`.

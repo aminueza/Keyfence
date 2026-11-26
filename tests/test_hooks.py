@@ -341,6 +341,8 @@ def test_decide_grep():
     "kubectl get secret app -o custom-columns=DATA:.data", "doppler secrets get X", "doppler secrets -p proj -c dev",
     "echo $GITHUB_TOKEN", "echo ${GITHUB_TOKEN}", "echo ${GITHUB_TOKEN:-unset}", 'echo "token=$API_TOKEN"',
     "echo $github_token", 'printf "%s" "$AWS_SECRET_ACCESS_KEY"', "printf '%s\\n' \"$DB_PASSWORD\"",
+    "declare", "declare | grep KEY", "typeset", "declare -r", "declare -a", "typeset -p", "nice env", "nice -n 5 env", '"env"', "'printenv'",
+    'cat <<< "$DEMO_API_KEY"', 'cat <<<"$DEMO_API_KEY"', 'cat <<< ${DEMO_API_KEY}',
 ])
 def test_bash_commands_that_print_secrets_are_blocked(command):
     reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
@@ -358,6 +360,7 @@ def test_bash_commands_that_print_secrets_are_blocked(command):
     "command -v env", "command -v git", "eval \"$(direnv hook zsh)\"", "exec python app.py", "bash -c 'make test'",
     "python -c 'print(1)'", "ssh -c aes256-ctr host", "/usr/bin/python3 app.py", "cat /etc/env", "{ make; }",
     "if [ -f x ]; then make; fi", "for i in 1 2; do echo $i; done", "todo env", "echo done", "echo $HOME", 'echo "$PATH"',
+    "declare -f helper", "declare -F helper", "typeset -f", "nice make", "cat <<< hello", 'echo "quoted word"',
     "echo ${HOME}/bin", "echo token", 'echo "$USER has key"', "echo cost: $5 tokens", "printf '%s\\n' hello",
     "aws sts get-caller-identity", "aws ecr describe-repositories", "bw list folders", "kubectl get secret db",
 ])

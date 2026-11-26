@@ -35,16 +35,19 @@ _GLOB = re.compile(r"[*?]+")
 _BRACKET_CLASS = re.compile(r"\[([^\]/]+)\]")
 _BRACKET_EXPANSION_LIMIT = 10000
 _PREFIXES = (
-    r"(?:(?:sudo|xargs|nohup|time|exec)(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+|(?:command(?:\s+-p)?|builtin|eval)\s+|"
+    r"(?:(?:sudo|xargs|nohup|time|nice|exec)(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+|(?:command(?:\s+-p)?|builtin|eval)\s+|"
     r"(?:ba|da|k|z)?sh\s+(?:-\S+\s+)*-\w*c\s+[\"']?|[A-Za-z_]\w*=\S*\s+)*")
 _START = r"(?:^|[;&|(`{]|\b(?:then|do|else)\b)\s*" + _PREFIXES + r"(?:(?:/[\w.-]+)+/)?"
+_DECLARE = r"(?:declare|typeset)(?P<opts>(?:\s+-[A-Za-z]+)*)"
+_FUNCTION_OPTION = re.compile(r"[fF]")
 _DUMP_COMMANDS = re.compile(
-    _START + r"(?:env|printenv|export(?:\s+-p)?|set|declare\s+-x|typeset\s+-x)\s*[\"']?\s*(?:$|[;&|)>`])",
+    _START + r"(?:env|printenv|export(?:\s+-p)?|set|\"(?:env|printenv|set)\"|'(?:env|printenv|set)'|" + _DECLARE + r")\s*[\"']?\s*(?:$|[;&|)>`])",
     re.MULTILINE)
 _SECRET_VAR = r"[A-Za-z_]*(?:SECRET|TOKEN|KEY|PASSWORD|PASSWD|CREDENTIAL)[A-Za-z_]*"
 _NAMED_DUMP = re.compile(
     _START + r"(?:printenv\s+" + _SECRET_VAR + r"\b|(?:echo|printf)\b[^;&|\n]*\$\{?" + _SECRET_VAR + r"\b)|"
     r"/proc/(?:self|\d+)/environ", re.IGNORECASE | re.MULTILINE)
+_HERESTRING_DUMP = re.compile(r"<<<(?!<)[^;&|\n]*\$\{?" + _SECRET_VAR + r"\b", re.IGNORECASE)
 _SECRET_COMMANDS = re.compile(
     _START + r"(?P<cmd>"
     r"aws\s+secretsmanager\s+get-secret-value|aws\s+ssm\s+get-parameters?\b.*--with-decryption|"
@@ -321,7 +324,9 @@ def _refusal_for_too_many_bracket_classes(command: str) -> str | None:
 
 
 def refusal_for_command(command: str) -> str | None:
-    if _DUMP_COMMANDS.search(command) or _NAMED_DUMP.search(command):
+    dump = [m for m in _DUMP_COMMANDS.finditer(command)
+            if not _FUNCTION_OPTION.search(m.group("opts") or "")]
+    if dump or _NAMED_DUMP.search(command) or _HERESTRING_DUMP.search(command):
         return "it prints environment variables that hold the secrets keyfence protects"
     m = _SECRET_COMMANDS.search(command)
     if m:
