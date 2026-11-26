@@ -166,12 +166,6 @@ class KeyFence:
             ctx.options.websocket = True
             log.warning("websocket interception was off in the mitmproxy configuration; "
                         "keyfence turned it on, otherwise frames pass unscanned")
-        # `stream_large_bodies` in the mitmproxy config.yaml makes mitmproxy stream every body above
-        # the limit instead of reading it, so the request hook sees no content and the body reaches
-        # the provider unscanned in every mode, `block` included. LLM bodies pass 1 MB in a long
-        # session, so a common `1m` disables the scan for exactly the requests that matter (#232).
-        # getattr: the option is registered by mitmproxy's proxyserver addon, which is always loaded
-        # in a real run but is not in a bare test context.
         streaming = getattr(ctx.options, "stream_large_bodies", None)
         if streaming:
             log.warning("stream_large_bodies was %s in the mitmproxy configuration; keyfence turned "

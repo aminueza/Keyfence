@@ -1125,18 +1125,10 @@ def test_a_decodable_compressed_body_is_still_redacted(guard, encoding):
     assert KEY not in text
     json.loads(text)
 def test_running_turns_stream_large_bodies_off(guard, caplog):
-    """mitmproxy streams a body above this limit, so the request hook sees no content (#232).
-
-    The setting lives in the mitmproxy config.yaml, which every way of starting the proxy reads
-    from a folder the user can write to; leaving it on sends those bodies unscanned in every mode,
-    `block` included.
-    """
     from mitmproxy.test import taddons
 
     kf = guard("redact")
     with taddons.context(kf) as tctx:
-        # taddons.context does not load the proxyserver addon, so the option it registers has to be
-        # added here with the same name and type proxyserver uses.
         tctx.options.add_option("stream_large_bodies", Optional[str], None, "doc")
         tctx.options.stream_large_bodies = "1k"
         with caplog.at_level("WARNING", logger="keyfence"):
