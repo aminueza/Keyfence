@@ -1322,3 +1322,22 @@ def test_start_proxy_stops_the_proxy_when_startup_is_interrupted(monkeypatch, tm
     finally:
         log.close()
     assert proxy.terminated
+
+
+def test_run_with_a_record_path_that_is_a_directory_says_so_and_leaves_no_vault(
+        home, write_config, monkeypatch, tmp_path, capsys):
+    seen = {}
+    write_config("mode: redact\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    a_directory = tmp_path / "flows"
+    a_directory.mkdir()
+
+    code = runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, record=a_directory)
+
+    assert code == 1
+    out = capsys.readouterr()
+    assert out.out.count("error:") + out.err.count("error:") == 1
+    assert "cannot write the record file" in (out.out + out.err)
+    env_dir = runner.DEFAULT_DIR / "env"
+    assert not env_dir.exists() or list(env_dir.iterdir()) == []
+    assert "cmd" not in seen, "the proxy was started for a record path that cannot be written"
