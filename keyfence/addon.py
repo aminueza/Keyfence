@@ -223,6 +223,8 @@ class KeyFence:
         return new_text
 
     def _inspect(self, flow: http.HTTPFlow, host: str) -> None:
+        if not flow.request.raw_content:
+            return
         try:
             flow.request.get_content(strict=True)
         except ValueError:

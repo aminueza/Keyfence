@@ -1076,13 +1076,22 @@ def test_a_body_that_cannot_be_decoded_is_refused_rather_than_sent_unscanned(gua
     assert flow.response.status_code == 403
 
 
-def test_a_body_that_cannot_be_decoded_is_only_reported_in_audit_mode(guard):
+def test_a_body_that_cannot_be_decoded_is_only_reported_in_audit_mode(guard, caplog):
     kf = guard("audit")
     flow = make_flow(body=gzip.compress(BODY))
     flow.request.headers["content-encoding"] = "x-gzip"
     kf.request(flow)
     assert flow.response is None
     assert flow.request.raw_content == gzip.compress(BODY)
+    assert "cannot be decoded" in caplog.text
+
+
+def test_an_empty_body_with_an_undecodable_encoding_is_not_refused(guard):
+    kf = guard("redact")
+    flow = make_flow(body=b"")
+    flow.request.headers["content-encoding"] = "x-gzip"
+    kf.request(flow)
+    assert flow.response is None
 
 
 @pytest.mark.parametrize("encoding", ["gzip", "deflate", "br", "zstd"])
@@ -1092,6 +1101,8 @@ def test_a_decodable_compressed_body_is_still_redacted(guard, encoding):
     flow.request.headers["content-encoding"] = encoding
     kf.request(flow)
     assert flow.response is None, f"{encoding} was refused though it decodes"
+    assert flow.request.headers["content-encoding"] == encoding
+    assert flow.request.headers["content-length"] == str(len(flow.request.raw_content))
     text = flow.request.get_text(strict=True)
     assert KEY not in text
     json.loads(text)
