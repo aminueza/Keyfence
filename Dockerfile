@@ -10,8 +10,6 @@ RUN groupadd --gid ${KEYFENCE_GID} keyfence \
   && useradd --uid ${KEYFENCE_UID} --gid ${KEYFENCE_GID} --home-dir /data --no-create-home --shell /usr/sbin/nologin keyfence
 
 WORKDIR /app
-# LICENSE is one of pyproject's `license-files`; without it the wheel built here carries only
-# GITLEAKS-LICENSE, and setuptools warns that the pattern matches nothing (#218).
 COPY pyproject.toml README.md LICENSE /app/
 COPY keyfence/ /app/keyfence/
 RUN pip install --no-cache-dir "mitmproxy==${MITMPROXY_VERSION}" "PyYAML==${PYYAML_VERSION}" "certifi==${CERTIFI_VERSION}" \
