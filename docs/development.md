@@ -132,13 +132,17 @@ To release:
    in `plugin/.claude-plugin/plugin.json` to the same `X.Y.Z` so the
    Claude Code marketplace picks up the new `guard.py`, and rename the
    `Unreleased` section of `CHANGELOG.md` to `X.Y.Z (date)`.
-2. Commit and push `main` with the release commit as its tip (`git push
-   origin main`), then tag and push the tag: `git tag vX.Y.Z && git push
-   origin vX.Y.Z`. A push of several commits gets one CI run, for the tip
-   only, so pushing the release commit together with the next step leaves
-   it without the run the release checks.
-3. Right after, set `__version__` to the next dev version (`X.Y+1.0.dev0`),
-   open a new `Unreleased` section in `CHANGELOG.md` and commit.
+2. Open a pull request with that commit and merge it. `main` accepts no
+   direct push, so every change reaches it through a pull request. The
+   merge gets its own CI run on `main`, which is the run the release
+   checks.
+3. Tag the merge commit and push the tag: `git fetch origin && git tag
+   vX.Y.Z origin/main && git push origin vX.Y.Z`. Only a repository admin
+   can create a `v*` tag, and the `pypi` environment waits for an approval
+   before it publishes.
+4. Right after, set `__version__` to the next dev version (`X.Y+1.0.dev0`),
+   open a new `Unreleased` section in `CHANGELOG.md`, and merge that
+   through a pull request too.
 
 The workflow checks that the `ci.yml` push run on `main` passed for the
 tagged commit and that the commit is on `main`,
