@@ -386,6 +386,33 @@ def _run_foreground(command: Sequence[str], env: Mapping[str, str]) -> int:
             signal.signal(signal.SIGINT, previous)
 
 
+class _Termination(SystemExit):
+    pass
+
+
+@contextlib.contextmanager
+def _stop_on_termination_signals():
+    numbers = (signal.SIGTERM, signal.SIGHUP) if os.name == "posix" else ()
+    stopping = False
+
+    def terminate(signum, _frame):
+        nonlocal stopping
+        if not stopping:
+            stopping = True
+            raise _Termination(128 + signum)
+
+    previous: dict[signal.Signals, object] = {}
+    for signum in numbers:
+        with contextlib.suppress(ValueError, OSError):
+            previous[signum] = signal.signal(signum, terminate)
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            with contextlib.suppress(ValueError, OSError):
+                signal.signal(signum, handler)
+
+
 def run(command: Sequence[str], port: int | None = None, everything: bool = False,
         timeout: float = 20.0, ca_cert: Path = CA_CERT, local: str | None = None,
         record: Path | None = None, linger: float = 0.0) -> int:
@@ -439,39 +466,42 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
         local = Path(command[0]).name
     extra = allow_hosts_args(config) + tcp_timeout_args(config)
     extra += extra_record
+    proxy = None
     try:
-        proxy = start_proxy(port, proxy_env, proxy_log, timeout, ca_cert, local, extra)
+        with _stop_on_termination_signals():
+            try:
+                proxy = start_proxy(port, proxy_env, proxy_log, timeout, ca_cert, local, extra)
+                try:
+                    bundle, _ = ensure_bundle(ca_cert)
+                except BundleError as exc:
+                    print(exc)
+                    return 1
+                try:
+                    resolved = resolve_command(command)
+                except FileNotFoundError as exc:
+                    print(f"keyfence: {exc}", file=sys.stderr)
+                    return 127
+                code = _run_foreground(resolved, child_env(os.environ, port, ca_cert, bundle,
+                                                           bypass_loopback=not loopback_monitored(config)))
+                if code < 0 and os.name == "posix":
+                    code = 128 - code
+                if linger > 0 and proxy.poll() is None:
+                    print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
+                    try:
+                        time.sleep(linger)
+                    except KeyboardInterrupt:
+                        pass
+                return code
+            finally:
+                if proxy is not None:
+                    stop_proxy(proxy)
+                proxy_log.close()
+                env_vault.remove_files()
     except ProxyError as exc:
-        proxy_log.close()
-        env_vault.remove_files()
         if exc.stage == MISSING:
             print(exc.message)
         else:
             print(f"{exc.message}, so the command was not started; see {DEFAULT_DIR / 'proxy.log'}")
         return 1
-    try:
-        try:
-            bundle, _ = ensure_bundle(ca_cert)
-        except BundleError as exc:
-            print(exc)
-            return 1
-        try:
-            resolved = resolve_command(command)
-        except FileNotFoundError as exc:
-            print(f"keyfence: {exc}", file=sys.stderr)
-            return 127
-        code = _run_foreground(resolved, child_env(os.environ, port, ca_cert, bundle,
-                                                   bypass_loopback=not loopback_monitored(config)))
-        if code < 0 and os.name == "posix":
-            code = 128 - code
-        if linger > 0 and proxy.poll() is None:
-            print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
-            try:
-                time.sleep(linger)
-            except KeyboardInterrupt:
-                pass
-        return code
-    finally:
-        stop_proxy(proxy)
-        proxy_log.close()
-        env_vault.remove_files()
+    except _Termination as exc:
+        return int(exc.code)
