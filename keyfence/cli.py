@@ -66,6 +66,8 @@ def cmd_import(args) -> int:
         return 1
     total = 0
     for path, added in import_files(vault, paths, everything=args.all, ignore=ignore):
+        if added is None:
+            continue
         total += added
         print(f"{path}: {added} new secret(s)")
     if args.env:

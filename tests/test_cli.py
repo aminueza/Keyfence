@@ -67,6 +67,22 @@ def test_import_paths(home, tmp_path, capsys):
     assert Vault().contains(KEY)
 
 
+def test_import_skips_an_unreadable_file_and_keeps_the_ones_after_it(home, tmp_path, capsys):
+    unreadable = tmp_path / ".netrc"
+    unreadable.write_text("machine example.invalid login u password p\n")
+    unreadable.chmod(0o000)
+    readable = tmp_path / ".git-credentials"
+    readable.write_text(f"https://user:{KEY}@github.com\n")
+    try:
+        code = cli.main(["import", str(unreadable), str(readable)])
+    finally:
+        unreadable.chmod(0o600)
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "skip:" in out and ".netrc" in out
+    assert Vault().contains(KEY)
+
+
 def test_import_env(home, monkeypatch, capsys):
     monkeypatch.setattr(cli.os, "environ", {"MY_API_TOKEN": "envTokenValue12345", "HOME": "/x"})
     assert cli.main(["import", "--env", str(home / "nope")]) == 0
