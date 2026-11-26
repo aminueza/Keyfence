@@ -50,8 +50,8 @@ Decide in code instead:
 - Build the value in the test client at run time, from fragments, so a
   real-shaped secret reaches the detector and nothing secret-shaped is
   committed. `tests/fakes.py` serves the opposite purpose: it keeps
-  committed test keys out of secret scanners and push protection, and only
-  `tests/test_detectors.py` imports it.
+  committed test keys out of secret scanners and push protection; the
+  detector, doctor, runner and selftest tests import it.
 - Assert on what the provider received. The listener the test starts is the
   only honest view: `tests/integration_test.sh` logs every body to
   `upstream_received.log` and echoes it back inside
@@ -91,9 +91,9 @@ Decide in code instead:
 
 ## CI
 
-GitHub Actions runs the unit tests on Linux (Python 3.12 to 3.14) and macOS,
-the integration script on both, and builds the wheel to check that the
-bundled rules ship in the package.
+GitHub Actions runs the unit tests on Linux (Python 3.12 to 3.14), macOS and
+Windows, the integration script on Linux and macOS, and builds the wheel to
+check that the bundled rules ship in the package.
 
 ## Benchmark
 

@@ -567,6 +567,24 @@ def test_exec_help_says_what_record_holds(home, capsys):
     assert "secrets unredacted in audit and block mode" in text
 
 
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", "-1", "86401", "1e300"])
+def test_exec_rejects_a_linger_that_cannot_be_a_session(home, monkeypatch, capsys, value):
+    started = []
+    monkeypatch.setattr(cli.runner, "run", lambda *a, **k: started.append(a) or 0)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["exec", "--linger", value, "--", "true"])
+    assert exc.value.code == 2
+    assert started == []
+    assert "--linger" in capsys.readouterr().err
+
+
+def test_exec_accepts_a_linger_at_the_limit(home, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli.runner, "run", lambda command, port, everything, local, record, linger: seen.update(linger=linger) or 0)
+    assert cli.main(["exec", "--linger", "86400", "--", "true"]) == 0
+    assert seen["linger"] == 86400.0
+
+
 def test_exec_passes_local_flag(home, monkeypatch):
     seen = {}
     monkeypatch.setattr(cli.runner, "run", lambda command, port, everything, local, record, linger: seen.update(local=local) or 0)
@@ -955,6 +973,30 @@ def test_export_otlp_reports_an_error_status_without_a_traceback(home, write_con
     assert "error: could not send to http://c: collector answered 500" in err
     assert "Traceback" not in err
     assert not (home / "export.cursor").exists()
+
+
+@pytest.mark.parametrize("mode", [["--all"], ["--since", "2026-09-08T09:00:00-0300"]])
+def test_export_otlp_does_not_move_the_cursor_over_an_entry_written_during_the_send(
+        home, write_config, monkeypatch, capsys, mode):
+    write_config("mode: redact\n")
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": "h1", "path": "/p", "mode": "redact", "count": 1,
+             "findings": [{"kind": "vault", "preview": "x", "key": None}]}
+    (home / "audit.log").write_text(json.dumps(entry) + "\n")
+    sent = []
+
+    def collector_appends_an_entry(url, entries, headers):
+        with (home / "audit.log").open("a") as fh:
+            fh.write(json.dumps({**entry, "host": "h2"}) + "\n")
+        sent.append([e["host"] for e in entries])
+        return len(entries)
+
+    monkeypatch.setattr(cli.export, "send_otlp", collector_appends_an_entry)
+    assert cli.main(["export", "--otlp", "http://c", *mode]) == 0
+    assert sent == [["h1"]]
+    assert (home / "export.cursor").read_text().split()[0] == "1"
+    assert cli.main(["export", "--otlp", "http://c"]) == 0
+    assert sent == [["h1"], ["h2"]]
+    assert "Sent 1 entry" in capsys.readouterr().out
 
 
 def test_export_otlp_reports_an_unreachable_collector_without_a_traceback(home, write_config, monkeypatch, capsys):

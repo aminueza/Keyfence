@@ -8,8 +8,8 @@ optional.
 | `mode` | `redact` | `audit` (log only, change nothing), `redact`, `placeholder` or `block` |
 | `hosts` | 20 AI provider hosts | hosts to monitor; wildcards allowed; under `keyfence exec` a change takes effect on the next session, not during a running one; `keyfence run` intercepts every host, so it picks a new entry up without a restart |
 | `extra_hosts` | `[]` | hosts to add to the default list; same rule as `hosts` |
-| `intercept_all_hosts` | `false` | scan every host, not only AI providers |
-| `proxy_tcp_timeout` | `3600` | seconds of inactivity before mitmproxy closes a TCP connection; raise it for long LLM requests that send nothing for a while |
+| `intercept_all_hosts` | `false` | scan every host, not only AI providers; under `keyfence exec` a change takes effect on the next session, not during a running one |
+| `proxy_tcp_timeout` | `3600` | seconds of inactivity before mitmproxy closes a TCP connection; raise it for long LLM requests that send nothing for a while; mitmdump takes it at start, so a change needs a proxy restart |
 | `notice` | `true` | add the system prompt notice when a request body was changed; WebSocket frames never get it |
 | `scan.patterns` | `true` | built-in pattern rules |
 | `scan.gitleaks` | `true` | bundled gitleaks rules |
@@ -82,8 +82,8 @@ carrying a password is still caught.
 
 Both lists apply to `keyfence import` (files, `--env`, `--from`), to the
 environment snapshot `keyfence exec` takes, to `keyfence scan` and to the
-proxy. A running proxy picks up changes to either list without a restart,
-like every other option. `keyfence status` shows how many entries each list
+proxy. A running proxy picks up changes to either list without a restart.
+`keyfence status` shows how many entries each list
 holds, `keyfence scan` says how many findings it dropped, and an audit
 entry carries `suppressed: n` when a request had other findings besides
 the ignored ones. A request whose only findings were ignored is clean and
@@ -136,8 +136,11 @@ touched. Set `notice: false` to disable.
   `Accept-Encoding: identity` so the response can be rewritten as it
   streams. Placeholders split across SSE events are still restored.
 - The vault file and the config file are reloaded when they change, so
-  `import`, `add-secret`, `canary` and edits to `config.yaml` take effect
-  on a running proxy. A config file that fails to parse is logged and the
+  `import`, `add-secret`, `canary` and most edits to `config.yaml` take effect
+  on a running proxy. The exceptions are the options mitmdump reads from its
+  own arguments at start: `proxy_tcp_timeout` needs a restart, and under
+  `keyfence exec` so does `intercept_all_hosts`, which decides
+  `--allow-hosts` for the session. A config file that fails to parse is logged and the
   previous configuration stays in force. A vault file that fails to parse
   stops the proxy at startup with a message, and makes a running proxy
   fail closed until the file is fixed or moved aside.
