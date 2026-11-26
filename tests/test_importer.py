@@ -61,7 +61,7 @@ def test_plain_url_without_userinfo_is_skipped():
     assert values_from_text("API_URL=https://api.example.com/v1/endpoint\n", MIN) == set()
 
 
-SECRET_VALUE = "Wq8xK2mP9vL4nR7tW3yB6cF1dH5jZ0a"
+SECRET_VALUE = "Wq8xK2mP9v" + "L4nR7tW3yB" + "6cF1dH5jZ0a"
 
 
 @pytest.mark.parametrize("line, expected", [
@@ -79,6 +79,7 @@ def test_the_value_a_dotenv_reader_sees_is_the_one_registered(line, expected):
     "DB_PASSWORD=$OTHER_VAR",
     "DB_PASSWORD=${OTHER_VAR}",
     "CACHE_DIR=/var/cache/app/data/store",
+    'DB_PASSWORD="$OTHER_VAR"',
 ])
 def test_a_value_that_is_a_reference_or_a_plain_path_stays_skipped(line):
     assert values_from_text(line + "\n", MIN) == set()

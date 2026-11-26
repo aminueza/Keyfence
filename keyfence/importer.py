@@ -41,7 +41,6 @@ ENV_SKIP_NAMES = frozenset({"KEYFENCE_HOME", "KEYFENCE_CONFIG", "KEYFENCE_ENV_VA
 
 
 def _clean(value: str) -> str:
-    """The value a dotenv reader sees: quoted text up to its closing quote, or the text before an unquoted comment."""
     if value[:1] in "\"'":
         quote = value[0]
         end = value.find(quote, 1)
@@ -110,7 +109,6 @@ def _collect(key: str, value: str, min_length: int, everything: bool, out: set[s
              ignore: IgnoreList = NO_IGNORE, quoted: bool = False) -> None:
     if not value or ignore.ignores_key(key):
         return
-    # A quoted value is literal in dotenv and in the shell, so a leading `$` names no variable there.
     if _SKIP_VALUE.match(value) and not (quoted and value.startswith("$")):
         if not (value.startswith("/") and _has_secret_name(key)):
             return
@@ -130,7 +128,7 @@ def values_from_text(text: str, min_length: int, everything: bool = False,
         m = _KV_LINE.match(line)
         if m:
             raw = m["val"]
-            _collect(m["key"], _clean(raw), min_length, everything, found, ignore, quoted=raw[:1] in "\"'")
+            _collect(m["key"], _clean(raw), min_length, everything, found, ignore, quoted=raw[:1] == "'")
             continue
         for pw in _NETRC_PASSWORD.findall(stripped):
             _add(found, pw, min_length, ignore)
