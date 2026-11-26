@@ -94,12 +94,6 @@ def test_pep639_license_needs_a_setuptools_that_reads_it():
 
 
 def test_the_declared_mitmproxy_floor_knows_every_option_keyfence_sets():
-    """`tcp_timeout` arrives in mitmproxy 12.2.1, and mitmdump defers an option it does not know (#215).
-
-    A deferred option is applied only when an addon registers it, so on 10.0 through 12.2.0 the
-    `--set tcp_timeout=` keyfence passes is accepted silently and the built-in 600 s stays. Every
-    version the declared range allows has to know the options keyfence sets.
-    """
     declared = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
     mitmproxy = [d for d in declared if d.split(">=")[0].strip() == "mitmproxy"]
     assert mitmproxy, f"no mitmproxy in dependencies: {declared}"
@@ -108,12 +102,10 @@ def test_the_declared_mitmproxy_floor_knows_every_option_keyfence_sets():
         assert floor, f"mitmproxy is declared without a full floor: {spec}"
         assert tuple(int(p) for p in floor.groups()) >= (12, 2, 1), spec
 
-    # The same floor in requirements.txt, since a source install uses that file.
     requirements = (ROOT / "requirements.txt").read_text()
     line = [l for l in requirements.splitlines() if l.strip().startswith("mitmproxy")]
     assert line, "requirements.txt declares no mitmproxy"
     assert re.match(r"^mitmproxy>=12\.2\.1", line[0].strip()), line[0]
 
-    # And the install that runs this suite has to know the option keyfence passes.
     from mitmproxy.options import Options
     assert "tcp_timeout" in Options()
