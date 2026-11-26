@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from keyfence.ignore import IgnoreList
 from keyfence.importer import (
     default_paths, env_values, import_files, looks_secret,
@@ -57,6 +59,35 @@ def test_database_url_password_is_extracted():
 
 def test_plain_url_without_userinfo_is_skipped():
     assert values_from_text("API_URL=https://api.example.com/v1/endpoint\n", MIN) == set()
+
+
+SECRET_VALUE = "Wq8xK2mP9vL4nR7tW3yB6cF1dH5jZ0a"
+
+
+@pytest.mark.parametrize("line, expected", [
+    (f"aws_secret_access_key = /{SECRET_VALUE}", {f"/{SECRET_VALUE}"}),
+    (f"DB_PASSWORD='${SECRET_VALUE}'", {f"${SECRET_VALUE}"}),
+    (f"DB_PASSWORD={SECRET_VALUE} # prod db", {SECRET_VALUE}),
+    (f'DB_PASSWORD="{SECRET_VALUE}" # prod db', {SECRET_VALUE}),
+    (f'DB_PASSWORD="a#{SECRET_VALUE}"', {f"a#{SECRET_VALUE}"}),
+])
+def test_the_value_a_dotenv_reader_sees_is_the_one_registered(line, expected):
+    assert values_from_text(line + "\n", MIN) == expected
+
+
+@pytest.mark.parametrize("line", [
+    "DB_PASSWORD=$OTHER_VAR",
+    "DB_PASSWORD=${OTHER_VAR}",
+    "CACHE_DIR=/var/cache/app/data/store",
+])
+def test_a_value_that_is_a_reference_or_a_plain_path_stays_skipped(line):
+    assert values_from_text(line + "\n", MIN) == set()
+
+
+def test_a_file_that_starts_with_a_byte_order_mark_registers_its_first_variable(tmp_path):
+    path = tmp_path / "env"
+    path.write_bytes(b"\xef\xbb\xbf" + f"DB_PASSWORD={SECRET_VALUE}\n".encode())
+    assert values_from_file(path, MIN) == {SECRET_VALUE}
 
 
 def test_git_credentials_line():
