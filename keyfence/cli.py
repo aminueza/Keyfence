@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import math
 import os
 import re
 import secrets
@@ -19,6 +20,17 @@ from .vault import DEFAULT_DIR, Vault, VaultError
 
 AGENTS = ("claude-code", "pi")
 DENY_RULE_MIN_CLAUDE_CODE = {"Edit": "2.1.208", "Write": "2.1.228"}
+LINGER_LIMIT = 86400.0
+
+
+def _linger_seconds(text: str) -> float:
+    try:
+        seconds = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a number of seconds") from None
+    if not math.isfinite(seconds) or seconds < 0 or seconds > LINGER_LIMIT:
+        raise argparse.ArgumentTypeError("must be a finite number of seconds from 0 to 86400")
+    return seconds
 
 
 def cmd_add_secret(_args) -> int:
@@ -415,13 +427,14 @@ def cmd_export(args) -> int:
     log_inode = 0
     if args.since:
         since = export.parse_ts(args.since)
-    elif not args.all and args.otlp:
-        start, cursor_inode = export.read_cursor(cursor)
+    if args.otlp:
         stop = export.count_lines(log)
         log_inode = export.log_identity(log)
-        if start > stop or cursor_inode != log_inode:
-            # truncated in place, or rotated into a new file: read it again
-            start = 0
+        if not args.all and not args.since:
+            start, cursor_inode = export.read_cursor(cursor)
+            if start > stop or cursor_inode != log_inode:
+                # truncated in place, or rotated into a new file: read it again
+                start = 0
     entries = list(export.read_entries(log, since, start, stop))
     if args.otlp:
         headers = dict(h.split("=", 1) for h in args.header)
@@ -433,8 +446,6 @@ def cmd_export(args) -> int:
             # the cursor stays where it was, so the next run retries.
             print(f"error: could not send to {args.otlp}: {exc}", file=sys.stderr)
             return 1
-        if stop is None:
-            stop, log_inode = export.count_lines(log), export.log_identity(log)
         export.write_cursor(cursor, stop, log_inode)
         print(f"Sent {sent} entr{'y' if sent == 1 else 'ies'} to {args.otlp}.")
         return 0
@@ -522,7 +533,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_exec.add_argument("--record", metavar="FILE",
                         help="save the raw traffic to a mitmproxy flows file "
                              "(full request bodies and headers; secrets unredacted in audit and block mode)")
-    p_exec.add_argument("--linger", type=float, default=0.0, metavar="SECONDS",
+    p_exec.add_argument("--linger", type=_linger_seconds, default=0.0, metavar="SECONDS",
                         help="keep the proxy up this long after the command exits, to see what is sent afterwards")
     p_exec.add_argument("argv", nargs=argparse.REMAINDER, metavar="command")
 

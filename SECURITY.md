@@ -81,9 +81,9 @@ because they usually carry the provider's own key. See
   `pypi-attestations`.
 - CI builds a CycloneDX SBOM for every commit on `main` and every pull
   request; it is attached to the workflow run as an artifact.
-- Dependencies are `mitmproxy` and `PyYAML`, both from PyPI. The bundled
-  detection rules come from the gitleaks repository and are checked in, so
-  nothing is fetched at runtime.
+- Dependencies are `certifi`, `mitmproxy` and `PyYAML`, all from PyPI. The
+  bundled detection rules come from the gitleaks repository and are checked
+  in, so nothing is fetched at runtime.
 - Tests run on Linux, macOS and Windows.
 
 ## Design choices that limit blast radius
