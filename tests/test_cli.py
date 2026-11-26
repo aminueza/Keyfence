@@ -67,6 +67,7 @@ def test_import_paths(home, tmp_path, capsys):
     assert Vault().contains(KEY)
 
 
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs a file that the user cannot read")
 def test_import_skips_an_unreadable_file_and_keeps_the_ones_after_it(home, tmp_path, capsys):
     unreadable = tmp_path / ".netrc"
     unreadable.write_text("machine example.invalid login u password p\n")
