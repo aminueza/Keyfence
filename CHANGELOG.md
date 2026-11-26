@@ -136,6 +136,37 @@
 - `keyfence import` skips a file that it cannot read, prints one `skip:`
   line for it, and imports the files after it. Before, the first unreadable
   file stopped the import with a traceback (issue #210).
+- `keyfence exec --linger` returns the exit code of the command when Ctrl+C
+  ends the linger, and it refuses a value that is not finite, is negative
+  or is above 86400 seconds. Before, Ctrl+C printed a traceback and `inf`
+  crashed (issue #213).
+- `keyfence export --otlp` with `--all` or `--since` counts the audit log
+  lines before the send. An entry written during the send is now sent by
+  the next run instead of being skipped (issue #209).
+- An empty or whitespace-only `KEYFENCE_HOME` or `KEYFENCE_CONFIG` counts
+  as unset. Before, it resolved to the current directory, so the vault
+  file was written into the project (issue #211).
+- `keyfence import --from` also registers the password inside a connection
+  URL such as `postgres://user:<password>@host/db` (issue #207).
+- `keyfence import` reads a file the way a dotenv reader does. A secret
+  that starts with `/`, a single-quoted value that starts with `$`, a value
+  followed by an inline comment, and a file with a byte order mark now
+  register the real value (issue #208).
+- `install-hooks` takes over, repairs and removes only a hook that keyfence
+  wrote. A hook of another tool whose command also ends in
+  `hook claude-code` is kept, and `--list` no longer reports it as the
+  keyfence hook (issue #227).
+- The hook refuses more commands that print the environment: bare
+  `declare` and `typeset` (only `-f` and `-F` stay allowed), `nice env`, a
+  quoted `"env"`, and a here-string of a secret variable such as
+  `cat <<< "$API_KEY"` (issue #229).
+- The vault check splits a candidate on URL and delimiter characters, so a
+  registered secret in a URL path, between colons, after `-p`, after
+  `&token=` or next to `#`, `@`, `+`, `%`, `*`, `~` or `$` is found. A value
+  after `=` or `:` that holds `;`, `,` or `(` is still found (issue #234).
+- The release workflow accepts only the `ci.yml` push run on `main` for the
+  tagged commit, and it refuses a tag on a commit that is not on `main`
+  (issue #214).
 
 ## 0.11.1 (2026-11-24)
 
