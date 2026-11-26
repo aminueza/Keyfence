@@ -1,9 +1,5 @@
-# The tests are not shipped: they read files from the repository root (plugin/hooks/guard.py,
-# Dockerfile, .github/workflows/release.yml) and import tests/fakes.py, so an sdist that carries
-# only test_*.py cannot run them. setuptools adds test*.py by default; this drops the whole folder.
 prune tests
 
-# What the package needs at runtime, and what a licence reader looks for.
 include LICENSE
 include keyfence/rules/gitleaks.toml
 include keyfence/rules/GITLEAKS-LICENSE
