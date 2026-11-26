@@ -1336,6 +1336,134 @@ def test_start_proxy_stops_the_proxy_when_startup_is_interrupted(monkeypatch, tm
     assert proxy.terminated
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+@pytest.mark.parametrize(("signal_name", "expected"), [("SIGTERM", 143), ("SIGHUP", 129)])
+def test_run_stops_the_proxy_when_sigterm_or_sighup_stops_it(
+        home, monkeypatch, tmp_path, signal_name, expected):
+    signal_number = getattr(signal, signal_name)
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    proxy = FakeProxy()
+    seen = {}
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr, **_kwargs: seen.update(started=True) or proxy)
+    monkeypatch.setattr(runner, "port_open", lambda port: "started" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
+
+    unguarded = []
+
+    def guard(signum, _frame):
+        unguarded.append(signum)
+        raise AssertionError(f"run() left SIG{signum} at its default action")
+
+    def signal_self(command, env):
+        os.kill(os.getpid(), signal_number)
+        return 0
+
+    monkeypatch.setattr(runner.subprocess, "call", signal_self)
+    previous = signal.signal(signal_number, guard)
+    try:
+        assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == expected
+        assert signal.getsignal(signal_number) is guard
+    finally:
+        signal.signal(signal_number, previous)
+    assert unguarded == []
+    assert proxy.terminated
+    env_dir = runner.DEFAULT_DIR / runner.ENV_VAULT_DIR
+    assert not env_dir.exists() or list(env_dir.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+def test_run_restores_the_termination_handlers_it_installed(home, monkeypatch, tmp_path):
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    previous = {signum: signal.getsignal(signum) for signum in (signal.SIGTERM, signal.SIGHUP)}
+    sentinel = lambda signum, frame: None
+    try:
+        for signum in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(signum, sentinel)
+        assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
+        for signum in (signal.SIGTERM, signal.SIGHUP):
+            assert signal.getsignal(signum) is sentinel
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+def test_run_stops_the_proxy_even_when_a_second_signal_arrives(home, monkeypatch, tmp_path):
+    ca = tmp_path / "ca.pem"
+    ca.write_text(CA_PEM)
+    seen = {}
+
+    class InterruptingProxy(FakeProxy):
+        def terminate(self):
+            os.kill(os.getpid(), signal.SIGTERM)
+            super().terminate()
+
+    proxy = InterruptingProxy()
+    monkeypatch.setattr(runner.subprocess, "Popen",
+                        lambda cmd, env, stdout, stderr, **_kwargs: seen.update(started=True) or proxy)
+    monkeypatch.setattr(runner, "port_open", lambda port: "started" in seen)
+    monkeypatch.setattr(runner, "addon_live", lambda port: True)
+
+    def signal_self(command, env):
+        os.kill(os.getpid(), signal.SIGTERM)
+        return 0
+
+    monkeypatch.setattr(runner.subprocess, "call", signal_self)
+    guard = lambda signum, frame: (_ for _ in ()).throw(AssertionError("the signal escaped run()"))
+    previous = signal.signal(signal.SIGTERM, guard)
+    try:
+        assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 143
+        assert signal.getsignal(signal.SIGTERM) is guard
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    assert proxy.terminated
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+def test_run_keeps_going_when_a_termination_handler_cannot_be_installed(home, monkeypatch, tmp_path):
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    real_signal = signal.signal
+
+    def refusing(signum, handler):
+        if signum == signal.SIGHUP:
+            raise OSError("no SIGHUP here")
+        return real_signal(signum, handler)
+
+    monkeypatch.setattr(runner.signal, "signal", refusing)
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
+def test_exec_stops_mitmdump_when_its_process_group_is_terminated(tmp_path):
+    if not Path(runner.mitmdump_path()).is_file():
+        pytest.skip("mitmdump is not installed")
+    port = runner.free_port()
+    env = dict(os.environ, HOME=str(tmp_path), KEYFENCE_HOME=str(tmp_path / "home"),
+               KEYFENCE_CONFIG=str(tmp_path / "config.yaml"), MITMPROXY_CONFDIR=str(tmp_path / "mitm"))
+    env.pop("KEYFENCE_ENV_VAULT", None)
+    repo = Path(__file__).resolve().parent.parent
+    process = subprocess.Popen(
+        [sys.executable, "-m", "keyfence", "exec", "-p", str(port), "--",
+         sys.executable, "-c", "import time; time.sleep(60)"],
+        env=env, cwd=repo, start_new_session=True)
+    try:
+        assert runner.wait_for(lambda: runner.addon_live(port), 30), "the proxy never came up"
+        os.killpg(process.pid, signal.SIGTERM)
+        assert process.wait(timeout=10) == 143
+        assert runner.wait_for(lambda: not runner.port_open(port), 5), "mitmdump kept the port"
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=10)
+        listing = subprocess.run(["ps", "-eo", "pid=,command="], capture_output=True, text=True).stdout
+        for line in listing.splitlines():
+            if f"--listen-port {port}" in line:
+                with contextlib.suppress(ProcessLookupError, ValueError):
+                    os.kill(int(line.split()[0]), signal.SIGKILL)
+
+
 def test_run_with_a_record_path_that_is_a_directory_says_so_and_leaves_no_vault(
         home, write_config, monkeypatch, tmp_path, capsys):
     seen = {}

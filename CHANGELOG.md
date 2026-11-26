@@ -7,6 +7,11 @@
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
   `doctor` counted it twice, and OTLP advanced its cursor past it; a log
   written by an older version is still read correctly (issue #206).
+- `keyfence exec` stops its proxy when SIGTERM or SIGHUP ends it, so the
+  terminal closing, an SSH session dropping, `timeout(1)` or a cancelled CI
+  job no longer leaves mitmdump running on the port. The proxy starts in its
+  own session, so the signal reached keyfence alone and its cleanup never ran
+  (issue #205).
 - A request whose JSON body holds a lone surrogate escape, such as `\ud83d`
   from a truncated emoji, is redacted and sent when `notice` is on instead of
   being refused with a 403. The notice step rewrote the surrogate raw and
