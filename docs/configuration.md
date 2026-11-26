@@ -13,7 +13,7 @@ optional.
 | `notice` | `true` | add the system prompt notice when a request body was changed; WebSocket frames never get it |
 | `scan.patterns` | `true` | built-in pattern rules |
 | `scan.gitleaks` | `true` | bundled gitleaks rules |
-| `scan.gitleaks_rules` | bundled file | path to your own gitleaks-compatible TOML |
+| `scan.gitleaks_rules` | bundled file | path to your own gitleaks-compatible TOML; `~` is expanded and a relative path resolves next to `config.yaml` |
 | `scan.gitleaks_disabled` | `[generic-api-key]` | rule ids to skip |
 | `scan.entropy` | `true` | entropy check |
 | `scan.entropy_min_length` | `24` | minimum token length for the entropy check |

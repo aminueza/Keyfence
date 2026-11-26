@@ -134,13 +134,13 @@ class Config:
             else:
                 scan = raw_scan
             raw_gitleaks_rules = scan.get("gitleaks_rules")
-            if raw_gitleaks_rules is not None and not isinstance(raw_gitleaks_rules, str):
+            if raw_gitleaks_rules is not None and (
+                not isinstance(raw_gitleaks_rules, str) or not raw_gitleaks_rules.strip()
+            ):
                 raise ValueError(
-                    f"scan.gitleaks_rules must be a string path, got {raw_gitleaks_rules!r}"
+                    f"scan.gitleaks_rules must be a non-empty string path, got {raw_gitleaks_rules!r}"
                 )
             if raw_gitleaks_rules is not None:
-                # Expand ~ like audit_log does, and resolve a relative path next to
-                # the config file instead of the current directory (issue #216).
                 rules_path = Path(raw_gitleaks_rules).expanduser()
                 if not rules_path.is_absolute():
                     rules_path = cfg_path.parent / rules_path

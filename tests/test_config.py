@@ -77,6 +77,13 @@ def test_gitleaks_rules_relative_path_resolves_next_to_config(write_config, home
     assert [r.name for r in Config.load().scan.rules] == ["only"]
 
 
+@pytest.mark.parametrize("value", ['""', '"  "'])
+def test_an_empty_gitleaks_rules_path_is_rejected(write_config, value):
+    write_config(f"scan:\n  gitleaks_rules: {value}\n")
+    with pytest.raises(ValueError, match="scan.gitleaks_rules must be a non-empty string path"):
+        Config.load()
+
+
 def test_missing_gitleaks_rules_raises_value_error(write_config):
     write_config("scan:\n  gitleaks_rules: missing.toml\n")
     with pytest.raises(ValueError) as excinfo:
