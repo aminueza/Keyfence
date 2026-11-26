@@ -17,6 +17,7 @@ from mitmproxy import ctx, http  # noqa: E402
 from mitmproxy.websocket import WebSocketMessage  # noqa: E402
 
 from keyfence import __version__  # noqa: E402
+from keyfence.audit import encode_entry  # noqa: E402
 from keyfence.config import Config  # noqa: E402
 from keyfence.detectors import Finding, ScanReport, scan_report  # noqa: E402
 from keyfence.ignore import IgnoreList  # noqa: E402
@@ -452,7 +453,7 @@ class KeyFence:
                     os.fchmod(fh.fileno(), 0o600)
                 else:
                     os.chmod(path, 0o600)
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                fh.write(encode_entry(entry))
         except OSError as exc:
             log.warning("could not write audit log: %s", exc)
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- An audit entry whose request key or tool input key holds U+2028, U+2029 or
+  U+0085 is now written as one ASCII JSON line, and every reader splits the
+  log on `\n` only. Before, `export` dropped the entry, `status` hid it,
+  `doctor` counted it twice, and OTLP advanced its cursor past it; a log
+  written by an older version is still read correctly (issue #206).
 - A request whose JSON body holds a lone surrogate escape, such as `\ud83d`
   from a truncated emoji, is redacted and sent when `notice` is on instead of
   being refused with a 403. The notice step rewrote the surrogate raw and

@@ -310,6 +310,20 @@ def test_audit_mode_logs_and_changes_nothing(guard, home, caplog):
     assert entry["mode"] == "audit" and entry["findings"][0]["kind"] == "github-token"
 
 
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\u0085"])
+def test_audit_entry_with_a_separator_in_a_finding_key_stays_one_ascii_line(guard, home, separator):
+    kf = guard("audit")
+    body = json.dumps({f"note{separator}x": f"token: {KEY}"}, ensure_ascii=False).encode()
+    flow = make_flow(body=body)
+    flow.request.headers["content-type"] = "application/json; charset=utf-8"
+    kf.request(flow)
+    text = (home / "audit.log").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    assert len(lines) == 1
+    assert lines[0].isascii()
+    assert json.loads(lines[0])["findings"][0]["key"] == f"note{separator}x"
+
+
 def test_redact_covers_a_key_that_follows_an_unterminated_pem_header(guard):
     import base64
     import random

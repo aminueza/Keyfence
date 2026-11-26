@@ -7,6 +7,8 @@ from collections.abc import Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
 
+from .audit import encode_entry, read_text, split_lines
+
 TS_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 BATCH = 100
 
@@ -19,14 +21,14 @@ def count_lines(path: Path) -> int:
     """Physical lines in the audit log, used as the export cursor."""
     if not path.exists():
         return 0
-    return len(path.read_text().splitlines())
+    return len(split_lines(read_text(path)))
 
 
 def read_entries(path: Path, since: datetime | None = None, start: int = 0,
                  stop: int | None = None) -> Iterator[dict]:
     if not path.exists():
         return
-    lines = path.read_text().splitlines()
+    lines = split_lines(read_text(path))
     if stop is not None:
         lines = lines[:stop]
     for index, line in enumerate(lines):

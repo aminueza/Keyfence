@@ -27,6 +27,56 @@ def test_read_entries_skips_garbage_and_filters_since(audit):
     assert list(export.read_entries(audit.parent / "missing.log")) == []
 
 
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\u0085"])
+def test_a_legacy_line_with_a_raw_separator_is_read_once(tmp_path, separator):
+    key = f"note{separator}x"
+    entry = {**ENTRY1, "findings": [{**ENTRY1["findings"][0], "key": key}]}
+    line = json.dumps(entry, ensure_ascii=False)
+    assert len(line.splitlines()) == 2
+    path = tmp_path / "audit.log"
+    path.write_text(line + "\n" + json.dumps(ENTRY2) + "\n", encoding="utf-8")
+    assert export.count_lines(path) == 2
+    entries = list(export.read_entries(path))
+    assert [e["host"] for e in entries] == ["api.anthropic.com", "api.openai.com"]
+    assert entries[0]["findings"][0]["key"] == key
+
+
+def test_line_boundary_is_one_newline(tmp_path):
+    path = tmp_path / "audit.log"
+    assert export.count_lines(path) == 0
+    path.write_text("")
+    assert export.split_lines("") == []
+    assert export.count_lines(path) == 0
+    path.write_text(json.dumps(ENTRY1) + "\n")
+    assert export.split_lines(path.read_text()) == [json.dumps(ENTRY1)]
+    assert export.count_lines(path) == 1
+    path.write_text(json.dumps(ENTRY1) + "\n" + json.dumps(ENTRY2))
+    assert export.count_lines(path) == 2
+    path.write_text(json.dumps(ENTRY1) + "\n\n")
+    assert export.split_lines(path.read_text()) == [json.dumps(ENTRY1), ""]
+    assert export.count_lines(path) == 2
+
+
+def test_read_text_decodes_the_log_as_utf8(tmp_path):
+    path = tmp_path / "audit.log"
+    path.write_text('{"key": "note\u2028x"}\n', encoding="utf-8")
+    assert export.read_text(path) == '{"key": "note\u2028x"}\n'
+
+
+def test_read_text_replaces_bytes_that_are_not_utf8(tmp_path):
+    path = tmp_path / "audit.log"
+    path.write_bytes(b'{"key": "\xff"}\n')
+    assert export.read_text(path) == '{"key": "\ufffd"}\n'
+
+
+def test_encoded_entry_escapes_non_ascii_and_separators():
+    entry = {**ENTRY1, "findings": [{**ENTRY1["findings"][0], "key": "ação\u2028x"}]}
+    line = export.encode_entry(entry)
+    assert line.endswith("\n") and len(line.splitlines()) == 1
+    assert line.isascii() and "\\u2028" in line
+    assert json.loads(line) == entry
+
+
 def test_log_record_shape():
     record = export.to_log_record(ENTRY1)
     attrs = {a["key"]: a["value"] for a in record["attributes"]}

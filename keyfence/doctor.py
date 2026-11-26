@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import __version__, hooks, pi, runner
+from . import __version__, export, hooks, pi, runner
 from . import vault as vault_module
 from .config import Config
 from .vault import Vault, VaultError
@@ -463,7 +463,7 @@ def check_audit() -> Check:
         path = vault_module.DEFAULT_DIR / "audit.log"
     if not path.exists():
         return Check(INFO, "audit log", f"{path} does not exist yet; nothing has been detected so far")
-    lines = [l for l in path.read_text().splitlines() if l.strip()]
+    lines = [line for line in export.split_lines(export.read_text(path)) if line.strip()]
     return Check(OK, "audit log", f"{len(lines)} request(s) with findings in {path}")
 
 
