@@ -2,11 +2,21 @@
 
 ## Unreleased
 
+- A request whose JSON body holds a lone surrogate escape, such as `\ud83d`
+  from a truncated emoji, is redacted and sent when `notice` is on instead of
+  being refused with a 403. The notice step rewrote the surrogate raw and
+  `flow.request.set_text` could not encode it as UTF-8; it is now written back
+  as the escape it arrived as, and the rest of the non-ASCII text stays
+  readable (issue #237).
 - `install-hooks` refuses an unresolved automatic `keyfence` command before
   writing settings or an extension. Missing-script errors now name the Python
   script folders searched; pi's explicit `--command` override still works.
   This completes the failure handling for issue #173 after PR #200 added
   install-scheme discovery.
+- The hook folds case with `str.casefold()` instead of `str.lower()`, so a
+  long s (U+017F) in a path no longer hides a secret file on macOS: APFS folds
+  `.ſsh` to `.ssh`, so the path opened the real directory while the hook
+  compared it with the long s (issue #230).
 - The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
   non-ASCII characters is no longer refused on a Windows install whose ANSI code
   page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
@@ -25,6 +35,10 @@
   used to be split into one-character hosts, so no AI host matched and requests
   went out unscanned while `doctor` and `status` reported everything fine. A
   list holding an empty or non-string entry is rejected too (issue #175).
+- A request body whose `Content-Encoding` mitmproxy cannot decode, such as
+  `x-gzip` or a stacked `gzip, gzip`, is refused with a 403 in `redact`,
+  `placeholder` and `block` mode instead of going out unscanned. `audit` mode
+  logs a warning and forwards it unchanged (issue #236).
 - The URL query detector stops at `"`, `'`, `}` and `]`, so a `?sig=` value at
   the end of a JSON string no longer swallows the closing quote. It used to
   delete the JSON that followed in compact bodies and refuse harmless requests
@@ -73,6 +87,12 @@
   config that kept the default by writing `audit_log: false` or an empty
   string must now drop the key. A config that loaded a quoted boolean or
   number for one of these keys must now use the plain value.
+- `scan.gitleaks_rules` now expands `~` and resolves a relative path against
+  the directory of the config file, so `~/my-gitleaks.toml` in `config.yaml`
+  loads instead of stopping every command with a `FileNotFoundError`
+  traceback. A missing or invalid rules file stops with one `error:` line that
+  names `scan.gitleaks_rules` and the path, and an empty value is rejected
+  instead of silently falling back to the bundled rules (issue #216).
 - `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
   with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
   and with `gitleaks: false` the built-in patterns still do.

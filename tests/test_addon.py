@@ -1,7 +1,9 @@
+import gzip
 import json
 import os
 import re
 import stat
+import zlib
 from pathlib import Path
 
 import pytest
@@ -251,6 +253,23 @@ def test_redaction_adds_notice_to_system_prompt(guard):
     out = json.loads(flow.request.get_text())
     assert "keyfence" in out["system"]
     assert "[REDACTED:github-token]" in out["messages"][0]["content"]
+
+
+def test_lone_surrogate_body_with_notice_is_redacted_and_sent(guard):
+    kf = guard("redact")
+    body = (
+        '{"model":"m","system":"s","messages":[{"role":"user","content":'
+        '"truncated emoji \\ud83d then key ' + KEY + '"}]}'
+    ).encode()
+    flow = make_flow(body=body, host="api.anthropic.com")
+    kf.request(flow)
+    assert flow.response is None
+    sent = flow.request.content
+    sent.decode("utf-8")
+    assert KEY.encode() not in sent
+    assert b"[REDACTED:github-token]" in sent
+    assert b"\\ud83d" in sent
+    assert "keyfence" in json.loads(sent)["system"]
 
 
 @pytest.mark.parametrize("mode, promise", [("redact", "not restored"), ("placeholder", "restored automatically")])
@@ -1061,3 +1080,62 @@ def test_a_detector_failure_logs_the_exception_type_and_not_its_text(guard, capl
     assert flow.response.status_code == 403
     assert "ValueError" in caplog.text
     assert leaked not in caplog.text
+
+
+def _compressed(encoding: str, body: bytes) -> bytes:
+    if encoding == "gzip":
+        return gzip.compress(body)
+    if encoding == "deflate":
+        return zlib.compress(body)
+    if encoding == "br":
+        pytest.importorskip("brotli")
+        import brotli
+        return brotli.compress(body)
+    if encoding == "zstd":
+        pytest.importorskip("zstandard")
+        import zstandard
+        return zstandard.ZstdCompressor().compress(body)
+    raise AssertionError(encoding)
+
+
+@pytest.mark.parametrize("encoding", ["x-gzip", "gzip, gzip"])
+@pytest.mark.parametrize("mode", ["redact", "placeholder", "block"])
+def test_a_body_that_cannot_be_decoded_is_refused_rather_than_sent_unscanned(guard, encoding, mode):
+    kf = guard(mode)
+    flow = make_flow(body=gzip.compress(BODY))
+    flow.request.headers["content-encoding"] = encoding
+    kf.request(flow)
+    assert flow.response is not None, f"{encoding} in {mode} forwarded the raw key"
+    assert flow.response.status_code == 403
+
+
+def test_a_body_that_cannot_be_decoded_is_only_reported_in_audit_mode(guard, caplog):
+    kf = guard("audit")
+    flow = make_flow(body=gzip.compress(BODY))
+    flow.request.headers["content-encoding"] = "x-gzip"
+    kf.request(flow)
+    assert flow.response is None
+    assert flow.request.raw_content == gzip.compress(BODY)
+    assert "cannot be decoded" in caplog.text
+
+
+def test_an_empty_body_with_an_undecodable_encoding_is_not_refused(guard):
+    kf = guard("redact")
+    flow = make_flow(body=b"")
+    flow.request.headers["content-encoding"] = "x-gzip"
+    kf.request(flow)
+    assert flow.response is None
+
+
+@pytest.mark.parametrize("encoding", ["gzip", "deflate", "br", "zstd"])
+def test_a_decodable_compressed_body_is_still_redacted(guard, encoding):
+    kf = guard("redact")
+    flow = make_flow(body=_compressed(encoding, BODY))
+    flow.request.headers["content-encoding"] = encoding
+    kf.request(flow)
+    assert flow.response is None, f"{encoding} was refused though it decodes"
+    assert flow.request.headers["content-encoding"] == encoding
+    assert flow.request.headers["content-length"] == str(len(flow.request.raw_content))
+    text = flow.request.get_text(strict=True)
+    assert KEY not in text
+    json.loads(text)

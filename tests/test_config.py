@@ -59,6 +59,46 @@ def test_custom_gitleaks_rules_path(write_config, tmp_path):
     assert [r.name for r in Config.load().scan.rules] == ["only"]
 
 
+def test_gitleaks_rules_expands_home(write_config, tmp_path, monkeypatch):
+    fake_home = tmp_path / "fake-home"
+    fake_home.mkdir()
+    (fake_home / "rules.toml").write_text('[[rules]]\nid = "only"\nregex = "abc"\n')
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
+    write_config("scan:\n  gitleaks_rules: ~/rules.toml\n")
+    assert [r.name for r in Config.load().scan.rules] == ["only"]
+
+
+def test_gitleaks_rules_relative_path_resolves_next_to_config(write_config, home):
+    rules = home / "custom" / "rules.toml"
+    rules.parent.mkdir()
+    rules.write_text('[[rules]]\nid = "only"\nregex = "abc"\n')
+    write_config("scan:\n  gitleaks_rules: custom/rules.toml\n")
+    assert [r.name for r in Config.load().scan.rules] == ["only"]
+
+
+@pytest.mark.parametrize("value", ['""', '"  "'])
+def test_an_empty_gitleaks_rules_path_is_rejected(write_config, value):
+    write_config(f"scan:\n  gitleaks_rules: {value}\n")
+    with pytest.raises(ValueError, match="scan.gitleaks_rules must be a non-empty string path"):
+        Config.load()
+
+
+def test_missing_gitleaks_rules_raises_value_error(write_config):
+    write_config("scan:\n  gitleaks_rules: missing.toml\n")
+    with pytest.raises(ValueError) as excinfo:
+        Config.load()
+    assert "scan.gitleaks_rules" in str(excinfo.value)
+    assert "missing.toml" in str(excinfo.value)
+
+
+def test_invalid_gitleaks_rules_raises_value_error(write_config, home):
+    (home / "rules.toml").write_text("not = [valid\n")
+    write_config("scan:\n  gitleaks_rules: rules.toml\n")
+    with pytest.raises(ValueError, match="scan.gitleaks_rules"):
+        Config.load()
+
+
 def test_gitleaks_disabled_list(write_config, home):
     assert "generic-api-key" not in {r.name for r in Config.load().scan.rules}
     write_config("scan:\n  gitleaks_disabled: []\n")

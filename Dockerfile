@@ -10,7 +10,7 @@ RUN groupadd --gid ${KEYFENCE_GID} keyfence \
   && useradd --uid ${KEYFENCE_UID} --gid ${KEYFENCE_GID} --home-dir /data --no-create-home --shell /usr/sbin/nologin keyfence
 
 WORKDIR /app
-COPY pyproject.toml README.md /app/
+COPY pyproject.toml README.md LICENSE /app/
 COPY keyfence/ /app/keyfence/
 RUN pip install --no-cache-dir "mitmproxy==${MITMPROXY_VERSION}" "PyYAML==${PYYAML_VERSION}" "certifi==${CERTIFI_VERSION}" \
   && pip install --no-cache-dir --no-deps /app
