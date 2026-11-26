@@ -71,11 +71,4 @@ def add_notice(body: str, host: str, mode: str = "redact") -> str:
         obj["messages"] = _with_system(obj["messages"], text)
     else:
         return body
-    # json.loads() combines a valid surrogate pair into one character, so any
-    # surrogate code point left in obj is a lone one (for example \ud83d from a
-    # truncated emoji). json.dumps(ensure_ascii=False) would write it raw, and
-    # the raw surrogate cannot be encoded as UTF-8 by flow.request.set_text.
-    # backslashreplace turns only those unencodable code points back into
-    # \uXXXX escapes, so the body stays valid JSON and readable Unicode such
-    # as emoji or CJK is still written as is.
     return json.dumps(obj, ensure_ascii=False).encode("utf-8", "backslashreplace").decode("utf-8")
