@@ -1050,7 +1050,6 @@ def test_a_placeholder_restored_in_a_json_websocket_frame_keeps_it_valid(guard):
 
 
 def _compressed(encoding: str, body: bytes) -> bytes:
-    """`body` under one of the encodings mitmproxy decodes, so the test does not need its plugins."""
     if encoding == "gzip":
         return gzip.compress(body)
     if encoding == "deflate":
@@ -1069,12 +1068,6 @@ def _compressed(encoding: str, body: bytes) -> bytes:
 @pytest.mark.parametrize("encoding", ["x-gzip", "gzip, gzip"])
 @pytest.mark.parametrize("mode", ["redact", "placeholder", "block"])
 def test_a_body_that_cannot_be_decoded_is_refused_rather_than_sent_unscanned(guard, encoding, mode):
-    """An encoding mitmproxy cannot read used to pass every mode, `block` included (#236).
-
-    `get_text(strict=False)` returns the compressed bytes as text when the decoder fails, the
-    detectors find nothing in them, and the raw key reached the provider. A body keyfence cannot
-    scan has to be refused, like any other it cannot read.
-    """
     kf = guard(mode)
     flow = make_flow(body=gzip.compress(BODY))
     flow.request.headers["content-encoding"] = encoding
@@ -1084,19 +1077,16 @@ def test_a_body_that_cannot_be_decoded_is_refused_rather_than_sent_unscanned(gua
 
 
 def test_a_body_that_cannot_be_decoded_is_only_reported_in_audit_mode(guard):
-    """Audit never changes traffic, so it logs and forwards (#236)."""
     kf = guard("audit")
     flow = make_flow(body=gzip.compress(BODY))
     flow.request.headers["content-encoding"] = "x-gzip"
     kf.request(flow)
     assert flow.response is None
-    # raw_content: `.content` would try to decode the encoding under test and raise.
     assert flow.request.raw_content == gzip.compress(BODY)
 
 
 @pytest.mark.parametrize("encoding", ["gzip", "deflate", "br", "zstd"])
 def test_a_decodable_compressed_body_is_still_redacted(guard, encoding):
-    """The fail-closed branch must not catch the encodings that do decode (#236)."""
     kf = guard("redact")
     flow = make_flow(body=_compressed(encoding, BODY))
     flow.request.headers["content-encoding"] = encoding
