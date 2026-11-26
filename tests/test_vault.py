@@ -1,10 +1,26 @@
 import json
 import os
 import stat
+import subprocess
+import sys
 
 import pytest
 
 from keyfence.vault import MIN_SECRET_LENGTH, Vault, VaultError
+
+
+@pytest.mark.parametrize("value", ["", "  "])
+def test_empty_home_env_uses_the_default_dir(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("KEYFENCE_HOME", value)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    result = subprocess.run(
+        [sys.executable, "-c", "from keyfence.vault import DEFAULT_DIR; print(DEFAULT_DIR)"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.strip() == str(tmp_path / ".keyfence")
 
 
 def test_add_and_contains(tmp_path):

@@ -100,6 +100,10 @@ time only.
 | `KEYFENCE_ENV_VAULT` | set by `keyfence exec` for the proxy; path of the temporary environment vault |
 | `MITMPROXY_CONFDIR` | where mitmproxy keeps its CA, default `~/.mitmproxy` |
 
+An empty or whitespace-only value counts as unset, so `KEYFENCE_HOME=` keeps
+the default `~/.keyfence` and `KEYFENCE_CONFIG=` keeps
+`$KEYFENCE_HOME/config.yaml`.
+
 ## The system prompt notice
 
 When keyfence changes a request it appends a short note to the system

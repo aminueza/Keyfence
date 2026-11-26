@@ -89,7 +89,8 @@ class Config:
 
     @staticmethod
     def path(path: str | os.PathLike | None = None) -> Path:
-        return Path(path or os.environ.get("KEYFENCE_CONFIG", DEFAULT_DIR / "config.yaml"))
+        selected = path or os.environ.get("KEYFENCE_CONFIG", "").strip()
+        return Path(selected) if selected else DEFAULT_DIR / "config.yaml"
 
     @classmethod
     def load(cls, path: str | os.PathLike | None = None) -> "Config":
