@@ -25,6 +25,7 @@ _NAME_SEGMENT_VARIANT = re.compile(r"[A-Z]+|[a-z]+")
 _KV_LINE = re.compile(r"^\s*(?:export\s+)?(?P<key>[A-Za-z_/][A-Za-z0-9_.\-/:@]*)\s*[=:]\s*(?P<val>.+?)\s*$")
 _NETRC_PASSWORD = re.compile(r"\bpassword\s+(\S+)")
 _SKIP_VALUE = re.compile(r"^(?:\$\{|\$[A-Za-z_]|<|`|/|~|https?://[^@]*$)")
+_UNQUOTED_COMMENT = re.compile(r"\s+#.*$")
 _EXAMPLE_FILE = re.compile(r"(?i)example|sample|template|dist$")
 
 DEFAULT_LOCATIONS = (
@@ -40,10 +41,12 @@ ENV_SKIP_NAMES = frozenset({"KEYFENCE_HOME", "KEYFENCE_CONFIG", "KEYFENCE_ENV_VA
 
 
 def _clean(value: str) -> str:
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        return value[1:-1]
-    return value
+    if value[:1] in "\"'":
+        quote = value[0]
+        end = value.find(quote, 1)
+        if end != -1:
+            return value[1:end]
+    return _UNQUOTED_COMMENT.sub("", value).strip()
 
 
 def _url_password(value: str) -> str | None:
@@ -103,9 +106,12 @@ def _add(out: set[str], value: str | None, min_length: int, ignore: IgnoreList) 
 
 
 def _collect(key: str, value: str, min_length: int, everything: bool, out: set[str],
-             ignore: IgnoreList = NO_IGNORE) -> None:
-    if not value or _SKIP_VALUE.match(value) or ignore.ignores_key(key):
+             ignore: IgnoreList = NO_IGNORE, quoted: bool = False) -> None:
+    if not value or ignore.ignores_key(key):
         return
+    if _SKIP_VALUE.match(value) and not (quoted and value.startswith("$")):
+        if not (value.startswith("/") and _has_secret_name(key)):
+            return
     if (everything and len(value) >= min_length) or looks_secret(key, value, min_length):
         _add(out, value, min_length, ignore)
     _add(out, _url_password(value), min_length, ignore)
@@ -121,7 +127,8 @@ def values_from_text(text: str, min_length: int, everything: bool = False,
         _add(found, _url_password(stripped), min_length, ignore)
         m = _KV_LINE.match(line)
         if m:
-            _collect(m["key"], _clean(m["val"]), min_length, everything, found, ignore)
+            raw = m["val"]
+            _collect(m["key"], _clean(raw), min_length, everything, found, ignore, quoted=raw[:1] == "'")
             continue
         for pw in _NETRC_PASSWORD.findall(stripped):
             _add(found, pw, min_length, ignore)
@@ -144,7 +151,7 @@ def values_from_json(obj, min_length: int, everything: bool = False, key: str = 
 
 def values_from_file(path: Path, min_length: int, everything: bool = False,
                      ignore: IgnoreList = NO_IGNORE) -> set[str]:
-    text = path.read_text(errors="replace")
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
     if path.suffix == ".json":
         try:
             return values_from_json(json.loads(text), min_length, everything, ignore=ignore)
