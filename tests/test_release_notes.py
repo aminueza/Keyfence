@@ -126,7 +126,15 @@ LOOP = re.compile(r"\b(?:while|for)\b[^;{]*\{")
 def check_ci_script():
     workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
     steps = workflow["jobs"]["check-ci"]["steps"]
-    return next(step["with"]["script"] for step in steps if "github-script" in step["uses"])
+    return next(step["with"]["script"] for step in steps
+                if "github-script" in step["uses"] and "listWorkflowRuns" in step["with"]["script"])
+
+
+def ancestry_script():
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+    steps = workflow["jobs"]["check-ci"]["steps"]
+    return next(step["with"]["script"] for step in steps
+                if "github-script" in step["uses"] and "compareCommitsWithBasehead" in step["with"]["script"])
 
 
 def loop_bodies(script):
@@ -156,9 +164,9 @@ def failure_branches(script):
 
 def test_the_release_gate_reads_the_run_inside_a_loop_that_waits_for_it_to_complete():
     script = check_ci_script()
-    polling = [body for body in loop_bodies(script) if "listWorkflowRunsForRepo" in body]
+    polling = [body for body in loop_bodies(script) if "listWorkflowRuns" in body]
     assert polling
-    assert "".join(polling).count("listWorkflowRunsForRepo") == script.count("listWorkflowRunsForRepo")
+    assert "".join(polling).count("listWorkflowRuns(") == script.count("listWorkflowRuns(")
     for body in polling:
         assert "status === 'completed'" in body
         assert "setTimeout" in body
@@ -186,13 +194,52 @@ def test_the_release_gate_only_lets_a_success_conclusion_through():
 
 def test_the_release_gate_expires_instead_of_waiting_forever():
     script = check_ci_script()
-    polling = [body for body in loop_bodies(script) if "listWorkflowRunsForRepo" in body]
+    polling = [body for body in loop_bodies(script) if "listWorkflowRuns" in body]
     assert len(polling) == 1
     body = polling[0]
     assert "const POLL_INTERVAL_MS = " in script
     assert "const POLL_TIMEOUT_MS = " in script
     assert "const deadline = Date.now() + POLL_TIMEOUT_MS" in script
     assert body.index("Date.now() >= deadline") < body.index("timedOut = true") < body.index("setTimeout")
+
+
+def test_the_release_gate_only_reads_the_ci_workflow():
+    script = check_ci_script()
+    assert "github.rest.actions.listWorkflowRuns(" in script
+    assert "listWorkflowRunsForRepo" not in script
+    assert re.search(r"workflow_id:\s*'ci\.yml'", script)
+
+
+def test_the_release_gate_only_accepts_a_push_run_on_main():
+    script = check_ci_script()
+    assert re.search(r"event:\s*'push'", script)
+    assert re.search(r"branch:\s*'main'", script)
+    narrowed = re.search(r"const found = [^;]+;", script).group()
+    assert "r.head_sha === sha" in narrowed
+    assert "r.path === '.github/workflows/ci.yml'" in narrowed
+    assert "r.event === 'push'" in narrowed
+
+
+def test_the_release_gate_refuses_a_commit_that_is_not_on_main():
+    script = ancestry_script()
+    assert "compareCommitsWithBasehead" in script
+    assert "basehead: `${sha}...main`" in script
+    conditions = failure_branches(script)
+    assert len(conditions) == 1
+    condition, message = next(iter(conditions.items()))
+    assert "ancestry.data.status !== 'ahead'" in condition
+    assert "ancestry.data.status !== 'identical'" in condition
+    assert "of main" in message and "never ran on main" in message
+    assert "core.setFailed" in script
+
+
+def test_the_release_gate_checks_ancestry_and_ci_before_anything_is_built():
+    assert workflow_needs("build") == "check-ci"
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+    steps = workflow["jobs"]["check-ci"]["steps"]
+    with_script = [step for step in steps if "github-script" in step["uses"]]
+    assert any("listWorkflowRuns(" in s["with"]["script"] for s in with_script)
+    assert any("compareCommitsWithBasehead" in s["with"]["script"] for s in with_script)
 
 
 def test_the_summary_is_one_line_and_names_the_first_entries():

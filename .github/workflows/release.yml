@@ -27,15 +27,19 @@ jobs:
             let timedOut = false;
 
             while (!finished) {
-              const runs = await github.rest.actions.listWorkflowRunsForRepo({
+              const runs = await github.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
                 workflow_id: 'ci.yml',
+                event: 'push',
+                branch: 'main',
                 head_sha: sha,
                 per_page: 10
               });
 
-              const found = runs.data.workflow_runs.find(r => r.head_sha === sha && r.name === 'CI') ?? null;
+              const found = runs.data.workflow_runs.find(r => r.head_sha === sha
+                && r.path === '.github/workflows/ci.yml'
+                && r.event === 'push') ?? null;
               latest = found;
 
               if (found && found.status === 'completed') {
@@ -68,6 +72,23 @@ jobs:
             }
 
             console.log(`CI workflow run ${finished.id} passed`);
+
+      - name: Check the tagged commit is on main
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+            const ancestry = await github.rest.repos.compareCommitsWithBasehead({
+              owner,
+              repo,
+              basehead: `${sha}...main`
+            });
+            if (ancestry.data.status !== 'ahead' && ancestry.data.status !== 'identical') {
+              core.setFailed(`Commit ${sha} is ${ancestry.data.status} of main, so its suite never ran on main`);
+              return;
+            }
+            core.info(`Commit ${sha} is on main`);
 
   build:
     needs: check-ci
