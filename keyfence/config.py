@@ -139,8 +139,6 @@ class Config:
                     f"scan.gitleaks_rules must be a string path, got {raw_gitleaks_rules!r}"
                 )
             if raw_gitleaks_rules is not None:
-                # Expand ~ like audit_log does, and resolve a relative path next to
-                # the config file instead of the current directory (issue #216).
                 rules_path = Path(raw_gitleaks_rules).expanduser()
                 if not rules_path.is_absolute():
                     rules_path = cfg_path.parent / rules_path
