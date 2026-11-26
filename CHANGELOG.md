@@ -83,6 +83,12 @@
   config that kept the default by writing `audit_log: false` or an empty
   string must now drop the key. A config that loaded a quoted boolean or
   number for one of these keys must now use the plain value.
+- `scan.gitleaks_rules` now expands `~` and resolves a relative path against
+  the directory of the config file, so `~/my-gitleaks.toml` in `config.yaml`
+  loads instead of stopping every command with a `FileNotFoundError`
+  traceback. A missing or invalid rules file stops with one `error:` line that
+  names `scan.gitleaks_rules` and the path, and an empty value is rejected
+  instead of silently falling back to the bundled rules (issue #216).
 - `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
   with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
   and with `gitleaks: false` the built-in patterns still do.
