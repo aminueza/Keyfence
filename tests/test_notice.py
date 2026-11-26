@@ -101,6 +101,20 @@ def test_unicode_survives_reserialisation():
     assert "ação" in out
 
 
+def test_lone_surrogate_escape_stays_an_escape():
+    body = '{"system": "s", "messages": [{"role": "user", "content": "cut \\ud83d emoji ação"}]}'
+    out = add_notice(body, "api.anthropic.com")
+    out.encode("utf-8")
+    assert "\\ud83d" in out and "ação" in out
+    assert load(out)["messages"] == load(body)["messages"]
+    assert load(out)["system"].startswith("s\n\n")
+
+
+def test_escaped_surrogate_pair_is_written_as_the_character():
+    out = add_notice('{"system": "\\ud83d\\ude00", "messages": []}', "api.anthropic.com")
+    assert load(out)["system"].startswith("\U0001f600\n\n") and "\\ud83d" not in out
+
+
 def test_each_mode_gets_a_notice_that_matches_what_happens_to_the_tokens():
     body = json.dumps({"system": "sys", "messages": []})
     redact = load(add_notice(body, "api.anthropic.com", "redact"))["system"]
