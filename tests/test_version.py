@@ -84,12 +84,6 @@ def test_doctor_reports_the_installed_version(home, monkeypatch):
 
 
 def test_pep639_license_needs_a_setuptools_that_reads_it():
-    """A `license` string is read from setuptools 77; an older one stops the build (#217).
-
-    An isolated build always installs the newest setuptools, so this only breaks a build with
-    --no-build-isolation, a constraints file, or a distribution package: every version
-    `build-system.requires` allows has to be able to read the metadata.
-    """
     project = tomllib.loads((ROOT / "pyproject.toml").read_text())
     if not isinstance(project["project"].get("license"), str):
         return
