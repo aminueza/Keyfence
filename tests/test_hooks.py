@@ -10,6 +10,8 @@ import pytest
 
 from keyfence import hooks
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -216,6 +218,9 @@ def test_a_scheme_less_remainder_with_a_query_is_kept_whole_rather_than_unglobbe
     "cat .[ce]n[vx]",
     "cat i[d]_rs[a]",
     "cat /tmp/ab[cd]/.env[.local]",
+    "cat .en[u-w]",
+    "cat prod.tfvar[r-t]",
+    "cat id_rs[0-z]",
 ])
 def test_bracket_glob_expands_to_secret_name_is_refused(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
@@ -225,6 +230,8 @@ def test_bracket_glob_expands_to_secret_name_is_refused(command):
     "sed -i '' 's/[abc]/x/' file.txt",
     "grep '[0-9]' data.csv",
     "cat notes[1].md",
+    "cat .en[-w]",
+    "cat .en[w-u]",
 ])
 def test_a_bracket_class_that_expands_to_no_sensitive_name_is_still_allowed(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
@@ -1262,3 +1269,34 @@ def test_keyfence_path_never_picks_a_keyfence_from_the_current_directory(clone, 
         hooks.keyfence_path()
     real = clone.plant(clone.bin, "keyfence", "real")
     assert clone.same(hooks.keyfence_path(), real)
+
+
+def _settings_with_a_non_ascii_command(tmp_path):
+    path = tmp_path / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"statusLine": {"command": "echo 'Olá ✓ ←'"}}, ensure_ascii=False),
+                    encoding="utf-8")
+    return path
+
+
+def test_install_and_uninstall_keep_non_ascii_text_whatever_the_locale(tmp_path):
+    path = _settings_with_a_non_ascii_command(tmp_path)
+    script = (
+        "import json, sys; from pathlib import Path; from keyfence import hooks;"
+        f"p = Path({str(path)!r}); hooks.install(p); hooks.uninstall(p)"
+    )
+    env = dict(os.environ, LC_ALL="en_US.ISO8859-1", PYTHONUTF8="0", PYTHONPATH=str(_REPO_ROOT))
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True, env=env)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    assert json.loads(path.read_text(encoding="utf-8"))["statusLine"]["command"] == "echo 'Olá ✓ ←'"
+
+
+def test_a_settings_file_with_a_byte_order_mark_installs(tmp_path):
+    path = tmp_path / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\xef\xbb\xbf" + json.dumps({"statusLine": {"command": "echo 'Olá'"}},
+                                                  ensure_ascii=False).encode("utf-8"))
+    hooks.install(path)
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    assert "permissions" in data
+    assert data["statusLine"]["command"] == "echo 'Olá'"

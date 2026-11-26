@@ -81,3 +81,13 @@ def test_doctor_reports_the_installed_version(home, monkeypatch):
     checks = doctor.run_checks(8888, cwd=home)
     assert checks[0].label == "keyfence"
     assert checks[0].detail.startswith(f"{__version__} on Python ")
+
+
+def test_pep639_license_needs_a_setuptools_that_reads_it():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    if not isinstance(project["project"].get("license"), str):
+        return
+    requires = project["build-system"]["requires"]
+    setuptools = [r for r in requires if r.split(">=")[0].strip() == "setuptools"]
+    assert setuptools, f"no setuptools in build-system.requires: {requires}"
+    assert all(re.match(r"^setuptools>=(\d+)", r) and int(re.match(r"^setuptools>=(\d+)", r).group(1)) >= 77 for r in setuptools), requires
