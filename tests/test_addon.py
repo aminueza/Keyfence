@@ -262,6 +262,27 @@ def test_notice_follows_the_configured_mode(guard, mode, promise):
     assert promise in json.loads(flow.request.get_text())["system"]
 
 
+def test_notice_with_lone_surrogate_and_anthropic_key(guard):
+    key = "sk-ant-api03-xYz123AbC456dEf789GhI012jKl345MnO"
+
+    body = (
+        '{"model":"m","system":"s","messages":['
+        '{"role":"user","content":'
+        '"truncated emoji \\ud83d then key ' + key + '"}]}'
+    ).encode()
+
+    kf = guard("redact")
+    flow = make_flow(body=body, host="api.anthropic.com")
+    kf.request(flow)
+
+    assert flow.response is None
+
+    rewritten_body = flow.request.get_text().encode("utf-8")
+    assert b"[REDACTED:anthropic-api-key]" in rewritten_body
+    assert key.encode() not in rewritten_body
+    assert b"\\ud83d" in rewritten_body
+
+
 def test_notice_can_be_disabled(guard):
     kf = guard("redact", "notice: false\n")
     body = json.dumps({"system": "sys", "messages": [{"role": "user", "content": f"key {KEY}"}]}).encode()

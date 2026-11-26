@@ -10,12 +10,14 @@ _PREAMBLE = (
     "about it and do not suggest rotating credentials because of it. "
 )
 NOTICES = {
-    "redact": _PREAMBLE.format(tokens="[REDACTED:<kind>]") + (
+    "redact": _PREAMBLE.format(tokens="[REDACTED:<kind>]")
+    + (
         "The real values are not restored: never write these tokens into code, files or "
         "commands as if they were the value. Where a value is needed, reference it the way "
         "the project already does, for example an environment variable, or ask the user."
     ),
-    "placeholder": _PREAMBLE.format(tokens="<<SECRET_id>>") + (
+    "placeholder": _PREAMBLE.format(tokens="<<SECRET_id>>")
+    + (
         "If you need one of these values in code or commands, write the token exactly as "
         "shown; the real value is restored automatically on the way back."
     ),
@@ -41,9 +43,15 @@ def _is_host(host: str, suffixes: tuple[str, ...]) -> bool:
 
 def _with_system(messages: list, text: str) -> list:
     first = messages[0] if messages else None
-    if (isinstance(first, dict) and first.get("role") in SYSTEM_ROLES
-            and isinstance(first.get("content"), (str, list))):
-        return [{**first, "content": _append_text(first["content"], text)}, *messages[1:]]
+    if (
+        isinstance(first, dict)
+        and first.get("role") in SYSTEM_ROLES
+        and isinstance(first.get("content"), (str, list))
+    ):
+        return [
+            {**first, "content": _append_text(first["content"], text)},
+            *messages[1:],
+        ]
     return [{"role": "system", "content": text}, *messages]
 
 
@@ -71,4 +79,4 @@ def add_notice(body: str, host: str, mode: str = "redact") -> str:
         obj["messages"] = _with_system(obj["messages"], text)
     else:
         return body
-    return json.dumps(obj, ensure_ascii=False)
+    return json.dumps(obj)

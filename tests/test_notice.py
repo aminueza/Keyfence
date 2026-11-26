@@ -9,6 +9,16 @@ def load(body: str):
     return json.loads(body)
 
 
+def test_add_notice_with_lone_surrogate():
+    body = '{"message": "truncated emoji \\ud83d"}'
+    result = add_notice(body, "api.anthropic.com")
+
+    result.encode("utf-8")
+
+    parsed = json.loads(result)
+    assert parsed["message"] == "truncated emoji \ud83d"
+
+
 def test_anthropic_string_system_gets_notice_appended():
     body = json.dumps({"system": "You are Claude Code.", "messages": []})
     out = load(add_notice(body, "api.anthropic.com"))
@@ -39,8 +49,15 @@ def test_openai_chat_without_a_system_message_gets_one_first():
 
 
 def test_openai_chat_extends_the_leading_system_message():
-    body = json.dumps({"model": "gpt", "messages": [
-        {"role": "system", "content": "be brief"}, {"role": "user", "content": "hi"}]})
+    body = json.dumps(
+        {
+            "model": "gpt",
+            "messages": [
+                {"role": "system", "content": "be brief"},
+                {"role": "user", "content": "hi"},
+            ],
+        }
+    )
     out = load(add_notice(body, "api.openai.com"))
     assert len(out["messages"]) == 2
     assert out["messages"][0] == {"role": "system", "content": f"be brief\n\n{NOTICE}"}
@@ -48,24 +65,42 @@ def test_openai_chat_extends_the_leading_system_message():
 
 
 def test_openai_chat_extends_a_developer_message_and_keeps_content_blocks():
-    body = json.dumps({"model": "gpt", "messages": [
-        {"role": "developer", "content": [{"type": "text", "text": "sys"}]},
-        {"role": "user", "content": "hi"}]})
+    body = json.dumps(
+        {
+            "model": "gpt",
+            "messages": [
+                {"role": "developer", "content": [{"type": "text", "text": "sys"}]},
+                {"role": "user", "content": "hi"},
+            ],
+        }
+    )
     out = load(add_notice(body, "api.openai.com"))
     assert out["messages"][0]["role"] == "developer"
-    assert out["messages"][0]["content"] == [{"type": "text", "text": "sys"}, {"type": "text", "text": NOTICE}]
+    assert out["messages"][0]["content"] == [
+        {"type": "text", "text": "sys"},
+        {"type": "text", "text": NOTICE},
+    ]
 
 
 def test_openai_chat_with_an_unusable_system_content_gets_its_own_message():
-    body = json.dumps({"model": "gpt", "messages": [
-        {"role": "system", "content": None}, {"role": "user", "content": "hi"}]})
+    body = json.dumps(
+        {
+            "model": "gpt",
+            "messages": [
+                {"role": "system", "content": None},
+                {"role": "user", "content": "hi"},
+            ],
+        }
+    )
     out = load(add_notice(body, "api.openai.com"))
     assert out["messages"][0] == {"role": "system", "content": NOTICE}
     assert len(out["messages"]) == 3
 
 
 def test_openai_chat_with_no_messages_at_all():
-    out = load(add_notice(json.dumps({"model": "gpt", "messages": []}), "api.openai.com"))
+    out = load(
+        add_notice(json.dumps({"model": "gpt", "messages": []}), "api.openai.com")
+    )
     assert out["messages"] == [{"role": "system", "content": NOTICE}]
 
 
@@ -76,10 +111,14 @@ def test_openai_responses_instructions_are_extended():
 
 
 def test_gemini_system_instruction():
-    body = json.dumps({"contents": [], "systemInstruction": {"parts": [{"text": "sys"}]}})
+    body = json.dumps(
+        {"contents": [], "systemInstruction": {"parts": [{"text": "sys"}]}}
+    )
     out = load(add_notice(body, "generativelanguage.googleapis.com"))
     assert out["systemInstruction"]["parts"] == [{"text": "sys"}, {"text": NOTICE}]
-    bare = load(add_notice(json.dumps({"contents": []}), "generativelanguage.googleapis.com"))
+    bare = load(
+        add_notice(json.dumps({"contents": []}), "generativelanguage.googleapis.com")
+    )
     assert bare["systemInstruction"]["parts"] == [{"text": NOTICE}]
 
 
@@ -98,13 +137,17 @@ def test_unknown_shapes_are_left_alone():
 def test_unicode_survives_reserialisation():
     body = json.dumps({"system": "ação", "messages": []}, ensure_ascii=False)
     out = add_notice(body, "api.anthropic.com")
-    assert "ação" in out
+    assert "ação" in json.loads(out)["system"]
 
 
 def test_each_mode_gets_a_notice_that_matches_what_happens_to_the_tokens():
     body = json.dumps({"system": "sys", "messages": []})
     redact = load(add_notice(body, "api.anthropic.com", "redact"))["system"]
     placeholder = load(add_notice(body, "api.anthropic.com", "placeholder"))["system"]
-    assert "[REDACTED:<kind>]" in redact and "not restored" in redact and "<<SECRET_id>>" not in redact
+    assert (
+        "[REDACTED:<kind>]" in redact
+        and "not restored" in redact
+        and "<<SECRET_id>>" not in redact
+    )
     assert "<<SECRET_id>>" in placeholder and "restored automatically" in placeholder
     assert "[REDACTED" not in placeholder
