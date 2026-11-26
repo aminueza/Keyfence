@@ -615,6 +615,8 @@ def test_list_reports_nothing_installed_for_a_foreign_hook_only(tmp_path, monkey
     ("keyfence hook claude-code", True),
     ("/venv/bin/keyfence hook claude-code", True),
     ("C:\\venv\\Scripts\\keyfence.exe hook claude-code", True),
+    ("C:\\venv\\Scripts\\keyfence.EXE hook claude-code", True),
+    ('"/opt/my tools/keyfence" hook claude-code', True),
     (FOREIGN, False),
     ("/opt/keyfence-cli/bin/hook claude-code", False),
     ("keyfence hook claude-code --strict", False),

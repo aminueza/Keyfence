@@ -158,26 +158,25 @@ def _hook_fields(command: str | None) -> dict:
 
 
 def _is_keyfence_executable(path: str) -> bool:
-    name = PurePosixPath(path.replace("\\", "/")).name
+    path = path.strip()
+    if len(path) >= 2 and path[0] == path[-1] and path[0] in "\"'":
+        path = path[1:-1]
+    name = PurePosixPath(path.replace("\\", "/")).name.lower()
     return name.removesuffix(".exe") == "keyfence"
 
 
 def _is_our_hook(hook: dict) -> bool:
-    """True only for an entry this program wrote: other tools use the same `<tool> hook claude-code` shape."""
     command = str(hook.get("command", ""))
     if command == HOOK_COMMAND:
         return True
     args = hook.get("args")
     if isinstance(args, list) and [str(a) for a in args] == HOOK_ARGS:
-        # The exec form, command plus these two args, is only ever written here: another tool in this shape hands the
-        # whole line to a shell, which is the form below.
         return True
     head, _, tail = command.rpartition(" hook claude-code")
     return bool(head) and not tail.strip() and _is_keyfence_executable(head)
 
 
 def _names_our_hook(hook: dict) -> bool:
-    """True for an entry in this program's shape, healthy or not: the health checks must still find a broken one."""
     command = str(hook.get("command", ""))
     args = hook.get("args")
     if isinstance(args, list) and [str(a) for a in args] == HOOK_ARGS:
