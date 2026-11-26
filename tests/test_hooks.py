@@ -341,7 +341,7 @@ def test_decide_grep():
     "kubectl get secret app -o custom-columns=DATA:.data", "doppler secrets get X", "doppler secrets -p proj -c dev",
     "echo $GITHUB_TOKEN", "echo ${GITHUB_TOKEN}", "echo ${GITHUB_TOKEN:-unset}", 'echo "token=$API_TOKEN"',
     "echo $github_token", 'printf "%s" "$AWS_SECRET_ACCESS_KEY"', "printf '%s\\n' \"$DB_PASSWORD\"",
-    "declare", "declare | grep KEY", "typeset", "nice env", "nice -n 5 env", '"env"', "'printenv'",
+    "declare", "declare | grep KEY", "typeset", "declare -r", "declare -a", "typeset -p", "nice env", "nice -n 5 env", '"env"', "'printenv'",
     'cat <<< "$DEMO_API_KEY"', 'cat <<<"$DEMO_API_KEY"', 'cat <<< ${DEMO_API_KEY}',
 ])
 def test_bash_commands_that_print_secrets_are_blocked(command):

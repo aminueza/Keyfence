@@ -39,7 +39,7 @@ _PREFIXES = (
     r"(?:ba|da|k|z)?sh\s+(?:-\S+\s+)*-\w*c\s+[\"']?|[A-Za-z_]\w*=\S*\s+)*")
 _START = r"(?:^|[;&|(`{]|\b(?:then|do|else)\b)\s*" + _PREFIXES + r"(?:(?:/[\w.-]+)+/)?"
 _DECLARE = r"(?:declare|typeset)(?P<opts>(?:\s+-[A-Za-z]+)*)"
-_PRINTING_OPTION = re.compile(r"(?<![A-Za-z])[px]")
+_FUNCTION_OPTION = re.compile(r"[fF]")
 _DUMP_COMMANDS = re.compile(
     _START + r"(?:env|printenv|export(?:\s+-p)?|set|\"(?:env|printenv|set)\"|'(?:env|printenv|set)'|" + _DECLARE + r")\s*[\"']?\s*(?:$|[;&|)>`])",
     re.MULTILINE)
@@ -301,9 +301,8 @@ def _refusal_for_too_many_bracket_classes(command: str) -> str | None:
 
 
 def refusal_for_command(command: str) -> str | None:
-    # `declare -f` and `declare -F` print functions, not values, so the option words decide.
     dump = [m for m in _DUMP_COMMANDS.finditer(command)
-            if not m.group("opts") or _PRINTING_OPTION.search(m.group("opts"))]
+            if not _FUNCTION_OPTION.search(m.group("opts") or "")]
     if dump or _NAMED_DUMP.search(command) or _HERESTRING_DUMP.search(command):
         return "it prints environment variables that hold the secrets keyfence protects"
     m = _SECRET_COMMANDS.search(command)

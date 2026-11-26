@@ -272,9 +272,9 @@ public key is meant to be distributed. So is
 and the exception is the name, not the `*.pem` rule: `mitmproxy-ca.pem`,
 the private key next to it, is still refused. Bash commands that mention
 such a path are refused too, and so are commands that print secrets:
-`env`, `printenv`, `export`, `set`, `declare` and `typeset` with no option
-or with one that prints values (`declare -x`; `declare -f` and `declare -F`
-print functions and are allowed), `printenv NAME` when the name looks like a
+`env`, `printenv`, `export`, `set`, `declare` and `typeset` with any option
+or none (`declare -f` and `declare -F` print only functions and are
+allowed), `printenv NAME` when the name looks like a
 secret, `echo` or `printf` of a `$VARIABLE` whose name looks like a secret, a
 here-string of one (`cat <<< "$API_KEY"`),
 `/proc/*/environ`, and the read commands of `aws secretsmanager`, `aws ssm`
