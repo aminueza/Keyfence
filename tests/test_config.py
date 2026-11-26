@@ -54,6 +54,12 @@ def test_explicit_path(tmp_path):
     assert Config.load(path).mode == "placeholder"
 
 
+@pytest.mark.parametrize("value", ["", "  "])
+def test_empty_config_env_uses_the_default_path(home, monkeypatch, value):
+    monkeypatch.setenv("KEYFENCE_CONFIG", value)
+    assert Config.path() == home / "config.yaml"
+
+
 def test_custom_gitleaks_rules_path(write_config, tmp_path):
     rules = tmp_path / "r.toml"
     rules.write_text('[[rules]]\nid = "only"\nregex = "abc"\n')

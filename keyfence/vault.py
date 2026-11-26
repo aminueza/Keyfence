@@ -22,7 +22,7 @@ try:
 except ImportError:
     msvcrt = None
 
-DEFAULT_DIR = Path(os.environ.get("KEYFENCE_HOME", Path.home() / ".keyfence"))
+DEFAULT_DIR = Path(os.environ.get("KEYFENCE_HOME", "").strip() or Path.home() / ".keyfence")
 MIN_SECRET_LENGTH = 8
 MAX_MIN_LENGTH = 256
 LOCK_TIMEOUT = 30.0
