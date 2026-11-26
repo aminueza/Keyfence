@@ -71,4 +71,7 @@ def add_notice(body: str, host: str, mode: str = "redact") -> str:
         obj["messages"] = _with_system(obj["messages"], text)
     else:
         return body
-    return json.dumps(obj, ensure_ascii=False)
+    # ensure_ascii (the default) keeps a lone surrogate such as the \ud83d a Node client writes when
+    # a tool output cuts an emoji in half as an escape. Writing it raw cannot encode to UTF-8, and
+    # the request then failed with a 403 for a body that was valid JSON (#237).
+    return json.dumps(obj)
