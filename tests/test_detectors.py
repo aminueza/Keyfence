@@ -772,7 +772,7 @@ def test_ghp_token_after_unpaired_surrogate_is_found():
 def test_surrogateescape_byte_next_to_registered_secret_is_found_without_exception(vault):
     secret = "hunter2-registered-secret"
     vault.add(secret)
-    raw_bytes = b'{"messages":[{"role":"user","content":"x ' + secret.encode() + b'\\xff"}]}'
+    raw_bytes = b'{"messages":[{"role":"user","content":"x ' + secret.encode() + b'\xff"}]}'
     body = raw_bytes.decode("utf-8", errors="surrogateescape")
     findings = scan(body, vault=vault, config=NO_ENTROPY)
     assert [(f.kind, f.value) for f in findings] == [("vault", secret)]
