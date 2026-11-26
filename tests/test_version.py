@@ -44,6 +44,14 @@ def test_certifi_is_declared_as_a_project_dependency():
     assert "certifi" in names
 
 
+def test_security_md_lists_every_declared_dependency():
+    dependencies = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
+    names = {re.match(r"[A-Za-z0-9_.-]+", requirement).group().lower() for requirement in dependencies}
+    security = (ROOT / "SECURITY.md").read_text().lower()
+    missing = sorted(name for name in names if name not in security)
+    assert not missing, f"SECURITY.md does not name {missing}"
+
+
 def certifi_floors() -> dict[str, list[str]]:
     dependencies = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
     required = (ROOT / "requirements.txt").read_text().splitlines()

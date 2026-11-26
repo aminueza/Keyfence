@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from keyfence.config import DEFAULT_AI_HOSTS, Config
@@ -308,3 +310,20 @@ def test_prompt_hook_reports_config_error_not_guard_crash(home, write_config, ca
 def test_null_audit_log_keeps_the_default(write_config, home):
     write_config("audit_log:\n")
     assert Config.load().audit_log == Config().audit_log
+
+
+def configuration_row(key: str) -> str:
+    text = (Path(__file__).resolve().parent.parent / "docs" / "configuration.md").read_text()
+    rows = [line for line in text.splitlines() if line.startswith(f"| `{key}` |")]
+    assert len(rows) == 1, f"{key} has {len(rows)} rows in docs/configuration.md"
+    return rows[0]
+
+
+def test_docs_say_which_options_need_a_restart():
+    assert "restart" in configuration_row("proxy_tcp_timeout")
+    assert "next session" in configuration_row("intercept_all_hosts")
+
+
+def test_docs_do_not_promise_a_reload_for_every_option():
+    text = (Path(__file__).resolve().parent.parent / "docs" / "configuration.md").read_text()
+    assert "like every other option" not in text
