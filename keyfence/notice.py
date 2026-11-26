@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 _PREAMBLE = (
     "Note from keyfence, a local proxy on the user's machine: before this request "
@@ -25,6 +26,7 @@ NOTICES = {
 ANTHROPIC_HOSTS = ("anthropic.com", "amazonaws.com")
 GEMINI_HOSTS = ("googleapis.com",)
 SYSTEM_ROLES = ("system", "developer")
+LONE_SURROGATE = re.compile(r"[\ud800-\udfff]")
 
 
 def _append_text(value, text: str):
@@ -71,4 +73,12 @@ def add_notice(body: str, host: str, mode: str = "redact") -> str:
         obj["messages"] = _with_system(obj["messages"], text)
     else:
         return body
-    return json.dumps(obj, ensure_ascii=False)
+    return _dumps(obj)
+
+
+def _dumps(obj) -> str:
+    # A "\ud83d" escape with no partner is valid JSON but loads as a lone surrogate,
+    # which UTF-8 cannot encode. Write those back as escapes so set_text can send the
+    # body, and keep every other character as it was.
+    text = json.dumps(obj, ensure_ascii=False)
+    return LONE_SURROGATE.sub(lambda m: f"\\u{ord(m.group()):04x}", text)
