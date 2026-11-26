@@ -223,6 +223,24 @@ class KeyFence:
         return new_text
 
     def _inspect(self, flow: http.HTTPFlow, host: str) -> None:
+        # `strict=False` answers the raw compressed bytes as text when the decoder cannot read the
+        # Content-Encoding, the detectors find nothing in them, and the key reaches the provider in
+        # every mode, `block` included (#236). An alias such as `x-gzip` and a stacked encoding such
+        # as `gzip, gzip` are the cases mitmproxy does not decode.
+        try:
+            flow.request.get_content(strict=True)
+        except ValueError:
+            encoding = flow.request.headers.get("content-encoding", "")
+            if self.config.mode == "audit":
+                log.warning("AUDIT -> %s: content-encoding %r cannot be decoded; the body was not "
+                            "scanned and is forwarded unchanged", host, encoding)
+                return
+            self.stats["blocked"] += 1
+            flow.response = self._blocked_response(
+                f"Request blocked by keyfence: the body's Content-Encoding ({encoding}) cannot be "
+                f"decoded, so it cannot be scanned. Nothing was sent to the provider.")
+            log.warning("BLOCKED -> %s: undecodable content-encoding %r", host, encoding)
+            return
         text = flow.request.get_text(strict=False)
         if not text:
             return
