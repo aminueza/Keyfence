@@ -78,9 +78,6 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install build
-      # Checked here, before anything reaches PyPI: `release_notes.py` also runs in the `release`
-      # job, but that one needs `publish`, so a missing section used to stop the run only after the
-      # sdist and wheel were on PyPI, and PyPI does not accept that version again (#219).
       - run: python tools/release_notes.py "${GITHUB_REF_NAME}" > /dev/null
       - run: python -m build
       - run: |

@@ -102,12 +102,6 @@ def build_job():
 
 
 def test_the_changelog_section_is_checked_before_the_package_is_published():
-    """`release_notes.py` runs in the `release` job, which needs `publish` (#219).
-
-    A version without a CHANGELOG section therefore stopped after the sdist and wheel were already
-    on PyPI, and PyPI does not accept that version again: the only way out was a new version. The
-    same check now runs in `build`, which is where `python -m build` happens.
-    """
     steps = build_job()["steps"]
     runs = [step["run"] for step in steps if "run" in step]
     check_at = next(
@@ -118,7 +112,6 @@ def test_the_changelog_section_is_checked_before_the_package_is_published():
     build_at = next(i for i, run in enumerate(runs) if "python -m build" in run)
     assert check_at < build_at, "the changelog is checked after the package is built"
 
-    # And the job that publishes still depends only on a build that passed the check.
     assert workflow_needs("publish") == "build"
 
 
