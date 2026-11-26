@@ -231,10 +231,32 @@ class _ExpansionTooLarge(Exception):
 def _bracket_expansion_size(word: str) -> int:
     size = 1
     for match in _BRACKET_CLASS.finditer(word):
-        size *= len(match.group(1))
+        size *= len(_bracket_class_chars(match.group(1)))
         if size > _BRACKET_EXPANSION_LIMIT:
             raise _ExpansionTooLarge(word)
     return size
+
+
+def _bracket_class_chars(body: str) -> list[str]:
+    """The characters a bracket class names, with `a-z` ranges expanded as the shell does.
+
+    `[u-w]` is `u`, `v`, `w` — not `u`, `-`, `w` — so a command reading `.env` through `.en[u-w]`
+    has to be checked for `.env` (#231). A `-` first or last in the class is a literal, which is
+    what the shell does too; so is `-` after a range, and a reversed range such as `[w-u]`.
+    """
+    chars: list[str] = []
+    index = 0
+    while index < len(body):
+        low = body[index]
+        # A range needs a character on each side of the dash, and the dash must not be the first
+        # or last character of the class.
+        if index + 2 < len(body) and body[index + 1] == "-" and ord(low) <= ord(body[index + 2]):
+            chars.extend(chr(code) for code in range(ord(low), ord(body[index + 2]) + 1))
+            index += 3
+            continue
+        chars.append(low)
+        index += 1
+    return chars
 
 
 def _expand_bracket_classes(word: str) -> list[str]:
@@ -243,7 +265,7 @@ def _expand_bracket_classes(word: str) -> list[str]:
         return []
     _bracket_expansion_size(word)
     expanded = []
-    for combination in itertools.product(*(match.group(1) for match in classes)):
+    for combination in itertools.product(*(_bracket_class_chars(match.group(1)) for match in classes)):
         result = []
         cursor = 0
         for match, ch in zip(classes, combination):

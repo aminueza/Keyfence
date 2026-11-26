@@ -216,6 +216,11 @@ def test_a_scheme_less_remainder_with_a_query_is_kept_whole_rather_than_unglobbe
     "cat .[ce]n[vx]",
     "cat i[d]_rs[a]",
     "cat /tmp/ab[cd]/.env[.local]",
+    # A range names its own characters: the shell expands [u-w] and [r-t] the same way (#231).
+    "cat .en[u-w]",
+    "cat prod.tfvar[r-t]",
+    # A range wide enough to include the character that completes the name still names it.
+    "cat id_rs[0-z]",
 ])
 def test_bracket_glob_expands_to_secret_name_is_refused(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
@@ -225,6 +230,10 @@ def test_bracket_glob_expands_to_secret_name_is_refused(command):
     "sed -i '' 's/[abc]/x/' file.txt",
     "grep '[0-9]' data.csv",
     "cat notes[1].md",
+    # A dash first is a literal, as the shell reads it, so this names no secret (#231).
+    "cat .en[-w]",
+    # A reversed range is not a range: the shell would read it as the three characters.
+    "cat .en[w-u]",
 ])
 def test_a_bracket_class_that_expands_to_no_sensitive_name_is_still_allowed(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
