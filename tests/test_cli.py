@@ -940,6 +940,30 @@ def test_export_otlp_reports_an_error_status_without_a_traceback(home, write_con
     assert not (home / "export.cursor").exists()
 
 
+@pytest.mark.parametrize("mode", [["--all"], ["--since", "2026-09-08T09:00:00-0300"]])
+def test_export_otlp_does_not_move_the_cursor_over_an_entry_written_during_the_send(
+        home, write_config, monkeypatch, capsys, mode):
+    write_config("mode: redact\n")
+    entry = {"ts": "2026-09-08T10:00:00-0300", "host": "h1", "path": "/p", "mode": "redact", "count": 1,
+             "findings": [{"kind": "vault", "preview": "x", "key": None}]}
+    (home / "audit.log").write_text(json.dumps(entry) + "\n")
+    sent = []
+
+    def collector_appends_an_entry(url, entries, headers):
+        with (home / "audit.log").open("a") as fh:
+            fh.write(json.dumps({**entry, "host": "h2"}) + "\n")
+        sent.append([e["host"] for e in entries])
+        return len(entries)
+
+    monkeypatch.setattr(cli.export, "send_otlp", collector_appends_an_entry)
+    assert cli.main(["export", "--otlp", "http://c", *mode]) == 0
+    assert sent == [["h1"]]
+    assert (home / "export.cursor").read_text().split()[0] == "1"
+    assert cli.main(["export", "--otlp", "http://c"]) == 0
+    assert sent == [["h1"], ["h2"]]
+    assert "Sent 1 entry" in capsys.readouterr().out
+
+
 def test_export_otlp_reports_an_unreachable_collector_without_a_traceback(home, write_config, monkeypatch, capsys):
     import urllib.error
 

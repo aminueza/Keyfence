@@ -411,13 +411,17 @@ def cmd_export(args) -> int:
     log_inode = 0
     if args.since:
         since = export.parse_ts(args.since)
-    elif not args.all and args.otlp:
-        start, cursor_inode = export.read_cursor(cursor)
+    if args.otlp:
+        # The line count is taken before the read, in every mode: an entry the
+        # proxy appends while the send runs is past `stop`, so the cursor does
+        # not move over it and the next run sends it (#209).
         stop = export.count_lines(log)
         log_inode = export.log_identity(log)
-        if start > stop or cursor_inode != log_inode:
-            # truncated in place, or rotated into a new file: read it again
-            start = 0
+        if not args.all and not args.since:
+            start, cursor_inode = export.read_cursor(cursor)
+            if start > stop or cursor_inode != log_inode:
+                # truncated in place, or rotated into a new file: read it again
+                start = 0
     entries = list(export.read_entries(log, since, start, stop))
     if args.otlp:
         headers = dict(h.split("=", 1) for h in args.header)
@@ -429,8 +433,6 @@ def cmd_export(args) -> int:
             # the cursor stays where it was, so the next run retries.
             print(f"error: could not send to {args.otlp}: {exc}", file=sys.stderr)
             return 1
-        if stop is None:
-            stop, log_inode = export.count_lines(log), export.log_identity(log)
         export.write_cursor(cursor, stop, log_inode)
         print(f"Sent {sent} entr{'y' if sent == 1 else 'ies'} to {args.otlp}.")
         return 0
