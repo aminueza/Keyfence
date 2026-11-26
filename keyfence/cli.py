@@ -11,10 +11,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import doctor, export, hooks, pi, runner, sources
+from . import doctor, export, hooks, importer, pi, runner, sources
 from .config import Config
 from .detectors import Finding, scan_report
-from .importer import default_paths, env_values, import_files, looks_secret
+from .importer import default_paths, env_values, import_files
 from .vault import DEFAULT_DIR, Vault, VaultError
 
 AGENTS = ("claude-code", "pi")
@@ -50,8 +50,10 @@ def cmd_import(args) -> int:
         except sources.SourceError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
-        values = [v for k, v in pairs
-                  if not ignore.ignores(k, v) and (args.all or looks_secret(k, v, vault.min_length))]
+        collected: set[str] = set()
+        for key, value in pairs:
+            importer._collect(key, value, vault.min_length, args.all, collected, ignore)
+        values = list(collected)
         added = vault.add_many(values)
         print(f"{args.source}: {len(pairs)} value(s) read, {len(values)} looked like secrets, "
               f"{added} new; vault now holds {vault.count()} (hashes only). Use --all to register every value.")

@@ -117,6 +117,16 @@ def test_import_from_secret_manager(home, monkeypatch, capsys):
     assert "op is not installed" in capsys.readouterr().err
 
 
+def test_import_from_registers_a_password_inside_a_connection_url(home, monkeypatch, capsys):
+    url = "postgres://app:s3cret-url-password@db.internal:5432/app"
+    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: [("DATABASE_URL", url)])
+    assert cli.main(["import", "--from", "doppler"]) == 0
+    assert Vault().contains("s3cret-url-password")
+    assert "looked like secrets" in capsys.readouterr().out
+    assert cli.main(["scan", '{"content": "the db password is s3cret-url-password"}']) == 2
+    assert "[vault]" in capsys.readouterr().out
+
+
 def test_doctor_and_demo_commands(home, monkeypatch, capsys):
     monkeypatch.setattr(cli.runner, "port_open", lambda port, host: False)
     assert cli.main(["doctor"]) == 0
