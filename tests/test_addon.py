@@ -1067,6 +1067,22 @@ def test_a_placeholder_restored_in_a_json_websocket_frame_keeps_it_valid(guard):
     assert json.loads(message.text)["text"] == f"key {PEM}"
 
 
+def test_a_detector_failure_logs_the_exception_type_and_not_its_text(guard, caplog, monkeypatch):
+    kf = guard("redact")
+    leaked = "leaked-" + "request-text"
+
+    def boom(flow, host):
+        raise ValueError(leaked)
+
+    monkeypatch.setattr(kf, "_inspect", boom)
+    flow = make_flow()
+    with caplog.at_level("ERROR", logger="keyfence"):
+        kf.request(flow)
+    assert flow.response.status_code == 403
+    assert "ValueError" in caplog.text
+    assert leaked not in caplog.text
+
+
 def _compressed(encoding: str, body: bytes) -> bytes:
     if encoding == "gzip":
         return gzip.compress(body)

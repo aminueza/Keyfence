@@ -186,7 +186,7 @@ class KeyFence:
             self._inspect(flow, host)
         except Exception as exc:
             self.stats["errors"] += 1
-            log.error("detector failure, failing closed for %s: %r", host, exc)
+            log.error("detector failure, failing closed for %s: %s", host, type(exc).__name__)
             flow.response = self._blocked_response(
                 f"keyfence internal error ({type(exc).__name__}); request not sent.")
 
@@ -316,7 +316,7 @@ class KeyFence:
                 self._restore_frame(flow, message)
         except Exception as exc:
             self.stats["errors"] += 1
-            log.error("detector failure, failing closed for %s: %r", host, exc)
+            log.error("detector failure, failing closed for %s: %s", host, type(exc).__name__)
             message.drop()
 
     def _inspect_frame(self, flow: http.HTTPFlow, message: WebSocketMessage, host: str) -> None:
