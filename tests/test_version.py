@@ -81,3 +81,31 @@ def test_doctor_reports_the_installed_version(home, monkeypatch):
     checks = doctor.run_checks(8888, cwd=home)
     assert checks[0].label == "keyfence"
     assert checks[0].detail.startswith(f"{__version__} on Python ")
+
+
+def test_pep639_license_needs_a_setuptools_that_reads_it():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    if not isinstance(project["project"].get("license"), str):
+        return
+    requires = project["build-system"]["requires"]
+    setuptools = [r for r in requires if r.split(">=")[0].strip() == "setuptools"]
+    assert setuptools, f"no setuptools in build-system.requires: {requires}"
+    assert all(re.match(r"^setuptools>=(\d+)", r) and int(re.match(r"^setuptools>=(\d+)", r).group(1)) >= 77 for r in setuptools), requires
+
+
+def test_the_declared_mitmproxy_floor_knows_every_option_keyfence_sets():
+    declared = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
+    mitmproxy = [d for d in declared if d.split(">=")[0].strip() == "mitmproxy"]
+    assert mitmproxy, f"no mitmproxy in dependencies: {declared}"
+    for spec in mitmproxy:
+        floor = re.match(r"^mitmproxy>=(\d+)\.(\d+)\.(\d+)", spec)
+        assert floor, f"mitmproxy is declared without a full floor: {spec}"
+        assert tuple(int(p) for p in floor.groups()) >= (12, 2, 1), spec
+
+    requirements = (ROOT / "requirements.txt").read_text()
+    line = [l for l in requirements.splitlines() if l.strip().startswith("mitmproxy")]
+    assert line, "requirements.txt declares no mitmproxy"
+    assert re.match(r"^mitmproxy>=12\.2\.1", line[0].strip()), line[0]
+
+    from mitmproxy.options import Options
+    assert "tcp_timeout" in Options()

@@ -101,6 +101,21 @@ def test_unicode_survives_reserialisation():
     assert "ação" in out
 
 
+def test_a_lone_surrogate_escape_stays_an_escape_and_encodes_to_utf8():
+    body = '{"system": "truncated \\ud83d emoji", "messages": []}'
+    out = add_notice(body, "api.anthropic.com")
+    out.encode("utf-8")
+    assert "\\ud83d" in out
+    assert load(out)["system"] == "truncated " + chr(0xD83D) + " emoji\n\n" + NOTICE
+
+
+def test_a_lone_surrogate_does_not_escape_the_rest_of_the_unicode():
+    body = '{"system": "ação 😀 \\ud83d", "messages": []}'
+    out = add_notice(body, "api.anthropic.com")
+    assert "ação 😀" in out
+    assert out.encode("utf-8").decode("utf-8") == out
+
+
 def test_each_mode_gets_a_notice_that_matches_what_happens_to_the_tokens():
     body = json.dumps({"system": "sys", "messages": []})
     redact = load(add_notice(body, "api.anthropic.com", "redact"))["system"]

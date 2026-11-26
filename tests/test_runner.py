@@ -293,6 +293,18 @@ def test_run_record_and_linger(home, monkeypatch, tmp_path, capsys):
     assert proxy.terminated
 
 
+def test_run_returns_the_command_code_when_ctrl_c_ends_the_linger(home, monkeypatch, tmp_path, capsys):
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner.subprocess, "call", lambda command, env: 3)
+
+    def interrupted(_seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(runner.time, "sleep", interrupted)
+    assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, linger=30) == 3
+    assert "keeping the proxy up for 30s" in capsys.readouterr().out
+
+
 def _wire_fake_proxy(monkeypatch, tmp_path, seen=None):
     seen = {} if seen is None else seen
     ca = tmp_path / "ca.pem"
@@ -1322,3 +1334,22 @@ def test_start_proxy_stops_the_proxy_when_startup_is_interrupted(monkeypatch, tm
     finally:
         log.close()
     assert proxy.terminated
+
+
+def test_run_with_a_record_path_that_is_a_directory_says_so_and_leaves_no_vault(
+        home, write_config, monkeypatch, tmp_path, capsys):
+    seen = {}
+    write_config("mode: redact\n")
+    ca = _wire_fake_proxy(monkeypatch, tmp_path, seen)
+    a_directory = tmp_path / "flows"
+    a_directory.mkdir()
+
+    code = runner.run([sys.executable], 8899, ca_cert=ca, timeout=1, record=a_directory)
+
+    assert code == 1
+    out = capsys.readouterr()
+    assert out.out.count("error:") + out.err.count("error:") == 1
+    assert "cannot write the record file" in (out.out + out.err)
+    env_dir = runner.DEFAULT_DIR / "env"
+    assert not env_dir.exists() or list(env_dir.iterdir()) == []
+    assert "cmd" not in seen, "the proxy was started for a record path that cannot be written"

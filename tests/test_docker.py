@@ -339,3 +339,16 @@ def test_entrypoint_passes_the_configured_tcp_timeout_to_mitmdump(tmp_path):
 def test_entrypoint_defaults_to_the_data_directory_of_the_image():
     assert "KEYFENCE_HOME=/data" in environment()
     assert "${KEYFENCE_HOME:-/data}" in ENTRYPOINT.read_text()
+
+
+def test_every_license_file_the_package_declares_is_in_the_build_context():
+    project = tomllib.loads(PYPROJECT.read_text())["project"]
+    declared = project.get("license-files", [])
+    assert declared, "pyproject declares no license-files"
+
+    copied = " ".join(line for line in instructions() if line.startswith(("COPY ", "ADD ")))
+    for pattern in declared:
+        top = pattern.split("/")[0]
+        assert re.search(rf"(?:^|[\s/]){re.escape(top)}(?:[\s/]|$)", copied), (
+            f"{pattern} is declared in license-files but the Dockerfile never copies {top} into /app"
+        )

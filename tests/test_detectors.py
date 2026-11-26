@@ -769,6 +769,15 @@ def test_ghp_token_after_unpaired_surrogate_is_found():
     assert [(f.kind, f.value) for f in findings] == [("github-token", GHP)]
 
 
+def test_surrogateescape_byte_next_to_registered_secret_is_found_without_exception(vault):
+    secret = "hunter2-registered-secret"
+    vault.add(secret)
+    raw_bytes = b'{"messages":[{"role":"user","content":"x ' + secret.encode() + b'\xff"}]}'
+    body = raw_bytes.decode("utf-8", errors="surrogateescape")
+    findings = scan(body, vault=vault, config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("vault", secret)]
+
+
 VAULT_DELIMITER_SECRET = "hunter" + "2" + "pass"
 
 
@@ -817,3 +826,15 @@ def test_vault_delimiter_split_skips_pieces_shorter_than_min_length(vault, monke
     cfg = ScanConfig(patterns_enabled=False, entropy_enabled=False, gitleaks=False)
     scan("https://h.example/a/bb/ccc/" + VAULT_DELIMITER_SECRET, vault=vault, config=cfg)
     assert all(len(c) >= vault.min_length for c in checked)
+
+
+VAULT_PUNCTUATED_SECRET = "Pa" + ";ss,w0rd(x)9"
+
+
+@pytest.mark.parametrize("template", ["DB_PASSWORD={S} next", "password: {S} next", "x={S}"])
+def test_vault_catches_a_secret_with_token_split_characters_after_an_assignment(vault, template):
+    vault.add(VAULT_PUNCTUATED_SECRET)
+    cfg = ScanConfig(patterns_enabled=False, entropy_enabled=False, gitleaks=False)
+    body = json.dumps({"messages": [{"role": "user", "content": template.format(S=VAULT_PUNCTUATED_SECRET)}]})
+    findings = scan(body, vault=vault, config=cfg)
+    assert [(f.kind, f.value) for f in findings] == [("vault", VAULT_PUNCTUATED_SECRET)]

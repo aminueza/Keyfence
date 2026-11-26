@@ -401,6 +401,27 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
     except ValueError as exc:
         print(f"error: {exc}")
         return 1
+    if record:
+        notice = record_notice(record)
+        if notice:
+            print(notice, file=sys.stderr, flush=True)
+        try:
+            record.parent.mkdir(parents=True, exist_ok=True)
+            record_fd = os.open(record, os.O_CREAT | os.O_WRONLY, 0o600)
+        except OSError as exc:
+            print(f"error: cannot write the record file {record}: {exc.strerror or exc}")
+            return 1
+        try:
+            with contextlib.suppress(OSError):
+                if hasattr(os, "fchmod"):
+                    os.fchmod(record_fd, 0o600)
+                else:
+                    os.chmod(record, 0o600)
+        finally:
+            os.close(record_fd)
+        extra_record = ["-w", str(record)]
+    else:
+        extra_record = []
     env_vault = build_env_vault(os.environ, everything, config)
     proxy_env = dict(os.environ, **{ENV_VAULT_VAR: str(env_vault.path)})
     DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -417,21 +438,7 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
     if local == "":
         local = Path(command[0]).name
     extra = allow_hosts_args(config) + tcp_timeout_args(config)
-    if record:
-        notice = record_notice(record)
-        if notice:
-            print(notice, file=sys.stderr, flush=True)
-        record.parent.mkdir(parents=True, exist_ok=True)
-        record_fd = os.open(record, os.O_CREAT | os.O_WRONLY, 0o600)
-        try:
-            with contextlib.suppress(OSError):
-                if hasattr(os, "fchmod"):
-                    os.fchmod(record_fd, 0o600)
-                else:
-                    os.chmod(record, 0o600)
-        finally:
-            os.close(record_fd)
-        extra += ["-w", str(record)]
+    extra += extra_record
     try:
         proxy = start_proxy(port, proxy_env, proxy_log, timeout, ca_cert, local, extra)
     except ProxyError as exc:
@@ -459,7 +466,10 @@ def run(command: Sequence[str], port: int | None = None, everything: bool = Fals
             code = 128 - code
         if linger > 0 and proxy.poll() is None:
             print(f"keyfence: command exited, keeping the proxy up for {linger:.0f}s", flush=True)
-            time.sleep(linger)
+            try:
+                time.sleep(linger)
+            except KeyboardInterrupt:
+                pass
         return code
     finally:
         stop_proxy(proxy)

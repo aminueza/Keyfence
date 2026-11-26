@@ -100,7 +100,7 @@ def _scan_rules(text: str, rules: list[Rule]) -> list[Finding]:
     return findings
 
 
-_TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\\x00-\x1f\ufffd]+""")
+_TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\\x00-\x1f\ud800-\udfff\ufffd]+""")
 
 
 def _split_tokens(text: str) -> list[str]:
@@ -376,6 +376,8 @@ def _scan_vault(text: str, vault, spans: list[tuple[int, int, str | None]] = ())
 
     for raw in _split_tokens(text):
         offer(raw)
+    for m in re.finditer(r"[:=]\s*([^\s\"'\\]{%d,})" % vault.min_length, text):
+        offer(m.group(1))
     for m in _QUOTED_VALUE.finditer(text):
         offer(m.group(1))
     for start, end, _key in spans:

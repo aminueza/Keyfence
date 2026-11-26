@@ -166,6 +166,12 @@ class KeyFence:
             ctx.options.websocket = True
             log.warning("websocket interception was off in the mitmproxy configuration; "
                         "keyfence turned it on, otherwise frames pass unscanned")
+        streaming = getattr(ctx.options, "stream_large_bodies", None)
+        if streaming:
+            log.warning("stream_large_bodies was %s in the mitmproxy configuration; keyfence turned "
+                        "it off, otherwise bodies above that size pass unscanned",
+                        streaming)
+            ctx.options.stream_large_bodies = None
 
     def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
@@ -180,7 +186,7 @@ class KeyFence:
             self._inspect(flow, host)
         except Exception as exc:
             self.stats["errors"] += 1
-            log.error("detector failure, failing closed for %s: %r", host, exc)
+            log.error("detector failure, failing closed for %s: %s", host, type(exc).__name__)
             flow.response = self._blocked_response(
                 f"keyfence internal error ({type(exc).__name__}); request not sent.")
 
@@ -223,6 +229,22 @@ class KeyFence:
         return new_text
 
     def _inspect(self, flow: http.HTTPFlow, host: str) -> None:
+        if not flow.request.raw_content:
+            return
+        try:
+            flow.request.get_content(strict=True)
+        except ValueError:
+            encoding = flow.request.headers.get("content-encoding", "")
+            if self.config.mode == "audit":
+                log.warning("AUDIT -> %s: content-encoding %r cannot be decoded; the body was not "
+                            "scanned and is forwarded unchanged", host, encoding)
+                return
+            self.stats["blocked"] += 1
+            flow.response = self._blocked_response(
+                f"Request blocked by keyfence: the body's Content-Encoding ({encoding}) cannot be "
+                f"decoded, so it cannot be scanned. Nothing was sent to the provider.")
+            log.warning("BLOCKED -> %s: undecodable content-encoding %r", host, encoding)
+            return
         text = flow.request.get_text(strict=False)
         if not text:
             return
@@ -294,7 +316,7 @@ class KeyFence:
                 self._restore_frame(flow, message)
         except Exception as exc:
             self.stats["errors"] += 1
-            log.error("detector failure, failing closed for %s: %r", host, exc)
+            log.error("detector failure, failing closed for %s: %s", host, type(exc).__name__)
             message.drop()
 
     def _inspect_frame(self, flow: http.HTTPFlow, message: WebSocketMessage, host: str) -> None:

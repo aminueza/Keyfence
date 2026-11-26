@@ -1,0 +1,5 @@
+prune tests
+
+include LICENSE
+include keyfence/rules/gitleaks.toml
+include keyfence/rules/GITLEAKS-LICENSE

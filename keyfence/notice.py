@@ -71,4 +71,4 @@ def add_notice(body: str, host: str, mode: str = "redact") -> str:
         obj["messages"] = _with_system(obj["messages"], text)
     else:
         return body
-    return json.dumps(obj, ensure_ascii=False)
+    return json.dumps(obj, ensure_ascii=False).encode("utf-8", "backslashreplace").decode("utf-8")

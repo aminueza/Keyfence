@@ -280,3 +280,12 @@ def test_fchmod_failure_is_ignored(tmp_path, monkeypatch):
     monkeypatch.setattr("keyfence.vault.os.fchmod", boom)
     v = Vault(path=tmp_path / "vault.json")
     assert v.add("persisted-secret-value")
+
+
+def test_value_digest_accepts_surrogateescape_characters(tmp_path):
+    from keyfence.vault import value_digest
+    digest = value_digest(b"salt" * 8, "token-value\udcff")
+    assert len(digest) == 64
+    v = Vault(path=tmp_path / "vault.json")
+    v.add("registered-secret-value")
+    assert not v.contains("registered-secret-value\udcff")

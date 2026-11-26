@@ -67,6 +67,23 @@ def test_import_paths(home, tmp_path, capsys):
     assert Vault().contains(KEY)
 
 
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs a file that the user cannot read")
+def test_import_skips_an_unreadable_file_and_keeps_the_ones_after_it(home, tmp_path, capsys):
+    unreadable = tmp_path / ".netrc"
+    unreadable.write_text("machine example.invalid login u password p\n")
+    unreadable.chmod(0o000)
+    readable = tmp_path / ".git-credentials"
+    readable.write_text(f"https://user:{KEY}@github.com\n")
+    try:
+        code = cli.main(["import", str(unreadable), str(readable)])
+    finally:
+        unreadable.chmod(0o600)
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "skip:" in out and ".netrc" in out
+    assert Vault().contains(KEY)
+
+
 def test_import_env(home, monkeypatch, capsys):
     monkeypatch.setattr(cli.os, "environ", {"MY_API_TOKEN": "envTokenValue12345", "HOME": "/x"})
     assert cli.main(["import", "--env", str(home / "nope")]) == 0
@@ -409,6 +426,15 @@ def test_status_exits_1_on_a_bad_tcp_timeout_without_a_traceback(home, write_con
     assert "proxy_tcp_timeout" in err and "Traceback" not in err
 
 
+def test_status_reports_a_missing_gitleaks_rules_file_with_one_error_line(home, write_config, capsys):
+    write_config("scan:\n  gitleaks_rules: missing.toml\n")
+    assert cli.main(["status"]) == 1
+    lines = capsys.readouterr().err.strip().splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith("error: ")
+    assert "scan.gitleaks_rules" in lines[0]
+
+
 def test_status_shows_the_tcp_timeout(home, write_config, capsys):
     write_config("mode: block\n")
     assert cli.main(["status"]) == 0
@@ -539,6 +565,24 @@ def test_exec_help_says_what_record_holds(home, capsys):
     assert exc.value.code == 0
     text = " ".join(capsys.readouterr().out.split())
     assert "secrets unredacted in audit and block mode" in text
+
+
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", "-1", "86401", "1e300"])
+def test_exec_rejects_a_linger_that_cannot_be_a_session(home, monkeypatch, capsys, value):
+    started = []
+    monkeypatch.setattr(cli.runner, "run", lambda *a, **k: started.append(a) or 0)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["exec", "--linger", value, "--", "true"])
+    assert exc.value.code == 2
+    assert started == []
+    assert "--linger" in capsys.readouterr().err
+
+
+def test_exec_accepts_a_linger_at_the_limit(home, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cli.runner, "run", lambda command, port, everything, local, record, linger: seen.update(linger=linger) or 0)
+    assert cli.main(["exec", "--linger", "86400", "--", "true"]) == 0
+    assert seen["linger"] == 86400.0
 
 
 def test_exec_passes_local_flag(home, monkeypatch):

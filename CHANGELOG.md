@@ -2,11 +2,21 @@
 
 ## Unreleased
 
+- A request whose JSON body holds a lone surrogate escape, such as `\ud83d`
+  from a truncated emoji, is redacted and sent when `notice` is on instead of
+  being refused with a 403. The notice step rewrote the surrogate raw and
+  `flow.request.set_text` could not encode it as UTF-8; it is now written back
+  as the escape it arrived as, and the rest of the non-ASCII text stays
+  readable (issue #237).
 - `install-hooks` refuses an unresolved automatic `keyfence` command before
   writing settings or an extension. Missing-script errors now name the Python
   script folders searched; pi's explicit `--command` override still works.
   This completes the failure handling for issue #173 after PR #200 added
   install-scheme discovery.
+- The hook folds case with `str.casefold()` instead of `str.lower()`, so a
+  long s (U+017F) in a path no longer hides a secret file on macOS: APFS folds
+  `.ſsh` to `.ssh`, so the path opened the real directory while the hook
+  compared it with the long s (issue #230).
 - The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
   non-ASCII characters is no longer refused on a Windows install whose ANSI code
   page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which
@@ -25,6 +35,10 @@
   used to be split into one-character hosts, so no AI host matched and requests
   went out unscanned while `doctor` and `status` reported everything fine. A
   list holding an empty or non-string entry is rejected too (issue #175).
+- A request body whose `Content-Encoding` mitmproxy cannot decode, such as
+  `x-gzip` or a stacked `gzip, gzip`, is refused with a 403 in `redact`,
+  `placeholder` and `block` mode instead of going out unscanned. `audit` mode
+  logs a warning and forwards it unchanged (issue #236).
 - The URL query detector stops at `"`, `'`, `}` and `]`, so a `?sig=` value at
   the end of a JSON string no longer swallows the closing quote. It used to
   delete the JSON that followed in compact bodies and refuse harmless requests
@@ -73,9 +87,50 @@
   config that kept the default by writing `audit_log: false` or an empty
   string must now drop the key. A config that loaded a quoted boolean or
   number for one of these keys must now use the plain value.
+- `scan.gitleaks_rules` now expands `~` and resolves a relative path against
+  the directory of the config file, so `~/my-gitleaks.toml` in `config.yaml`
+  loads instead of stopping every command with a `FileNotFoundError`
+  traceback. A missing or invalid rules file stops with one `error:` line that
+  names `scan.gitleaks_rules` and the path, and an empty value is rejected
+  instead of silently falling back to the bundled rules (issue #216).
 - `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
   with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
   and with `gitleaks: false` the built-in patterns still do.
+- `build-system` requires setuptools 77 or later. An older setuptools
+  cannot read the PEP 639 `license` field in `pyproject.toml`, so a build
+  with `--no-build-isolation` or a constraints file failed (issue #217).
+- The hook expands a bracket range such as `.en[u-w]` as the shell does,
+  so the range no longer hides `.env` or another secret file from the
+  hook (issue #231).
+- The sdist no longer ships `tests/`. Those tests need files that only
+  the repository has, so they failed on import. The sdist still carries
+  `LICENSE` and the bundled gitleaks rules, and CI checks both
+  (issue #220).
+- `install-hooks` reads and writes `settings.json` as UTF-8 and accepts a
+  file with a byte order mark. Before, it used the locale encoding, which
+  corrupted non-ASCII text in the file on Windows (issue #228).
+- The Docker image copies `LICENSE` before it builds the package, so the
+  image ships the project license and setuptools no longer warns
+  (issue #218).
+- keyfence turns off mitmproxy's `stream_large_bodies` when the proxy
+  starts. With that option in the mitmproxy `config.yaml`, a request body
+  above the limit reached the provider unscanned (issue #232).
+- keyfence requires mitmproxy 12.2.1 or later. Older versions ignore the
+  `tcp_timeout` option, so `proxy_tcp_timeout` had no effect there
+  (issue #215).
+- The release workflow checks the CHANGELOG section of the tag before it
+  builds the package, so a tag without a section no longer reaches PyPI
+  (issue #219).
+- `keyfence exec --record` checks that it can write the record file before
+  it builds the env vault. A directory or a path that cannot be created
+  now gives one `error:` line, and no env vault is left behind (issue #212).
+- A request body with a byte that is not valid UTF-8 next to a token no
+  longer makes the vault check fail, and a detector failure logs only the
+  exception type. Before, the request was refused and the proxy log held
+  the token in clear (issue #235).
+- `keyfence import` skips a file that it cannot read, prints one `skip:`
+  line for it, and imports the files after it. Before, the first unreadable
+  file stopped the import with a traceback (issue #210).
 
 ## 0.11.1 (2026-11-24)
 

@@ -171,9 +171,14 @@ def default_paths(cwd: Path | None = None) -> list[Path]:
 
 
 def import_files(vault: Vault, paths: Iterable[Path], everything: bool = False,
-                 ignore: IgnoreList = NO_IGNORE) -> list[tuple[Path, int]]:
+                 ignore: IgnoreList = NO_IGNORE) -> list[tuple[Path, int | None]]:
     report = []
     for path in paths:
-        values = values_from_file(path, vault.min_length, everything, ignore)
+        try:
+            values = values_from_file(path, vault.min_length, everything, ignore)
+        except OSError as exc:
+            report.append((path, None))
+            print(f"skip: {path} ({exc.strerror or exc})")
+            continue
         report.append((path, vault.add_many(values)))
     return report

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -133,10 +134,17 @@ class Config:
             else:
                 scan = raw_scan
             raw_gitleaks_rules = scan.get("gitleaks_rules")
-            if raw_gitleaks_rules is not None and not isinstance(raw_gitleaks_rules, str):
+            if raw_gitleaks_rules is not None and (
+                not isinstance(raw_gitleaks_rules, str) or not raw_gitleaks_rules.strip()
+            ):
                 raise ValueError(
-                    f"scan.gitleaks_rules must be a string path, got {raw_gitleaks_rules!r}"
+                    f"scan.gitleaks_rules must be a non-empty string path, got {raw_gitleaks_rules!r}"
                 )
+            if raw_gitleaks_rules is not None:
+                rules_path = Path(raw_gitleaks_rules).expanduser()
+                if not rules_path.is_absolute():
+                    rules_path = cfg_path.parent / rules_path
+                raw_gitleaks_rules = str(rules_path)
             gitleaks_disabled = (
                 _string_list(scan, "gitleaks_disabled", label="scan.gitleaks_disabled")
                 if "gitleaks_disabled" in scan
@@ -163,7 +171,20 @@ class Config:
         if cfg.mode not in MODES:
             raise ValueError(f"invalid mode: {cfg.mode!r} (expected one of {', '.join(MODES)})")
         if cfg.scan.gitleaks:
-            cfg.scan.rules = load_rules(cfg.scan.gitleaks_rules, cfg.scan.gitleaks_disabled)
+            try:
+                cfg.scan.rules = load_rules(cfg.scan.gitleaks_rules, cfg.scan.gitleaks_disabled)
+            except OSError as exc:
+                if cfg.scan.gitleaks_rules is None:
+                    raise
+                raise ValueError(
+                    f"scan.gitleaks_rules: cannot read {cfg.scan.gitleaks_rules}: "
+                    f"{exc.strerror or exc}") from None
+            except tomllib.TOMLDecodeError as exc:
+                if cfg.scan.gitleaks_rules is None:
+                    raise
+                raise ValueError(
+                    f"scan.gitleaks_rules: {cfg.scan.gitleaks_rules} is not valid TOML: "
+                    f"{exc}") from None
         return cfg
 
     def ignore_list(self, vault: Vault) -> IgnoreList:
