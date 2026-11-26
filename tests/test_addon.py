@@ -253,6 +253,18 @@ def test_redaction_adds_notice_to_system_prompt(guard):
     assert "[REDACTED:github-token]" in out["messages"][0]["content"]
 
 
+def test_a_lone_surrogate_escape_with_the_notice_is_redacted_and_sent(guard):
+    kf = guard("redact")
+    body = json.dumps({"system": "s", "messages": [{"role": "user", "content": f"cut \ud83d key {KEY}"}]}).encode()
+    flow = make_flow(body=body, host="api.anthropic.com")
+    kf.request(flow)
+    assert flow.response is None
+    assert b"\\ud83d" in flow.request.content
+    out = json.loads(flow.request.get_text())
+    assert "keyfence" in out["system"]
+    assert out["messages"][0]["content"] == "cut \ud83d key [REDACTED:github-token]"
+
+
 @pytest.mark.parametrize("mode, promise", [("redact", "not restored"), ("placeholder", "restored automatically")])
 def test_notice_follows_the_configured_mode(guard, mode, promise):
     kf = guard(mode)

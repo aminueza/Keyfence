@@ -21,6 +21,12 @@
   and exits 1 when the collector cannot be reached or answers an error status,
   instead of a traceback, and leaves the cursor untouched so the next run
   retries.
+- A request whose JSON body holds a lone surrogate escape such as `\ud83d` (an
+  emoji cut in half, which Node clients write) is redacted and sent when
+  `notice` is on, instead of being refused with a 403 for an internal
+  `UnicodeEncodeError`. A body that gets the notice now has its non-ASCII
+  characters written as `\uXXXX` escapes; the provider decodes the same text
+  (issue #237).
 - `hosts` and `extra_hosts` in `config.yaml` must be lists now. A single string
   used to be split into one-character hosts, so no AI host matched and requests
   went out unscanned while `doctor` and `status` reported everything fine. A
