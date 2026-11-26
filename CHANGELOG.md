@@ -52,6 +52,11 @@
   read or write (missing directory, a directory, a read-only file) prints
   one `error:` line and exits 1 instead of a traceback, and a vault that
   cannot load or save leaves the file exactly as it was (issue #182).
+- The sdist no longer ships `tests/`, which could not run outside the
+  repository (four modules import `tests/fakes.py`, which was left out). It
+  names `LICENSE` and the two rule files explicitly, and the CI package job
+  fails when the sdist carries a test or misses one of those files (issue
+  #220).
 - The Docker image's `proxy` entry point now passes `tcp_timeout` to mitmdump
   from `proxy_tcp_timeout`, like `keyfence exec` and `keyfence run` already
   did; long requests in a container no longer stop at mitmproxy's 600 s
