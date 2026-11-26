@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=68"]
+# PEP 639's `license` string and `license-files` are read from setuptools 77; an older one rejects
+# `[project]` before it builds anything, so every version this allows has to be able to read it.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
