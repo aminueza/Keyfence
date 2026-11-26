@@ -13,6 +13,10 @@
   script folders searched; pi's explicit `--command` override still works.
   This completes the failure handling for issue #173 after PR #200 added
   install-scheme discovery.
+- The hook folds case with `str.casefold()` instead of `str.lower()`, so a
+  long s (U+017F) in a path no longer hides a secret file on macOS: APFS folds
+  `.ſsh` to `.ssh`, so the path opened the real directory while the hook
+  compared it with the long s (issue #230).
 - The hook reads stdin as UTF-8 bytes instead of text, so a tool call holding
   non-ASCII characters is no longer refused on a Windows install whose ANSI code
   page cannot decode it. Covers `keyfence hook pi` and the plugin hook, which

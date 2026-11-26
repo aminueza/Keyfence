@@ -186,7 +186,7 @@ def _sync_command(entries: list, fields: dict) -> bool:
 
 
 def is_sensitive(path: str) -> bool:
-    posix = PurePosixPath(path.replace("\\", "/").lower())
+    posix = PurePosixPath(path.replace("\\", "/").casefold())
     name = posix.name
     if any(fnmatch.fnmatch(name, pattern) for pattern in SAFE_NAMES):
         return False

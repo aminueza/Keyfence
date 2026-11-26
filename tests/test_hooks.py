@@ -33,6 +33,12 @@ def test_safe_paths(path):
     assert not hooks.is_sensitive(path)
 
 
+def test_a_case_folding_letter_that_opens_a_sensitive_name_is_refused():
+    for path in ["/home/u/.\u017fsh/deploy", "/home/u/.\u017fsh/id_rsa", "/work/prod.tfvar\u017f",
+                 "/work/credential\u017f.json", "/work/\u017fecrets.yaml"]:
+        assert hooks.is_sensitive(path), path
+
+
 def test_the_private_key_beside_the_mitmproxy_ca_certificate_is_still_refused():
     path = "~/.mitmproxy/mitmproxy-ca.pem"
     assert hooks.is_sensitive(path)
