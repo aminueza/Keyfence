@@ -96,6 +96,37 @@ def test_the_release_job_builds_its_notes_from_the_changelog_for_the_tag():
     assert "--notes-file" in create and "GITHUB_REF_NAME" in create and "--verify-tag" in create
 
 
+def build_job():
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+    return workflow["jobs"]["build"]
+
+
+def test_the_changelog_section_is_checked_before_the_package_is_published():
+    """`release_notes.py` runs in the `release` job, which needs `publish` (#219).
+
+    A version without a CHANGELOG section therefore stopped after the sdist and wheel were already
+    on PyPI, and PyPI does not accept that version again: the only way out was a new version. The
+    same check now runs in `build`, which is where `python -m build` happens.
+    """
+    steps = build_job()["steps"]
+    runs = [step["run"] for step in steps if "run" in step]
+    check_at = next(
+        (i for i, run in enumerate(runs) if "tools/release_notes.py" in run and "GITHUB_REF_NAME" in run),
+        None,
+    )
+    assert check_at is not None, "the build job never checks the changelog section"
+    build_at = next(i for i, run in enumerate(runs) if "python -m build" in run)
+    assert check_at < build_at, "the changelog is checked after the package is built"
+
+    # And the job that publishes still depends only on a build that passed the check.
+    assert workflow_needs("publish") == "build"
+
+
+def workflow_needs(job):
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+    return workflow["jobs"][job]["needs"]
+
+
 LOOP = re.compile(r"\b(?:while|for)\b[^;{]*\{")
 
 
