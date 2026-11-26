@@ -441,6 +441,52 @@ def test_vault_detects_secret_with_trailing_punctuation(vault):
     assert findings[0].value == "tokenSemFormatoNenhum12345"
 
 
+VAULT_SHAPES = [
+    "https://host.example/<secret>/x",
+    "https://host.example/hook/<secret>",
+    "path/<secret>",
+    "#<secret>",
+    "a@<secret>",
+    "<secret>+b",
+    "<secret>%20",
+    "*<secret>*",
+    "~<secret>",
+    "$<secret>",
+    "a:<secret>:b",
+    "-p<secret>",
+    "/api?x=1&token=<secret>",
+]
+
+
+@pytest.mark.parametrize("shape", VAULT_SHAPES)
+def test_vault_finds_a_registered_value_beside_a_separator(vault, shape):
+    secret = "tokenSemFormatoNenhum12345"
+    vault.add(secret)
+    assert [f.kind for f in scan(shape.replace("<secret>", secret), vault=vault)] == ["vault"]
+
+
+def test_vault_finds_a_registered_value_in_a_short_option_and_a_later_query_parameter(vault):
+    secret = "tokenSemFormatoNenhum12345"
+    vault.add(secret)
+    findings = scan(f"mysql -p{secret} db; curl 'https://h/api?x=1&token={secret}'", vault=vault)
+    assert [f.value for f in findings] == [secret, secret]
+
+
+def test_vault_candidate_pieces_do_not_grow_faster_than_the_separators(vault):
+    secret = "tokenSemFormatoNenhum12345"
+    vault.add(secret)
+    hashed = []
+
+    def counting_contains(candidate):
+        hashed.append(candidate)
+        return Vault.contains(vault, candidate)
+
+    vault.contains = counting_contains
+    text = "&".join(f"k{i}=v" for i in range(200))
+    scan(text, vault=vault)
+    assert len(hashed) <= 8 * len(text.split("&")), len(hashed)
+
+
 def test_vault_reports_every_occurrence(vault):
     vault.add("tokenSemFormatoNenhum12345")
     text = "a tokenSemFormatoNenhum12345 b tokenSemFormatoNenhum12345"
