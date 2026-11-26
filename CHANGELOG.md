@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A request whose JSON body holds a lone surrogate escape, such as `\ud83d`
+  from a truncated emoji, is redacted and sent when `notice` is on instead of
+  being refused with a 403. The notice step rewrote the surrogate raw and
+  `flow.request.set_text` could not encode it as UTF-8; it is now written back
+  as the escape it arrived as, and the rest of the non-ASCII text stays
+  readable (issue #237).
 - `install-hooks` refuses an unresolved automatic `keyfence` command before
   writing settings or an extension. Missing-script errors now name the Python
   script folders searched; pi's explicit `--command` override still works.
