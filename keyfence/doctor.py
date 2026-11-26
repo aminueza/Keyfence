@@ -289,7 +289,7 @@ def hook_installed(path: Path) -> bool:
         data = hooks._read_settings(path)
     except (OSError, ValueError):
         return False
-    return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("PreToolUse", []))
+    return any(hooks._names_our_entry(e) for e in data.get("hooks", {}).get("PreToolUse", []))
 
 
 def prompt_hook_installed(path: Path) -> bool:
@@ -297,7 +297,7 @@ def prompt_hook_installed(path: Path) -> bool:
         data = hooks._read_settings(path)
     except (OSError, ValueError):
         return False
-    return any(hooks._is_ours(e) for e in data.get("hooks", {}).get("UserPromptSubmit", []))
+    return any(hooks._names_our_entry(e) for e in data.get("hooks", {}).get("UserPromptSubmit", []))
 
 
 def keyfence_hook(path: Path, event: str) -> dict | None:
@@ -306,7 +306,7 @@ def keyfence_hook(path: Path, event: str) -> dict | None:
     except (OSError, ValueError):
         return None
     for entry in data.get("hooks", {}).get(event, []):
-        if hooks._is_ours(entry):
+        if hooks._names_our_entry(entry):
             for hook in hooks._entry_hooks(entry):
                 if hook.get("command"):
                     return hook
