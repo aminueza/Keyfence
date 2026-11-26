@@ -1451,3 +1451,10 @@ def test_entry_prompt_import_failure_blocks(home, write_config, monkeypatch, cap
     assert data["hookSpecificOutput"] == {"hookEventName": "UserPromptSubmit",
                                           "suppressOriginalPrompt": True}
     assert "guard crashed" in data["reason"]
+
+
+def test_import_from_keeps_a_value_that_starts_with_a_slash(home, monkeypatch, capsys):
+    value = "/" + "Abc123" * 6
+    monkeypatch.setattr(cli.sources, "fetch", lambda source, path: [("AWS_SECRET_ACCESS_KEY", value)])
+    assert cli.main(["import", "--from", "doppler"]) == 0
+    assert Vault().contains(value)
