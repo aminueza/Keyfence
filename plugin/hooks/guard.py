@@ -157,11 +157,34 @@ def _hook_fields(command: str | None) -> dict:
     return {"command": command, "args": list(HOOK_ARGS)}
 
 
+def _is_keyfence_executable(path: str) -> bool:
+    path = path.strip()
+    if len(path) >= 2 and path[0] == path[-1] and path[0] in "\"'":
+        path = path[1:-1]
+    name = PurePosixPath(path.replace("\\", "/")).name.lower()
+    return name.removesuffix(".exe") == "keyfence"
+
+
 def _is_our_hook(hook: dict) -> bool:
+    command = str(hook.get("command", ""))
+    if command == HOOK_COMMAND:
+        return True
     args = hook.get("args")
     if isinstance(args, list) and [str(a) for a in args] == HOOK_ARGS:
         return True
-    return "hook claude-code" in str(hook.get("command", ""))
+    head, _, tail = command.rpartition(" hook claude-code")
+    return bool(head) and not tail.strip() and _is_keyfence_executable(head)
+
+
+def _names_our_hook(hook: dict) -> bool:
+    command = str(hook.get("command", ""))
+    args = hook.get("args")
+    if isinstance(args, list) and [str(a) for a in args] == HOOK_ARGS:
+        return True
+    if command == HOOK_COMMAND:
+        return True
+    head, _, tail = command.rpartition(" hook claude-code")
+    return bool(head) and not tail.strip() and "keyfence" in PurePosixPath(head.replace("\\", "/")).name
 
 
 def _sync_command(entries: list, fields: dict) -> bool:
@@ -398,6 +421,10 @@ def _entry_hooks(entry) -> list:
 
 def _is_ours(entry) -> bool:
     return any(_is_our_hook(h) for h in _entry_hooks(entry))
+
+
+def _names_our_entry(entry) -> bool:
+    return any(_names_our_hook(h) for h in _entry_hooks(entry))
 
 
 def _remove_our_hooks(entries: list) -> tuple[list, bool]:

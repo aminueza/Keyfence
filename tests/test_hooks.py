@@ -563,6 +563,79 @@ def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
     assert not hooks.install(path, str(binary))
 
 
+FOREIGN = "/opt/agentlog/bin/agentlog hook claude-code"
+
+
+def foreign_settings(tmp_path):
+    other = {"type": "command", "command": FOREIGN}
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"hooks": {
+        "PreToolUse": [{"matcher": "Bash", "hooks": [dict(other)]}],
+        "UserPromptSubmit": [{"hooks": [dict(other)]}],
+    }}))
+    return path
+
+
+def test_install_keeps_a_foreign_hook_that_uses_the_same_shape(tmp_path):
+    binary = tmp_path / "bin" / "keyfence"
+    path = foreign_settings(tmp_path)
+    assert hooks.install(path, str(binary))
+    data = json.loads(path.read_text())
+    assert data["hooks"]["PreToolUse"][0] == {"matcher": "Bash", "hooks": [{"type": "command", "command": FOREIGN}]}
+    assert data["hooks"]["UserPromptSubmit"][0] == {"hooks": [{"type": "command", "command": FOREIGN}]}
+    own_tool = data["hooks"]["PreToolUse"][1]
+    own_prompt = data["hooks"]["UserPromptSubmit"][1]
+    assert own_tool["matcher"] == hooks.HOOK_MATCHER
+    assert own_tool["hooks"][0]["timeout"] == 10
+    assert own_prompt["hooks"][0]["onFailure"] == "block"
+
+
+def test_uninstall_keeps_a_foreign_hook_that_uses_the_same_shape(tmp_path):
+    path = foreign_settings(tmp_path)
+    hooks.uninstall(path)
+    data = json.loads(path.read_text())
+    assert data["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == FOREIGN
+    assert data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"] == FOREIGN
+
+
+def test_list_reports_nothing_installed_for_a_foreign_hook_only(tmp_path, monkeypatch, capsys):
+    path = foreign_settings(tmp_path)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(hooks, "settings_path", lambda project=False, cwd=None: path)
+    from keyfence import cli
+    assert cli.main(["install-hooks", "--list"]) == 0
+    body = capsys.readouterr().out.split("claude-code")[1].split("prompt hook")
+    assert "not installed" in body[0]
+    assert "  installed " not in body[0]
+    assert "not installed" in body[1]
+    assert "  installed " not in body[1]
+
+
+@pytest.mark.parametrize("command, ours", [
+    ("keyfence hook claude-code", True),
+    ("/venv/bin/keyfence hook claude-code", True),
+    ("C:\\venv\\Scripts\\keyfence.exe hook claude-code", True),
+    ("C:\\venv\\Scripts\\keyfence.EXE hook claude-code", True),
+    ('"/opt/my tools/keyfence" hook claude-code', True),
+    (FOREIGN, False),
+    ("/opt/keyfence-cli/bin/hook claude-code", False),
+    ("keyfence hook claude-code --strict", False),
+])
+def test_only_an_entry_this_program_wrote_counts_as_its_own(command, ours):
+    assert hooks._is_our_hook({"type": "command", "command": command}) is ours
+
+
+@pytest.mark.parametrize("command, ours", [
+    ("keyfence", True),
+    ("/venv/bin/keyfence", True),
+    ("C:\\venv\\Scripts\\keyfence.exe", True),
+    ("/opt/agentlog/bin/agentlog", True),
+])
+def test_an_args_entry_is_the_exec_form_this_program_writes(command, ours):
+    hook = {"type": "command", "command": command, "args": ["hook", "claude-code"]}
+    assert hooks._is_our_hook(hook) is ours
+
+
 def test_installed_exec_form_command_actually_spawns(tmp_path):
     try:
         exe = hooks.keyfence_path()
