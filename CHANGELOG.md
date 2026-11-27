@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-- `doctor` checks every settings entry that holds a keyfence hook, not only the
-  first one, so a second entry with a broken command is reported instead of
-  passing as installed and OK (issue #308).
+- A held placeholder prefix stays inside the chat completion choice it came from.
+  With `n > 1` and one choice per chunk, both choices sat at position 0 of their
+  own chunk and shared one hold, so the held text moved into the other choice; a
+  choice now also releases its holds on its `finish_reason` chunk (issue #314).
 - The system prompt notice takes its shape from the body and the request
   path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
   Anthropic models on Vertex AI get `system` instead of
@@ -44,6 +45,9 @@
   one, so a complete string ending in `<` (the instructions echoed in
   `response.created`, for example) no longer holds back the rest of the
   stream (issue #239).
+- `doctor` names an exec-form hook by its arguments when its `command` is empty,
+  so the message reads "calls hook claude-code" instead of "calls  hook
+  claude-code" (issue #313).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
@@ -67,6 +71,10 @@
   from a base image pinned by digest and installs the hashed
   `requirements-docker.txt`; CI builds it. Dependabot now also proposes
   updates for both requirements files and the base image (issue #222).
+- A custom rules file with a regex that Python compiles and then refuses, such as
+  `a{4294967296}` or 600 nested groups, drops that rule instead of stopping
+  keyfence: `re.error` came with `OverflowError` and `RecursionError`, and only
+  the first was caught (issue #312).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
@@ -89,6 +97,9 @@
   script folders searched; pi's explicit `--command` override still works.
   This completes the failure handling for issue #173 after PR #200 added
   install-scheme discovery.
+- `doctor` checks every settings entry that holds a keyfence hook, not only the
+  first one, so a second entry with a broken command is reported instead of
+  passing as installed and OK (issue #308).
 - The hook folds case with `str.casefold()` instead of `str.lower()`, so a
   long s (U+017F) in a path no longer hides a secret file on macOS: APFS folds
   `.ſsh` to `.ssh`, so the path opened the real directory while the hook

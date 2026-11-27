@@ -54,6 +54,23 @@ def test_rule_with_invalid_regex_is_skipped(tmp_path):
     assert load_rules(path) == []
 
 
+@pytest.mark.parametrize("regex", ["a{4294967296}", "(" * 600 + ")" * 600])
+def test_rule_with_a_regex_python_refuses_to_compile_is_skipped(tmp_path, regex):
+    path = tmp_path / "rules.toml"
+    path.write_text(f'[[rules]]\nid = "huge"\nregex = "{regex}"\nkeywords = ["a"]\n')
+    assert load_rules(path) == []
+
+
+def test_an_allowlist_regex_python_refuses_to_compile_is_dropped_on_its_own(tmp_path):
+    path = tmp_path / "rules.toml"
+    path.write_text('[[rules]]\nid = "x"\nregex = "tok_[a-z]+"\nkeywords = ["tok_"]\n'
+                    '[[rules.allowlists]]\nregexes = ["tok_example", "b{4294967296}"]\n')
+    rule = load_rules(path)[0]
+    assert rule.is_ignored("tok_example")
+    assert not rule.is_ignored("tok_real")
+    assert len(rule.ignore_regexes) == 1
+
+
 def test_allowlists_are_parsed(tmp_path):
     path = tmp_path / "rules.toml"
     path.write_text(
