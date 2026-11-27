@@ -241,6 +241,17 @@ def test_buffered_arguments_array_with_plain_string_gets_one_level():
     assert parsed["arguments"][0] == PEM
 
 
+def test_restore_json_escapes_an_arguments_delta_twice_and_a_text_delta_once():
+    mapping = {"<<SECRET_1>>": 'pa"ss\\w'}
+    arguments = json.dumps({"type": "response.function_call_arguments.delta", "delta": '<<SECRET_1>>"}'})
+    restored = json.loads(restore_json(arguments, mapping))["delta"]
+    assert json.loads('{"cmd":"' + restored) == {"cmd": 'pa"ss\\w'}
+    text = json.dumps({"type": "response.output_text.delta", "delta": "<<SECRET_1>>"})
+    assert json.loads(restore_json(text, mapping))["delta"] == 'pa"ss\\w'
+    quoting = json.dumps({"type": "response.output_text.delta", "delta": "response.function_call_arguments.delta <<SECRET_1>>"})
+    assert json.loads(restore_json(quoting, mapping))["delta"] == 'response.function_call_arguments.delta pa"ss\\w'
+
+
 def test_restore_json_restores_object_keys():
     mapping = {"<<SECRET_1>>": "actual-secret"}
     body = '{"<<SECRET_1>>": "value"}'
