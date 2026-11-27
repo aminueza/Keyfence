@@ -68,6 +68,65 @@ def test_event_with_non_json_data():
     assert ev.render() == "data: [DONE]\n\n"
 
 
+def chat_choice_chunk(index: int, content: str) -> str:
+    payload = {"choices": [{"index": index, "delta": {"content": content}}]}
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def chat_choices(output: bytes) -> list[tuple[int, str]]:
+    found = []
+    for block in output.decode().split("\n\n"):
+        for line in block.split("\n"):
+            if line.startswith("data:"):
+                for choice in json.loads(line[5:]).get("choices", []):
+                    found.append((choice["index"], choice["delta"]["content"]))
+    return found
+
+
+def test_a_choice_hold_is_released_by_its_finish_reason_chunk():
+    r = SSERestorer(MAPPING)
+    assert r.feed(chat_choice_chunk(0, "a<").encode()) == b""
+    assert r.feed(chat_choice_chunk(1, "div").encode()) == b""
+    finished = json.dumps({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
+    assert r.feed(f"data: {finished}\n\n".encode()) != b""
+    assert r.feed(chat_choice_chunk(1, "y").encode()) != b""
+
+
+def test_a_choice_index_that_is_not_an_integer_uses_its_position():
+    r = SSERestorer(MAPPING)
+    odd = json.dumps({"choices": [{"index": [0], "delta": {"content": "a<"}}]})
+    assert r.feed(f"data: {odd}\n\n".encode()) == b""
+    out = r.feed(chat_choice_chunk(1, "div").encode()) + r.feed(b"")
+    assert chat_choices(out)[-1] == (1, "div")
+
+
+def test_a_hold_stays_with_its_own_choice_when_choices_arrive_one_per_chunk():
+    r = SSERestorer(MAPPING)
+    out = (r.feed(chat_choice_chunk(0, "a<").encode()) + r.feed(chat_choice_chunk(1, "div").encode())
+           + r.feed(chat_choice_chunk(0, "x").encode()) + r.feed(chat_choice_chunk(1, "y").encode()) + r.feed(b""))
+    assert chat_choices(out) == [(0, "a"), (1, "div"), (0, "<x"), (1, "y")]
+
+
+def test_a_placeholder_split_across_interleaved_choices_is_restored_in_its_own_choice():
+    r = SSERestorer(MAPPING)
+    out = (r.feed(chat_choice_chunk(0, "use <<SEC").encode()) + r.feed(chat_choice_chunk(1, "other").encode())
+           + r.feed(chat_choice_chunk(0, "RET_1>> end").encode()) + r.feed(b""))
+    assert chat_choices(out) == [(0, "use "), (1, "other"), (0, f"{KEY} end")]
+
+
+def test_a_placeholder_that_ends_on_the_finish_reason_chunk_is_restored():
+    r = SSERestorer(MAPPING)
+    last = json.dumps({"choices": [{"index": 0, "delta": {"content": "RET_1>> ok"}, "finish_reason": "stop"}]})
+    out = r.feed(chat_choice_chunk(0, "use <<SEC").encode()) + r.feed(f"data: {last}\n\n".encode()) + r.feed(b"")
+    assert chat_choices(out) == [(0, "use "), (0, f"{KEY} ok")]
+
+
+def test_choices_that_is_not_a_list_passes_through():
+    r = SSERestorer(MAPPING)
+    out = r.feed(b'data: {"choices": 5}\n\n') + r.feed(b"")
+    assert out == b'data: {"choices": 5}\n\n'
+
+
 def chat_chunk(content: str, token: str | None = None) -> str:
     choice = {"index": 0, "delta": {"content": content}}
     if token is not None:

@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-- A `logprobs` token that ends with what could be the start of a placeholder stays
-  in its own chunk. keyfence held it and joined it to the next chunk's token, so
-  the logprobs no longer matched the text; the text itself keeps its hold and a
-  placeholder split across chunks is still restored there (issue #299).
+- A held placeholder prefix stays inside the chat completion choice it came from.
+  With `n > 1` and one choice per chunk, both choices sat at position 0 of their
+  own chunk and shared one hold, so the held text moved into the other choice; a
+  choice now also releases its holds on its `finish_reason` chunk (issue #314).
 - The system prompt notice takes its shape from the body and the request
   path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
   Anthropic models on Vertex AI get `system` instead of
@@ -23,6 +23,10 @@
   Terraform references and reads of the environment or of settings are not
   flagged, and a value is ignored only when it starts with a call, not when
   it has a parenthesis anywhere (issue #233).
+- A `logprobs` token that ends with what could be the start of a placeholder stays
+  in its own chunk. keyfence held it and joined it to the next chunk's token, so
+  the logprobs no longer matched the text; the text itself keeps its hold and a
+  placeholder split across chunks is still restored there (issue #299).
 - The Claude Code hook and the plugin also match the `PowerShell` tool, which
   Claude Code uses on Windows without Git Bash or with
   `CLAUDE_CODE_USE_POWERSHELL_TOOL`. Before, no PowerShell call reached the
