@@ -123,6 +123,20 @@
   that was truncated or rotated is read again from the start, which can deliver
   some entries twice to the collector; losing a detection was the worse trade
   (issue #178).
+- The hook refuses a secret-printing command when a global option comes
+  before the subcommand, as in `kubectl -n prod get secret db -o yaml`,
+  `aws --profile prod secretsmanager get-secret-value` or `op --account a
+  read ...`. For kubectl it takes `secret`, `secrets` or `secret/<name>` as
+  the resource argument, or a `secret/<name>` pair further along the
+  command, and it looks for the output format within 500 characters of
+  `kubectl`, `-o` before `get` included; it also treats `kyaml`, `template`,
+  a quoted format such as `-o 'jsonpath=...'`, and `--template` without
+  `-o` as printing the data. It reads at most 32 options between the command
+  and its subcommand, and refuses a command past that, or a `kubectl get` of
+  a secret or an `op item get` longer than 500 characters, since it cannot
+  check them. Tying the resource to the argument after `get` keeps
+  `kubectl get configmap secret -o yaml` and `kubectl get pods -l secret -o
+  yaml` allowed (issue #224).
 - `keyfence export --otlp` prints one `error: could not send to <url>: ...` line
   and exits 1 when the collector cannot be reached or answers an error status,
   instead of a traceback, and leaves the cursor untouched so the next run

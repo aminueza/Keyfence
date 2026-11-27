@@ -488,6 +488,122 @@ def test_ordinary_commands_pass(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
 
 
+@pytest.mark.parametrize("command", [
+    "aws --profile prod secretsmanager get-secret-value --secret-id app",
+    "aws --region us-east-1 ssm get-parameter --name db --with-decryption",
+    "aws --debug --profile=prod secretsmanager get-secret-value --secret-id app",
+    "kubectl -n prod get secret db -o yaml",
+    "kubectl --context prod get secret db -o jsonpath='{.data}'",
+    "kubectl get -o yaml secret db",
+    "kubectl get cm,secret -o yaml",
+    "kubectl get secret/db -o json",
+    "kubectl get secret db -o kyaml",
+    "kubectl get secret db -o template --template='{{.data}}'",
+    "kubectl get secret db -o templatefile=t.tmpl",
+    "gcloud --project p secrets versions access latest --secret s",
+    "op --account my read op://vault/item/field",
+    "az --subscription s keyvault secret show --name n --vault-name v",
+    "doppler --project p secrets download --no-file",
+    "gh --hostname example.com auth token",
+    "kubectl get secret db -o 'jsonpath={.data.password}'",
+    "kubectl get deploy/app secret/db -o yaml",
+    "kubectl get secret db --output=\"yaml\"",
+    "kubectl get secret db --template='{{.data.password}}'",
+    "kubectl -n prod --request-timeout=-1 get secret db -o yaml",
+    "kubectl -o yaml get secret db",
+    "kubectl --output=json -n prod get secret db",
+    "op --format json item get x",
+])
+def test_a_global_option_before_the_subcommand_does_not_hide_a_secret_command(command):
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert reason and "keyfence blocked" in reason
+
+
+@pytest.mark.parametrize("command", [
+    "kubectl -n prod get secrets", "kubectl -n prod get pods -o yaml", "aws --profile prod s3 ls",
+    "gcloud --project p secrets list", "doppler --project p secrets --only-names",
+    "kubectl get configmap my-secret-config -o yaml", "kubectl get pods -o yaml; echo secret",
+    "kubectl -n prod get secret db -o name",
+    "kubectl get configmap secret -o yaml", "kubectl get pods -l secret -o yaml",
+    "kubectl get cm app -o yaml > secrets/app-cm.yaml",
+])
+def test_listing_and_unrelated_commands_with_global_options_still_pass(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("piece", [" {aws -x", " (aws -x", " (kubectl -o", " (op ", " {op --a",
+                                 " (kubectl -o get get get"])
+def test_a_100_kb_line_of_nested_command_starts_is_decided_quickly(piece):
+    tail = "; aws secretsmanager" + " get-secret-value --secret-id app"
+    command = "echo" + piece * ((100 * 1024) // len(piece)) + tail
+    assert len(command) > 100 * 1024
+    started = time.perf_counter()
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert time.perf_counter() - started < 2
+    assert reason and "aws secretsmanager" in reason
+
+
+@pytest.mark.parametrize("command", [
+    "kubectl get secret db --request-timeout=" + "0" * 520 + "1s -o yaml",
+    "op item get x" + " --vault v" * 60 + " --reveal",
+    "aws" + " --debug" * 33 + " secretsmanager get-secret-value --secret-id x",
+    "kubectl" + " -v 1" * 33 + " get secret db -o yaml",
+    "kubectl get" + " -v 1" * 33 + " secret db -o yaml",
+    'op item get "A&B"' + " --vault v" * 60 + " --reveal",
+])
+def test_a_command_past_the_option_or_length_limit_is_refused(command):
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert reason and "more options or characters than keyfence reads" in reason
+
+
+@pytest.mark.parametrize("command", [
+    'op item get "AT&T portal" --reveal',
+    "op item get x --vault 'R&D' --fields password",
+    "kubectl get secret db --context 'a&b' -o yaml",
+])
+def test_a_quoted_separator_does_not_hide_the_output_flag(command):
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert reason and "` prints secret values" in reason and "more options" not in reason
+
+
+@pytest.mark.parametrize("command", [
+    "kubectl get pods -o wide --selector=" + "a" * 600,
+    "kubectl patch deploy x -p '" + "y" * 800 + "'",
+    "aws dynamodb put-item --table-name t --item '" + "x" * 800 + "'",
+    "op item list" + " --vault v" * 60,
+    "aws" + " --debug" * 32 + " s3 ls",
+])
+def test_a_long_command_that_cannot_print_a_secret_still_passes(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("piece, refused", [
+    (" {aws -x", True), (" (aws -x=", False), (" (kubectl -o", True), (" (kubectl get secret", True),
+    (" (op item get", True), (" (kubectl get", False), (" (kubectl get -o yaml", False), (" (op item list", False),
+])
+def test_a_100_kb_line_of_command_starts_alone_is_decided_quickly(piece, refused):
+    command = "echo" + piece * ((100 * 1024) // len(piece))
+    started = time.perf_counter()
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert time.perf_counter() - started < 2
+    assert bool(reason) is refused
+
+
+@pytest.mark.parametrize("binary", ["aws", "kubectl", "gcloud", "op"])
+def test_a_long_run_of_key_value_options_is_decided_quickly(binary):
+    command = binary + " --a=b" * 16 + " --p v" * 40 + " s3 ls"
+    started = time.monotonic()
+    hooks.refusal_for_command(command)
+    assert time.monotonic() - started < 1
+
+
+@pytest.mark.parametrize("segment", ["aws --p v;", "op --a b|", "op item get x;", "kubectl -n p get secret x&"])
+def test_many_chained_commands_with_options_are_decided_quickly(segment):
+    started = time.monotonic()
+    hooks.refusal_for_command(segment * 3000)
+    assert time.monotonic() - started < 1
+
+
 def test_prefixed_secret_command_is_named_without_its_prefix():
     reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": "sudo -E /usr/local/bin/aws secretsmanager get-secret-value --secret-id x"}})
     assert "`aws secretsmanager get-secret-value` prints secret values" in reason
