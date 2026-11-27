@@ -54,6 +54,48 @@ def test_rule_with_invalid_regex_is_skipped(tmp_path):
     assert load_rules(path) == []
 
 
+def test_extend_use_default_loads_the_bundled_rules_too(tmp_path):
+    path = tmp_path / "gitleaks.toml"
+    path.write_text('[extend]\nuseDefault = true\n\n[[rules]]\nid = "mine"\nregex = "mine_[a-z]{20}"\n')
+    names = [r.name for r in load_rules(path)]
+    assert "mine" in names
+    assert len(names) == len(load_rules()) + 1
+
+
+def test_extend_disabled_rules_drops_a_bundled_rule(tmp_path):
+    path = tmp_path / "gitleaks.toml"
+    path.write_text('[extend]\nuseDefault = true\ndisabledRules = ["aws-access-token"]\n')
+    names = [r.name for r in load_rules(path)]
+    assert "aws-access-token" not in names
+    assert len(names) == len(load_rules()) - 1
+
+
+def test_a_custom_rule_with_a_bundled_id_replaces_it(tmp_path):
+    path = tmp_path / "gitleaks.toml"
+    path.write_text('[extend]\nuseDefault = true\n\n[[rules]]\nid = "aws-access-token"\n'
+                    'regex = "AKIA[0-9]{16}"\nkeywords = ["AKIA"]\n')
+    rules = load_rules(path)
+    mine = [r for r in rules if r.name == "aws-access-token"]
+    assert len(mine) == 1
+    assert mine[0].pattern.pattern != next(r.pattern.pattern for r in load_rules() if r.name == "aws-access-token")
+    assert len(rules) == len(load_rules())
+
+
+def test_extend_path_is_refused(tmp_path):
+    path = tmp_path / "gitleaks.toml"
+    path.write_text('[extend]\npath = "other.toml"\n')
+    with pytest.raises(ValueError, match="scan.gitleaks_rules"):
+        load_rules(path)
+
+
+@pytest.mark.parametrize("extend", ['useDefault = "yes"', 'disabledRules = "aws-access-token"', '5'])
+def test_a_bad_extend_table_is_refused(tmp_path, extend):
+    path = tmp_path / "gitleaks.toml"
+    path.write_text(f"[extend]\n{extend}\n")
+    with pytest.raises(ValueError):
+        load_rules(path)
+
+
 def test_allowlists_are_parsed(tmp_path):
     path = tmp_path / "rules.toml"
     path.write_text(

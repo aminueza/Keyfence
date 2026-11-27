@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A gitleaks file with `[extend]` `useDefault = true` now loads the bundled rules
+  and adds to them, instead of loading only its own rules and dropping the 220
+  bundled ones; `disabledRules` is read too, a custom rule with the id of a
+  bundled one replaces it, and `[extend] path` stops with an error that names
+  `scan.gitleaks_rules` instead of being ignored (issue #304).
 - In `placeholder` mode, a `response.function_call_arguments.delta` frame on
   a WebSocket, or line of a JSON-lines response, gets its value escaped for
   the arguments JSON it is part of, as in a stream, so a secret with `"`,
