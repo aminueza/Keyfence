@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- In `placeholder` mode, a `response.function_call_arguments.delta` frame on
+  a WebSocket, or line of a JSON-lines response, gets its value escaped for
+  the arguments JSON it is part of, as in a stream, so a secret with `"`,
+  `\` or a newline no longer breaks the arguments the client puts together.
+  The docs now say that a placeholder split across WebSocket frames is not
+  restored (issue #240).
 - In `placeholder` mode, a `<` at the end of a text item in an OpenAI
   Responses API stream stays in that item. keyfence held it in case a
   placeholder started there, and released holds only on Anthropic's

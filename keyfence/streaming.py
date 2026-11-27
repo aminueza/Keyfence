@@ -27,13 +27,26 @@ def restore(text: str, mapping: dict[str, str], escape: int = 0) -> str:
     return text
 
 
+def _is_arguments_delta(text: str) -> bool:
+    if RESPONSES_API_DELTA_EVENT not in text:
+        return False
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return False
+    return isinstance(obj, dict) and obj.get("type") == RESPONSES_API_DELTA_EVENT
+
+
 def restore_json(text: str, mapping: dict[str, str]) -> str:
     parts: list[str] = []
     pos = 0
+    arguments_delta = _is_arguments_delta(text)
     for start, end, key in string_value_spans(text):
         parts.append(text[pos:start])
         value = text[start:end]
-        if key in NESTED_JSON_FIELDS and value and (value[0] == "{" or value[0] == "["):
+        if arguments_delta and key == "delta":
+            extra = 2
+        elif key in NESTED_JSON_FIELDS and value and (value[0] == "{" or value[0] == "["):
             extra = 2
         else:
             extra = 1
