@@ -311,6 +311,8 @@ def test_the_spelling_check_stays_fast_on_long_slash_runs_and_huge_classes():
     assert hooks._may_name_sensitive("[ab]" + "/" * 20000 + ".ssh/x")
     assert not hooks._may_name_sensitive("[ab]" + "/" * 20000 + ".ss")
     assert hooks._may_name_sensitive("x." + "[\U00010000-\U0010ffff]" * 8)
+    cjk = "[" + chr(0x4E00) + "-" + chr(0x4E00 + 9999) + "]"
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": "cat x." + cjk * 2000}})
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": "cat a" + "/./" * 20000 + "[.s]h"}}) is None
     assert time.perf_counter() - start < 2
 

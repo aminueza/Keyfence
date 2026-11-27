@@ -293,11 +293,13 @@ def _positions(text: str) -> list[set[str]]:
 def _may_name_sensitive(word: str) -> bool:
     positions: list[set[str]] = [{"/"}]
     cursor = 0
+    members_seen = 0
     for match in _BRACKET_CLASS.finditer(word):
         positions.extend(_positions(word[cursor:match.start()]))
         chars: set[str] = set()
         members = _bracket_class_chars(match.group(1))
-        if len(members) > _BRACKET_EXPANSION_LIMIT:
+        members_seen += len(members)
+        if members_seen > _BRACKET_EXPANSION_LIMIT:
             return True
         for ch in members:
             folded = ch.casefold()
