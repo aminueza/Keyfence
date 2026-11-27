@@ -80,7 +80,16 @@ because they usually carry the provider's own key. See
   and commit; it is shown on the PyPI file listing and can be checked with
   `pypi-attestations`.
 - CI builds a CycloneDX SBOM for every commit on `main` and every pull
-  request; it is attached to the workflow run as an artifact.
+  request, from a clean virtual environment that holds only the keyfence
+  wheel and its dependencies; it is attached to the workflow run as an
+  artifact, and the `Release` workflow attaches the same kind of SBOM to each
+  GitHub release.
+- The release build installs its tools from `requirements-release.txt` with
+  `--require-hashes` and builds without isolation, so no unpinned package
+  reaches the published files. The Docker image starts from a base image
+  pinned by digest and installs `requirements-docker.txt` with
+  `--require-hashes`. Dependabot proposes updates for both files, the base
+  image and the actions.
 - Dependencies are `certifi`, `mitmproxy` and `PyYAML`, all from PyPI. The
   bundled detection rules come from the gitleaks repository and are checked
   in, so nothing is fetched at runtime.

@@ -1435,6 +1435,44 @@ def test_run_keeps_going_when_a_termination_handler_cannot_be_installed(home, mo
     assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+def test_an_ignored_sighup_stays_ignored_so_nohup_keeps_working(home, monkeypatch, tmp_path):
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    during = {}
+
+    def hang_up(command, env):
+        during["handler"] = signal.getsignal(signal.SIGHUP)
+        during["sigterm"] = signal.getsignal(signal.SIGTERM)
+        assert during["handler"] == signal.SIG_IGN
+        os.kill(os.getpid(), signal.SIGHUP)
+        return 0
+
+    monkeypatch.setattr(runner.subprocess, "call", hang_up)
+    sigterm_before = signal.getsignal(signal.SIGTERM)
+    previous = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    try:
+        assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
+        assert signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGHUP, previous)
+    assert during["sigterm"] is not sigterm_before
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+def test_an_ignored_sigint_stays_ignored_for_the_command(home, monkeypatch, tmp_path):
+    ca = _wire_fake_proxy(monkeypatch, tmp_path)
+    during = {}
+    monkeypatch.setattr(runner.subprocess, "call",
+                        lambda command, env: during.update(handler=signal.getsignal(signal.SIGINT)) or 0)
+    previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        assert runner.run([sys.executable], 8899, ca_cert=ca, timeout=1) == 0
+        assert signal.getsignal(signal.SIGINT) == signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGINT, previous)
+    assert during["handler"] == signal.SIG_IGN
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process groups")
 def test_exec_stops_mitmdump_when_its_process_group_is_terminated(tmp_path):
     if not Path(runner.mitmdump_path()).is_file():
