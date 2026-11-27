@@ -114,6 +114,19 @@ def test_a_placeholder_split_across_interleaved_choices_is_restored_in_its_own_c
     assert chat_choices(out) == [(0, "use "), (1, "other"), (0, f"{KEY} end")]
 
 
+def test_a_placeholder_that_ends_on_the_finish_reason_chunk_is_restored():
+    r = SSERestorer(MAPPING)
+    last = json.dumps({"choices": [{"index": 0, "delta": {"content": "RET_1>> ok"}, "finish_reason": "stop"}]})
+    out = r.feed(chat_choice_chunk(0, "use <<SEC").encode()) + r.feed(f"data: {last}\n\n".encode()) + r.feed(b"")
+    assert chat_choices(out) == [(0, "use "), (0, f"{KEY} ok")]
+
+
+def test_choices_that_is_not_a_list_passes_through():
+    r = SSERestorer(MAPPING)
+    out = r.feed(b'data: {"choices": 5}\n\n') + r.feed(b"")
+    assert out == b'data: {"choices": 5}\n\n'
+
+
 def test_whole_placeholder_in_one_event():
     r = SSERestorer(MAPPING)
     out = r.feed(anthropic_event("use <<SECRET_1>> now").encode()) + r.feed(b"")

@@ -226,14 +226,14 @@ class SSERestorer:
                 self.held[held_key] = (event, suffix)
             return s
 
-        if event_type is None and isinstance(obj, dict):
-            for position, choice in enumerate(obj.get("choices", []) or []):
-                if isinstance(choice, dict) and choice.get("finish_reason"):
-                    self._release_held(choice["index"] if isinstance(choice.get("index"), int) else position)
         new_obj = _map_strings(event.obj, fn)
         if new_obj != event.obj:
             event.obj = new_obj
             event.dirty = True
+        choices = obj.get("choices") if event_type is None and isinstance(obj, dict) else None
+        for position, choice in enumerate(choices if isinstance(choices, list) else []):
+            if isinstance(choice, dict) and choice.get("finish_reason"):
+                self._release_held(choice["index"] if isinstance(choice.get("index"), int) else position)
 
     def _drain(self) -> list[str]:
         rendered = [e.render() for e in self.queue]
