@@ -71,6 +71,10 @@ real incidents. Out of scope:
   refuses continuation frames sees those as broken. The system prompt
   notice is added to request bodies only, so a model on a realtime
   connection receives the `[REDACTED:...]` markers with no explanation.
+  In `placeholder` mode each frame from the server is restored on its
+  own, so a placeholder split across two frames reaches the client as the
+  token, not the value: unlike a stream, a frame cannot be held back and
+  edited once the rest of the token arrives.
 - **Streams ending mid-placeholder.** If a streamed response ends in the
   middle of a placeholder, the last characters are passed through as they
   are.

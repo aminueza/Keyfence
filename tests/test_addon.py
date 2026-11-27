@@ -1081,6 +1081,19 @@ def test_a_placeholder_restored_in_a_json_websocket_frame_keeps_it_valid(guard):
     assert json.loads(message.text)["text"] == f"key {PEM}"
 
 
+def test_function_call_argument_deltas_in_websocket_frames_stay_valid_json(guard):
+    kf = guard("placeholder")
+    flow = make_ws_flow()
+    send_frame(kf, flow, json.dumps({"text": f"key {PEM}"}))
+    token = next(t for t, value in flow.metadata[MAPPING_KEY].items() if value == PEM)
+    deltas = []
+    for piece in ('{"cmd":"echo ', token + '"}'):
+        frame = {"type": "response.function_call_arguments.delta", "item_id": "fc_1", "delta": piece}
+        message = send_frame(kf, flow, json.dumps(frame), from_client=False)
+        deltas.append(json.loads(message.text)["delta"])
+    assert json.loads("".join(deltas)) == {"cmd": f"echo {PEM}"}
+
+
 def test_a_detector_failure_logs_the_exception_type_and_not_its_text(guard, caplog, monkeypatch):
     kf = guard("redact")
     leaked = "leaked-" + "request-text"

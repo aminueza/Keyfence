@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- In `placeholder` mode, a `response.function_call_arguments.delta` frame
+  on a WebSocket gets its value escaped for the arguments JSON it is part
+  of, as in a stream, so a secret with `"`, `\` or a newline no longer
+  breaks the arguments the client puts together. The docs now say that a
+  placeholder split across WebSocket frames is not restored (issue #240).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
