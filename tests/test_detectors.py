@@ -342,8 +342,15 @@ def test_generic_assignment_catches_quoted_keys(template):
 def test_generic_assignment_keeps_an_ampersand_in_the_value_but_not_a_url_query():
     findings = scan(f"DB_PASSWORD=p&{ENV_SHORT}\n", config=NO_ENTROPY)
     assert [f.value for f in findings] == [f"p&{ENV_SHORT}"]
-    findings = scan(f"see https://example.com/login?password={ENV_SHORT}&next=/home", config=NO_ENTROPY)
-    assert [f.value for f in findings] == [ENV_SHORT]
+    for tail in ("&next=/home", "&amp;next=/home", "&&npm start"):
+        findings = scan(f"see https://example.com/login?password={ENV_SHORT}{tail}", config=NO_ENTROPY)
+        assert [f.value for f in findings] == [ENV_SHORT]
+
+
+def test_generic_assignment_keeps_a_value_with_parentheses_that_is_not_a_call():
+    value = "k9#x(" + ENV_SHORT + ")z!q-_=+"
+    findings = scan(f"SECRET_KEY = '{value}'", config=NO_ENTROPY)
+    assert [f.value for f in findings] == [value]
 
 
 @pytest.mark.parametrize("text", [
@@ -360,6 +367,11 @@ def test_generic_assignment_keeps_an_ampersand_in_the_value_but_not_a_url_query(
     "PWD=/home/user/projects/app",
     '"secret_key": "${SECRET_KEY}"',
     "MYSQL_PWD=$MYSQL_ROOT_PASSWORD",
+    "--- PASS: TestParseConfig (0.00s)",
+    "    --- PASS: TestServer/handles_empty_body (0.01s)",
+    "PASS: t0001-init.sh",
+    "secret_key = var.secret_key",
+    "secret_access_key = aws_iam_access_key.deploy.secret",
 ])
 def test_generic_assignment_ignores_names_and_values_that_are_not_secrets(text):
     assert scan(text, config=NO_ENTROPY) == []
