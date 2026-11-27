@@ -132,6 +132,13 @@ def test_a_gitleaks_rules_file_of_the_wrong_shape_names_the_setting_the_file_and
     assert problem in message
 
 
+def test_a_gitleaks_rule_with_a_huge_integer_entropy_is_refused_with_one_message(write_config, home):
+    (home / "rules.toml").write_text('[[rules]]\nid = "a"\nregex = "abc"\nentropy = 1' + "0" * 400 + "\n")
+    write_config("scan:\n  gitleaks_rules: rules.toml\n")
+    with pytest.raises(ValueError, match="rule 1 \\(a\\): `entropy` must be a number"):
+        Config.load()
+
+
 def test_a_gitleaks_rule_without_a_regex_is_still_accepted(write_config, home):
     (home / "rules.toml").write_text('[[rules]]\nid = "a"\npath = "x.pem"\n[[rules]]\nid = "b"\nregex = "abc"\nentropy = 2\n')
     write_config("scan:\n  gitleaks_rules: rules.toml\n")
