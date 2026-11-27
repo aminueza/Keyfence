@@ -18,6 +18,9 @@
   hook, so `Get-Content .env` ran unchecked. Running `keyfence install-hooks
   claude-code` again updates the matcher of an existing install, and `keyfence
   doctor` warns while it is out of date (issue #225).
+- The vault check also splits a candidate on `|`, so a registered secret
+  next to a pipe with no space, as in `echo <secret>|base64` or
+  `pw=<secret>|grep x`, is found and redacted.
 - In `placeholder` mode, a `response.function_call_arguments.delta` frame on
   a WebSocket, or line of a JSON-lines response, gets its value escaped for
   the arguments JSON it is part of, as in a stream, so a secret with `"`,

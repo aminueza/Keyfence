@@ -362,7 +362,7 @@ def _scan_url_query(text: str) -> list[Finding]:
 
 
 _QUOTED_VALUE = re.compile(r"""(?=["'`]([^"'`\x00-\x1f]{8,4096})["'`])""")
-_VAULT_PIECE_SPLIT = re.compile(r"[/:#@$+~*%=?&]+")
+_VAULT_PIECE_SPLIT = re.compile(r"[/:#@$+~*%=?&|]+")
 
 
 def _scan_vault(text: str, vault, spans: list[tuple[int, int, str | None]] = ()) -> list[Finding]:
