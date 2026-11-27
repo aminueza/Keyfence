@@ -371,9 +371,7 @@ def test_hook_check_accepts_a_shared_entry_when_its_own_entry_covers_every_tool(
     assert doctor.check_hook(tmp_path / "proj").status == doctor.OK
 
 
-def test_keyfence_hook_returns_the_keyfence_hook_not_the_foreign_one(home, tmp_path, monkeypatch):
-    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
-    monkeypatch.setattr(doctor, "claude_verdicts", lambda paths, cwd: {path: (doctor.OK, "") for path in paths})
+def test_keyfence_hook_returns_the_keyfence_hook_not_the_foreign_one(tmp_path):
     project = tmp_path / "proj" / ".claude"
     project.mkdir(parents=True)
     binary = tmp_path / "bin" / "keyfence"
@@ -406,7 +404,8 @@ def test_a_shared_entry_with_a_broken_keyfence_hook_is_not_reported_as_ok(home, 
     settings.write_text(json.dumps({"hooks": {"PreToolUse": [
         {"matcher": doctor.hooks.HOOK_MATCHER, "hooks": [foreign, own]}]}}))
     check = doctor.check_hook(tmp_path / "proj")
-    assert check.status == doctor.FAIL and "keyfence" in check.detail
+    assert check.status == doctor.FAIL
+    assert str(tmp_path / "bin" / "keyfence") in check.detail and "does not exist" in check.detail
 
 
 @pytest.mark.parametrize("matcher", [None, "", "*", ".*", "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash|PowerShell|Glob"])
