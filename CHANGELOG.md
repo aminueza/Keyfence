@@ -8,6 +8,11 @@
   `\` or a newline no longer breaks the arguments the client puts together.
   The docs now say that a placeholder split across WebSocket frames is not
   restored (issue #240).
+- `doctor` checks keyfence's own hook when it shares a Claude Code settings
+  entry with another program's hook. It used to check the first hook with a
+  command in that entry, so a missing keyfence executable could show as
+  "installed", and another program's missing executable as a keyfence
+  failure (issue #290).
 - The release build installs its tools from the hashed
   `requirements-release.txt` with `--require-hashes` and builds without
   isolation, the jobs that publish to PyPI and to GitHub check that the files
