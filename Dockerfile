@@ -1,8 +1,5 @@
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b
 
-ARG MITMPROXY_VERSION=12.2.3
-ARG PYYAML_VERSION=6.0.3
-ARG CERTIFI_VERSION=2026.7.22
 ARG KEYFENCE_UID=1000
 ARG KEYFENCE_GID=1000
 
@@ -10,10 +7,11 @@ RUN groupadd --gid ${KEYFENCE_GID} keyfence \
   && useradd --uid ${KEYFENCE_UID} --gid ${KEYFENCE_GID} --home-dir /data --no-create-home --shell /usr/sbin/nologin keyfence
 
 WORKDIR /app
-COPY pyproject.toml README.md LICENSE /app/
+COPY requirements-docker.txt pyproject.toml README.md LICENSE /app/
 COPY keyfence/ /app/keyfence/
-RUN pip install --no-cache-dir "mitmproxy==${MITMPROXY_VERSION}" "PyYAML==${PYYAML_VERSION}" "certifi==${CERTIFI_VERSION}" \
-  && pip install --no-cache-dir --no-deps /app
+RUN pip install --no-cache-dir --require-hashes -r /app/requirements-docker.txt \
+  && pip install --no-cache-dir --no-deps --no-build-isolation /app \
+  && pip uninstall -y setuptools
 
 COPY config.example.yaml /app/config.example.yaml
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
