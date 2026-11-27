@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shlex
 import subprocess
 import sys
@@ -308,6 +309,23 @@ def keyfence_hook(path: Path, event: str) -> dict | None:
     return None
 
 
+def keyfence_matchers(path: Path) -> list:
+    try:
+        data = hooks._read_settings(path)
+    except (OSError, ValueError):
+        return []
+    return [entry.get("matcher") for entry in data.get("hooks", {}).get("PreToolUse", []) if hooks._is_ours(entry)]
+
+
+def _matcher_covers_every_tool(matcher) -> bool:
+    if matcher in (None, "", "*"):
+        return True
+    try:
+        return all(re.fullmatch(str(matcher), tool) for tool in hooks.HOOK_MATCHER.split("|"))
+    except re.error:
+        return False
+
+
 def hook_command(path: Path) -> str | None:
     hook = keyfence_hook(path, "PreToolUse")
     return _hook_display(hook) if hook else None
@@ -405,9 +423,18 @@ def check_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, str]] | 
         if hook.get("onFailure") != "block":
             open_scopes.append(scope)
         scopes.append((scope, path))
-    return _without_block("Claude Code hook", _claude_hook_check("Claude Code hook", scopes, unreadable, Check(
+    check = _without_block("Claude Code hook", _claude_hook_check("Claude Code hook", scopes, unreadable, Check(
         INFO, "Claude Code hook", "not installed; keyfence install-hooks claude-code stops Claude Code from reading secret files"),
         cwd, verdicts), open_scopes, "tool call")
+    stale = [(scope, matchers[0]) for scope, path in scopes
+             if (matchers := keyfence_matchers(path)) and not any(map(_matcher_covers_every_tool, matchers))]
+    if check.status in (OK, WARN) and not open_scopes and stale:
+        scope, matcher = stale[0]
+        flag = " --project" if scope == "project" else ""
+        return Check(WARN, "Claude Code hook",
+                     f"installed ({scope}) with the matcher {matcher!r}, which leaves out tools keyfence checks "
+                     f"({hooks.HOOK_MATCHER}); keyfence install-hooks claude-code{flag} updates it")
+    return check
 
 
 def check_prompt_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, str]] | None = None) -> Check:

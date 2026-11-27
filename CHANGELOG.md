@@ -5,12 +5,18 @@
 - `doctor` names an exec-form hook by its arguments when its `command` is empty,
   so the message reads "calls hook claude-code" instead of "calls  hook
   claude-code" (issue #313).
+- The Claude Code hook and the plugin also match the `PowerShell` tool, which
+  Claude Code uses on Windows without Git Bash or with
+  `CLAUDE_CODE_USE_POWERSHELL_TOOL`. Before, no PowerShell call reached the
+  hook, so `Get-Content .env` ran unchecked. Running `keyfence install-hooks
+  claude-code` again updates the matcher of an existing install, and `keyfence
+  doctor` warns while it is out of date (issue #225).
 - In `placeholder` mode, a `response.function_call_arguments.delta` frame on
   a WebSocket, or line of a JSON-lines response, gets its value escaped for
   the arguments JSON it is part of, as in a stream, so a secret with `"`,
   `\` or a newline no longer breaks the arguments the client puts together.
   The docs now say that a placeholder split across WebSocket frames is not
-  restored (issue #240).
+  restored (issue #240).e50725b28877bd946dfe67788ab6285c8f4a
 - In `placeholder` mode, a `<` at the end of a text item in an OpenAI
   Responses API stream stays in that item. keyfence held it in case a
   placeholder started there, and released holds only on Anthropic's
@@ -20,7 +26,7 @@
   `.done` events of the Responses API, and only a `.delta` event can start
   one, so a complete string ending in `<` (the instructions echoed in
   `response.created`, for example) no longer holds back the rest of the
-  stream (issue #239).
+  stream (issue #239).f13ce45fbe3d04799a76ae55b243ff42a959
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
