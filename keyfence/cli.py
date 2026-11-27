@@ -107,8 +107,6 @@ def cmd_canary(args) -> int:
         return 1
     value = secrets.token_urlsafe(24)
     prefix = "" if not existing or existing.endswith("\n") else "\n"
-    # Load the vault before touching the file: a vault that cannot load must
-    # fail while the file is still untouched.
     vault = Vault()
     existed = path.exists()
     prev_size = path.stat().st_size if existed else 0
@@ -121,8 +119,6 @@ def cmd_canary(args) -> int:
     try:
         vault.add_canary(value, str(path.resolve()))
     except (VaultError, OSError) as exc:
-        # The line is in the file but not in the vault: undo the append, or a
-        # canary that never trips stays behind and blocks a retry.
         try:
             if existed:
                 with path.open("r+") as fh:
@@ -435,7 +431,6 @@ def cmd_export(args) -> int:
         if not args.all and not args.since:
             start, cursor_inode = export.read_cursor(cursor)
             if start > stop or cursor_inode != log_inode:
-                # truncated in place, or rotated into a new file: read it again
                 start = 0
     entries = list(export.read_entries(log, since, start, stop))
     if args.otlp:
@@ -443,9 +438,6 @@ def cmd_export(args) -> int:
         try:
             sent = export.send_otlp(args.otlp, entries, headers)
         except (OSError, RuntimeError) as exc:
-            # URLError and HTTPError are OSError; an HTTP status the collector
-            # answers with is a RuntimeError. One line beats a traceback and
-            # the cursor stays where it was, so the next run retries.
             print(f"error: could not send to {args.otlp}: {exc}", file=sys.stderr)
             return 1
         export.write_cursor(cursor, stop, log_inode)
