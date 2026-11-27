@@ -4,21 +4,38 @@
 
 - A gitleaks file with `[extend]` `useDefault = true` now loads the bundled rules
   and adds to them, instead of loading only its own rules and dropping the 220
-  bundled ones; `disabledRules` is read too, a custom rule with the id of a
-  bundled one replaces it, and `[extend] path` stops with an error that names
-  `scan.gitleaks_rules` instead of being ignored (issue #304).
+  bundled ones; `disabledRules` drops bundled rules only, a custom rule with
+  the id of a bundled one replaces it, and `[extend] path` stops with an error
+  that names `scan.gitleaks_rules` instead of being ignored (issue #304).
+- The system prompt notice takes its shape from the body and the request
+  path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
+  Anthropic models on Vertex AI get `system` instead of
+  `systemInstruction`, the OpenAI-compatible chat endpoints of Vertex AI and
+  Gemini get a system message, and a Bedrock body for another model (Llama's
+  `prompt`, for example) is left without a notice instead of getting a
+  `system` field its schema does not have (issue #238).
+- Common `.env` and config shapes of a secret that is not in the vault are
+  redacted: `AWS_SECRET_ACCESS_KEY=`, `SECRET_KEY=`, `SECRET_KEY_BASE=`,
+  `JWT_SECRET_KEY=`, `MYSQL_PWD=` and `SMTP_PASS=` lines, Django's
+  `SECRET_KEY = '...'` (also with `(` or `)` in it), a quoted key with a
+  quoted value such as `{"password": "..."}` for every name the rule
+  knows, and a value with `&` in it. The entropy check also looks at the
+  value of a `NAME=value` token, which it used to skip whole. Paths,
+  Terraform references and reads of the environment or of settings are not
+  flagged, and a value is ignored only when it starts with a call, not when
+  it has a parenthesis anywhere (issue #233).
 - The Claude Code hook and the plugin also match the `PowerShell` tool, which
   Claude Code uses on Windows without Git Bash or with
   `CLAUDE_CODE_USE_POWERSHELL_TOOL`. Before, no PowerShell call reached the
   hook, so `Get-Content .env` ran unchecked. Running `keyfence install-hooks
   claude-code` again updates the matcher of an existing install, and `keyfence
-  doctor` warns while it is out of date (issue #225)
+  doctor` warns while it is out of date (issue #225).
 - In `placeholder` mode, a `response.function_call_arguments.delta` frame on
   a WebSocket, or line of a JSON-lines response, gets its value escaped for
   the arguments JSON it is part of, as in a stream, so a secret with `"`,
   `\` or a newline no longer breaks the arguments the client puts together.
   The docs now say that a placeholder split across WebSocket frames is not
-  restored (issue #240)
+  restored (issue #240).
 - In `placeholder` mode, a `<` at the end of a text item in an OpenAI
   Responses API stream stays in that item. keyfence held it in case a
   placeholder started there, and released holds only on Anthropic's
@@ -28,7 +45,7 @@
   `.done` events of the Responses API, and only a `.delta` event can start
   one, so a complete string ending in `<` (the instructions echoed in
   `response.created`, for example) no longer holds back the rest of the
-  stream (issue #239)
+  stream (issue #239).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
@@ -171,7 +188,9 @@
   with `--no-build-isolation` or a constraints file failed (issue #217).
 - The hook expands a bracket range such as `.en[u-w]` as the shell does,
   so the range no longer hides `.env` or another secret file from the
-  hook (issue #231).
+  hook (issue #231). A word whose characters cannot spell any secret file
+  name is neither expanded nor refused as too large, so a regex in `grep`
+  or `sed` such as `s/[a-z][a-z][a-z]/X/` is allowed again (issue #276).
 - The sdist no longer ships `tests/`. Those tests need files that only
   the repository has, so they failed on import. The sdist still carries
   `LICENSE` and the bundled gitleaks rules, and CI checks both

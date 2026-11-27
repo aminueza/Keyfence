@@ -282,6 +282,17 @@ def test_notice_follows_the_configured_mode(guard, mode, promise):
     assert promise in json.loads(flow.request.get_text())["system"]
 
 
+def test_notice_takes_its_shape_from_the_request_path(guard):
+    kf = guard("redact")
+    body = json.dumps({"messages": [{"role": "user", "content": [{"text": f"key {KEY}"}]}]}).encode()
+    flow = make_flow(body=body, host="bedrock-runtime.us-east-1.amazonaws.com", path=b"/model/x/converse")
+    flow.request.headers["authorization"] = "Bearer abc"
+    kf.request(flow)
+    out = json.loads(flow.request.get_text())
+    assert out["system"][0]["text"].startswith("Note from keyfence")
+    assert "[REDACTED:github-token]" in out["messages"][0]["content"][0]["text"]
+
+
 def test_notice_can_be_disabled(guard):
     kf = guard("redact", "notice: false\n")
     body = json.dumps({"system": "sys", "messages": [{"role": "user", "content": f"key {KEY}"}]}).encode()

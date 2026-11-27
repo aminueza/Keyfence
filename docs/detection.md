@@ -58,10 +58,21 @@ rewritten at the original escaped coordinates so it stays valid JSON.
 Unknown escape sequences such as `\m` or a bare `\u` are preserved as-is
 in the decoded text so they act as token separators.
 
-The built-in assignment rule ignores placeholder values such as `changeme`
-or `${VAR}`, values that contain parentheses, and values that are already
-a redaction token, so a model repeating `TOKEN=[REDACTED]` is not flagged
-again.
+The built-in assignment rule matches names that hold `password`, `passwd`,
+`secret`, `token`, `api_key` and similar, and also `SECRET_KEY`,
+`SECRET_ACCESS_KEY`, `SECRET_KEY_BASE`, and `PASS` or `PWD` as a whole
+part of the name (`MYSQL_PWD`, `SMTP_PASS`; not `ASKPASS`, and `PASS` only
+after a separator, so a test runner's `PASS: name` line is not a secret).
+The name can be quoted, as in `{"password": "..."}`, and then the value
+must be quoted too. A `&` stays in the value unless what follows it looks
+like the next parameter of a URL query (`&next=`, `&amp;`) or is another
+`&`. The rule ignores placeholder values such as `changeme` or `${VAR}`,
+values that start with a call (`hash_password(`, `$(openssl`, `env::var(`,
+`self->get(`, `a?.split(`), paths, Terraform references (`var.`,
+`aws_iam_access_key.deploy.secret`), reads of the environment or of
+settings (`os.environ[`, `process.env.`, `settings.`), and values that are
+already a redaction token, so a model repeating `TOKEN=[REDACTED]` is not
+flagged again.
 
 `generic-api-key` is disabled by default because it matches ordinary prose
 and code. `scan.gitleaks_disabled` controls the list, and
@@ -78,6 +89,10 @@ Excluded from the entropy check:
 - words, file paths, URLs, `data:` URIs and anything with non-ASCII
   characters
 - hex strings of 32, 40 or 64 characters (hashes and checksums)
+- in a `NAME=value` token, the name: the value is checked on its own. The
+  token is skipped when the name is not an identifier (a URL, a
+  `--flag=`), or when the value holds another `=` or a `.` (code such as
+  `a=b.c`)
 - base64 that decodes to JSON (telemetry and event payloads)
 - API object ids such as `toolu_…`, `msg_…`, `call_…`, `chatcmpl-…`
 - when the body is JSON, values of keys that hold ids, hashes, signatures
