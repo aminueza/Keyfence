@@ -9,6 +9,16 @@
   Gemini get a system message, and a Bedrock body for another model (Llama's
   `prompt`, for example) is left without a notice instead of getting a
   `system` field its schema does not have (issue #238).
+- Common `.env` and config shapes of a secret that is not in the vault are
+  redacted: `AWS_SECRET_ACCESS_KEY=`, `SECRET_KEY=`, `SECRET_KEY_BASE=`,
+  `JWT_SECRET_KEY=`, `MYSQL_PWD=` and `SMTP_PASS=` lines, Django's
+  `SECRET_KEY = '...'` (also with `(` or `)` in it), a quoted key with a
+  quoted value such as `{"password": "..."}` for every name the rule
+  knows, and a value with `&` in it. The entropy check also looks at the
+  value of a `NAME=value` token, which it used to skip whole. Paths,
+  Terraform references and reads of the environment or of settings are not
+  flagged, and a value is ignored only when it starts with a call, not when
+  it has a parenthesis anywhere (issue #233).
 - The Claude Code hook and the plugin also match the `PowerShell` tool, which
   Claude Code uses on Windows without Git Bash or with
   `CLAUDE_CODE_USE_POWERSHELL_TOOL`. Before, no PowerShell call reached the
@@ -173,7 +183,9 @@
   with `--no-build-isolation` or a constraints file failed (issue #217).
 - The hook expands a bracket range such as `.en[u-w]` as the shell does,
   so the range no longer hides `.env` or another secret file from the
-  hook (issue #231).
+  hook (issue #231). A word whose characters cannot spell any secret file
+  name is neither expanded nor refused as too large, so a regex in `grep`
+  or `sed` such as `s/[a-z][a-z][a-z]/X/` is allowed again (issue #276).
 - The sdist no longer ships `tests/`. Those tests need files that only
   the repository has, so they failed on import. The sdist still carries
   `LICENSE` and the bundled gitleaks rules, and CI checks both
