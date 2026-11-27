@@ -296,7 +296,10 @@ def _may_name_sensitive(word: str) -> bool:
     for match in _BRACKET_CLASS.finditer(word):
         positions.extend(_positions(word[cursor:match.start()]))
         chars: set[str] = set()
-        for ch in _bracket_class_chars(match.group(1)):
+        members = _bracket_class_chars(match.group(1))
+        if len(members) > _BRACKET_EXPANSION_LIMIT:
+            return True
+        for ch in members:
             folded = ch.casefold()
             if len(folded) != 1:
                 return True
@@ -306,33 +309,24 @@ def _may_name_sensitive(word: str) -> bool:
         positions.append(chars)
         cursor = match.end()
     positions.extend(_positions(word[cursor:]))
-    return any(_spells(positions, literal) for literal in _SENSITIVE_LITERALS)
+    present = set().union(*positions)
+    return any(_spells(positions, literal) for literal in _SENSITIVE_LITERALS if present.issuperset(literal))
 
 
 def _spells(positions: list[set[str]], literal: str) -> bool:
-    end = len(positions)
-    for start in range(end - len(literal.replace("/", "")) + 1):
-        frontier = {start}
-        for ch in literal:
-            following = set()
-            for index in frontier:
-                if index >= end or ch not in positions[index]:
-                    continue
-                index += 1
-                following.add(index)
-                while ch == "/":
-                    if index < end and "/" in positions[index]:
-                        index += 1
-                    elif index + 1 < end and "." in positions[index] and "/" in positions[index + 1]:
-                        index += 2
-                    else:
-                        break
-                    following.add(index)
-            frontier = following
-            if not frontier:
-                break
-        if frontier:
-            return True
+    ahead: list[set[int]] = [set() for _ in range(len(positions) + 2)]
+    for index, chars in enumerate(positions):
+        for offset in ahead[index] | {0}:
+            ch = literal[offset]
+            if ch not in chars:
+                continue
+            if offset + 1 == len(literal):
+                return True
+            ahead[index + 1].add(offset + 1)
+            if ch == "/":
+                ahead[index + 1].add(offset)
+                if index + 1 < len(positions) and "." in positions[index + 1]:
+                    ahead[index + 2].add(offset)
     return False
 
 
@@ -365,7 +359,7 @@ def paths_in_command(command: str) -> list[str]:
                 unglobbed = _GLOB.sub("", word)
                 if unglobbed and unglobbed != word:
                     found.append(unglobbed)
-                if _may_name_sensitive(word):
+                if _BRACKET_CLASS.search(word) and _may_name_sensitive(word):
                     found.extend(_expand_bracket_classes(word))
     return found
 
@@ -374,12 +368,13 @@ def _refusal_for_too_many_bracket_classes(command: str) -> str | None:
     for word in _WORD_SEPARATORS.split(_mask_url_spans(command)):
         if not word or word.startswith("-") or not any(c in word for c in "/._"):
             continue
-        if _is_url_remainder(word) or not _may_name_sensitive(word):
+        if _is_url_remainder(word):
             continue
         try:
             _bracket_expansion_size(word)
         except _ExpansionTooLarge:
-            return word
+            if _may_name_sensitive(word):
+                return word
     return None
 
 
