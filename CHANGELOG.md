@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A custom rules file with a regex that Python compiles and then refuses, such as
+  `a{4294967296}` or 600 nested groups, drops that rule instead of stopping
+  keyfence: `re.error` came with `OverflowError` and `RecursionError`, and only
+  the first was caught (issue #312).
 - In `placeholder` mode, a `response.function_call_arguments.delta` frame on
   a WebSocket, or line of a JSON-lines response, gets its value escaped for
   the arguments JSON it is part of, as in a stream, so a secret with `"`,
