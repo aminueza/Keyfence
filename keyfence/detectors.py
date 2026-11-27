@@ -32,7 +32,7 @@ def _rule(name: str, regex: str, **kwargs) -> Rule:
 
 _GENERIC_ASSIGNMENT = compile_regex(r"""(?ix)
     \b[a-z0-9_]*(?:api[_-]?key|apikey|secret(?:[_-](?:access[_-])?key(?:[_-]base)?)?|passwd|password|senha|
-        auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key|db[_-]?pass|token|(?<=[a-z0-9][_-])pass|(?<![a-z0-9])pwd)
+        auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key|db[_-]?pass|token|(?<=[a-z0-9][_-])pass|(?<![a-z0-9])pwd(?!["']?\s*[:=]\s*["']?(?:[/~]|\.\.?/)))
     \b(?P<quote>["'])?\s*[:=]\s*
     (?(quote)["']|["']?)(?P<val>(?:[^\s"'&\\]|&(?!&|[\w.-]+[=;])){8,})["']?
     """)
@@ -71,7 +71,7 @@ BUILTIN_RULES: list[Rule] = [
              compile_regex(r"(?i)^(?:\$\{|\$[a-z_]|<|your|chang|exemplo|example)"),
              compile_regex(r"^\$?(?:[\w.\[\]]|::|->|\?\.)*\("),
              compile_regex(r"^\[REDACTED"),
-             compile_regex(r"^(?:[/~]|\.\.?/)"),
+             compile_regex(r"^(?:~|\.{1,2})?(?:/[\w.][a-z0-9._-]*)+/?$"),
              compile_regex(r"(?i)^(?:os\.environ|os\.getenv|process\.env|import\.meta\.env|settings|config|env|var|local|module|data)[.\[]"),
              compile_regex(r"^[a-z][a-z0-9]*_[a-z0-9_]+\.[a-z0-9_-]+\.[a-z0-9_.]+$"),
          )),

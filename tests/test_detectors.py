@@ -328,6 +328,12 @@ def test_generic_assignment_catches_common_env_names(name):
     assert [(f.kind, f.value) for f in findings] == [("generic-assignment", value)]
 
 
+def test_generic_assignment_catches_a_value_that_starts_with_a_slash():
+    value = "/" + ENV_KEY[1:]
+    findings = scan(f"DB_PASSWORD={value}\n", config=NO_ENTROPY)
+    assert [f.value for f in findings] == [value]
+
+
 @pytest.mark.parametrize("template", [
     "SECRET_KEY = '{}'",
     '{{"password":"{}"}}',
