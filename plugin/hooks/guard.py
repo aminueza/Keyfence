@@ -49,7 +49,7 @@ _NAMED_DUMP = re.compile(
     _START + r"(?:printenv\s+" + _SECRET_VAR + r"\b|(?:echo|printf)\b[^;&|\n]*\$\{?" + _SECRET_VAR + r"\b)|"
     r"/proc/(?:self|\d+)/environ", re.IGNORECASE | re.MULTILINE)
 _HERESTRING_DUMP = re.compile(r"<<<(?!<)[^;&|\n]*\$\{?" + _SECRET_VAR + r"\b", re.IGNORECASE)
-_O = r"(?:\s+-[^\s=;&|]+(?:=[^\s;&|]*|\s+[^-\s;&|][^\s;&|]*)?)*"
+_O = r"(?:\s+-[^\s=;&|]+(?:=[^\s;&|]*|\s+[^-\s;&|][^\s;&|]*)?){0,48}"
 _KUBECTL_SECRET = r"(?<!\S)(?:[\w.-]+,)*secrets?(?:/\S*)?(?:,[\w.-]+)*(?!\S)"
 _KUBECTL_DATA_FORMAT = (r"(?:(?:-o|--output)[\s=]*[\"']?"
                         r"(?:yaml|kyaml|json|jsonpath|go-template|custom-columns|template)|--template\b)")
@@ -58,9 +58,9 @@ _SECRET_COMMANDS = re.compile(
     rf"aws{_O}\s+secretsmanager\s+get-secret-value|aws{_O}\s+ssm\s+get-parameters?\b.*--with-decryption|"
     rf"aws{_O}\s+configure\s+(?:get\s+\S*(?:secret|token|key)|export-credentials)|"
     rf"aws{_O}\s+sts\s+(?:get-session-token|get-federation-token|assume-role\S*)|aws{_O}\s+ecr\s+get-login-password|"
-    rf"op{_O}\s+read|op(?=[^;&|\n]*(?:--reveal|--format[= ]json|--fields)){_O}\s+item\s+get\b|"
+    rf"op{_O}\s+read|op(?=[^;&|\n]{{0,500}}(?:--reveal|--format[= ]json|--fields)){_O}\s+item\s+get\b|"
     rf"vault{_O}\s+(?:kv\s+get|read)|doppler{_O}\s+secrets(?:\s+(?:download|get)\b|(?![^;&|\n]*--only-names))|"
-    rf"kubectl(?=[^;&|\n]*{_KUBECTL_DATA_FORMAT}){_O}\s+get\b(?=[^;&|\n]*{_KUBECTL_SECRET})|"
+    rf"kubectl(?=[^;&|\n]{{0,500}}{_KUBECTL_DATA_FORMAT}){_O}\s+get\b{_O}\s+{_KUBECTL_SECRET}|"
     rf"kubectl{_O}\s+config\s+view\b(?=.*--raw)|"
     rf"gcloud{_O}\s+secrets\s+versions\s+access|"
     rf"gcloud{_O}\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token|"
