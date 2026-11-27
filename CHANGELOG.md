@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The system prompt notice takes its shape from the body and the request
+  path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
+  Anthropic models on Vertex AI get `system` instead of
+  `systemInstruction`, the OpenAI-compatible chat endpoints of Vertex AI and
+  Gemini get a system message, and a Bedrock body for another model (Llama's
+  `prompt`, for example) is left without a notice instead of getting a
+  `system` field its schema does not have (issue #238).
 - Common `.env` and config shapes of a secret that is not in the vault are
   redacted: `AWS_SECRET_ACCESS_KEY=`, `SECRET_KEY=`, `SECRET_KEY_BASE=`,
   `JWT_SECRET_KEY=`, `MYSQL_PWD=` and `SMTP_PASS=` lines, Django's
