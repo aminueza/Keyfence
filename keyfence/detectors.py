@@ -31,10 +31,10 @@ def _rule(name: str, regex: str, **kwargs) -> Rule:
 
 
 _GENERIC_ASSIGNMENT = compile_regex(r"""(?ix)
-    \b[a-z0-9_]*(?:api[_-]?key|apikey|secret|passwd|password|senha|auth[_-]?token|
-        access[_-]?token|client[_-]?secret|private[_-]?key|db[_-]?pass|token)
-    \b\s*[:=]\s*
-    ["']?(?P<val>[^\s"'&\\]{8,})["']?
+    \b[a-z0-9_]*(?:api[_-]?key|apikey|secret(?:[_-](?:access[_-])?key(?:[_-]base)?)?|passwd|password|senha|
+        auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key|db[_-]?pass|token|(?<![a-z0-9])(?:pass|pwd))
+    \b(?P<quote>["'])?\s*[:=]\s*
+    (?(quote)["']|["']?)(?P<val>(?:[^\s"'&\\]|&(?![\w.-]+=)){8,})["']?
     """)
 
 _PLACEHOLDER_VALUES = (
@@ -71,6 +71,8 @@ BUILTIN_RULES: list[Rule] = [
              compile_regex(r"(?i)^(?:\$\{|\$[a-z_]|<|your|chang|exemplo|example)"),
              compile_regex(r"[()]"),
              compile_regex(r"^\[REDACTED"),
+             compile_regex(r"^(?:[/~]|\.\.?/)"),
+             compile_regex(r"(?i)^(?:os\.environ|os\.getenv|process\.env|import\.meta\.env|settings|config|env)[.\[]"),
          )),
 ]
 
@@ -106,6 +108,7 @@ _TOKEN_SPLIT = re.compile(r"""[\s"'`,;{}()\[\]<>\\\x00-\x1f\ud800-\udfff\ufffd]+
 def _split_tokens(text: str) -> list[str]:
     return _TOKEN_SPLIT.split(text)
 _WORDISH = re.compile(r"^[A-Za-z]+$")
+_ASSIGNED_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _HEXISH = re.compile(r"^[0-9a-fA-F]+$")
 _PATHISH = re.compile(r"^[./~]|://|^data:")
 _BASE64ISH = re.compile(r"^[A-Za-z0-9+/_-]+=*$")
@@ -304,6 +307,11 @@ def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5,
         pos = idx + len(raw) if idx >= 0 else pos
 
         token = raw.strip(".,:=!?")
+        name, equals, value = token.partition("=")
+        if equals and value.rstrip("="):
+            if not _ASSIGNED_NAME.match(name) or "=" in value.rstrip("=") or "." in value:
+                continue
+            token = value
         if len(token) < min_length or len(token) > max_length or not token.isascii():
             continue
         if _WORDISH.match(token) or _PATHISH.search(token):
@@ -312,7 +320,7 @@ def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5,
             continue
         if token.startswith(SKIP_PREFIXES) or _decodes_to_json(token):
             continue
-        if "(" in token or ")" in token or "=" in token.rstrip("="):
+        if any(c in token for c in "()"):
             continue
         has_upper = any(c.isupper() for c in token)
         has_lower = any(c.islower() for c in token)
@@ -321,7 +329,7 @@ def _scan_entropy(text: str, min_length: int = 24, threshold: float = 4.5,
             continue
         if shannon_entropy(token) < threshold:
             continue
-        start = (idx if idx >= 0 else 0) + raw.find(token)
+        start = (idx if idx >= 0 else 0) + raw.rfind(token)
         end = start + len(token)
         if _inside(start, end, excluded):
             continue

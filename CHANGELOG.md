@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Common `.env` and config shapes of a secret that is not in the vault are
+  redacted: `AWS_SECRET_ACCESS_KEY=`, `SECRET_KEY=`, `SECRET_KEY_BASE=`,
+  `JWT_SECRET_KEY=`, `MYSQL_PWD=` and `SMTP_PASS=` lines, Django's
+  `SECRET_KEY = '...'`, a quoted key such as `{"password": "..."}`, and a
+  value with `&` in it. The entropy check also looks at the value of a
+  `NAME=value` token, which it used to skip whole. Paths and reads of the
+  environment or of settings are not flagged (issue #233).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,

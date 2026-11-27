@@ -310,6 +310,69 @@ def test_generic_assignment_ignores_already_redacted_values():
     assert scan(text, config=NO_ENTROPY) == []
 
 
+def _random_value(seed, length, alphabet="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"):
+    import random
+    r = random.Random(seed)
+    return "".join(r.choice(alphabet) for _ in range(length))
+
+
+ENV_KEY = _random_value(1, 40, "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789/+")
+ENV_HEX = _random_value(2, 128, "0123456789abcdef")
+ENV_SHORT = _random_value(3, 16)
+
+
+@pytest.mark.parametrize("name", ["AWS_SECRET_ACCESS_KEY", "SECRET_KEY", "JWT_SECRET_KEY", "SECRET_KEY_BASE", "MYSQL_PWD", "SMTP_PASS"])
+def test_generic_assignment_catches_common_env_names(name):
+    value = ENV_HEX if name == "SECRET_KEY_BASE" else ENV_SHORT if name.endswith(("PWD", "PASS")) else ENV_KEY
+    findings = scan(f"{name}={value}\n", config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("generic-assignment", value)]
+
+
+@pytest.mark.parametrize("template", [
+    "SECRET_KEY = '{}'",
+    '{{"password":"{}"}}',
+    "{{'PASSWORD': '{}'}}",
+    '"db_password": "{}",',
+])
+def test_generic_assignment_catches_quoted_keys(template):
+    findings = scan(template.format(ENV_SHORT), config=NO_ENTROPY)
+    assert [(f.kind, f.value) for f in findings] == [("generic-assignment", ENV_SHORT)]
+
+
+def test_generic_assignment_keeps_an_ampersand_in_the_value_but_not_a_url_query():
+    findings = scan(f"DB_PASSWORD=p&{ENV_SHORT}\n", config=NO_ENTROPY)
+    assert [f.value for f in findings] == [f"p&{ENV_SHORT}"]
+    findings = scan(f"see https://example.com/login?password={ENV_SHORT}&next=/home", config=NO_ENTROPY)
+    assert [f.value for f in findings] == [ENV_SHORT]
+
+
+@pytest.mark.parametrize("text", [
+    "const secretKey = process." + "env.SECRET_KEY;",
+    "const SECRET_KEY = process." + "env.SECRET_KEY;",
+    'SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]',
+    '"add-secret": cmd_add_secret,',
+    "secret_name: my-app-database",
+    "secretKeyRef: database-credentials",
+    "secretKey = loadKeyFromVault",
+    "token_url: https://oauth2.googleapis.com/token",
+    "proxy_bypass=localhost,127.0.0.1",
+    "GIT_ASKPASS=/usr/lib/git-core/git-gui--askpass",
+    "PWD=/home/user/projects/app",
+    '"secret_key": "${SECRET_KEY}"',
+    "MYSQL_PWD=$MYSQL_ROOT_PASSWORD",
+])
+def test_generic_assignment_ignores_names_and_values_that_are_not_secrets(text):
+    assert scan(text, config=NO_ENTROPY) == []
+
+
+def test_entropy_checks_the_value_of_a_name_value_token():
+    assert entropy_kinds(f"WEBHOOK_SIGNING={RANDOM}") == ["entropy"]
+    found = [f for f in scan(f"export WEBHOOK_SIGNING={RANDOM}") if f.kind == "entropy"]
+    assert [f.value for f in found] == [RANDOM]
+    assert entropy_kinds(f"--signing={RANDOM}") == []
+    assert entropy_kinds(f"WEBHOOK={RANDOM}=x{RANDOM}") == []
+
+
 def test_generic_assignment_ignores_code_expressions():
     assert scan("token = self._placeholder(f.value, mapping)", config=NO_ENTROPY) == []
     assert scan("token = raw.strip('.,:=!?')", config=NO_ENTROPY) == []
