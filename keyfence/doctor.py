@@ -309,6 +309,15 @@ def keyfence_hook(path: Path, event: str) -> dict | None:
     return None
 
 
+def keyfence_hooks(path: Path, event: str) -> list[dict]:
+    try:
+        data = hooks._read_settings(path)
+    except (OSError, ValueError):
+        return []
+    return [hook for entry in data.get("hooks", {}).get(event, [])
+            for hook in hooks._entry_hooks(entry) if hooks._names_our_hook(hook)]
+
+
 def keyfence_matchers(path: Path) -> list:
     try:
         data = hooks._read_settings(path)
@@ -410,17 +419,18 @@ def check_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, str]] | 
             continue
         if not hook_installed(path):
             continue
-        hook = keyfence_hook(path, "PreToolUse")
-        if hook is None:
+        ours = keyfence_hooks(path, "PreToolUse")
+        if not ours:
             return Check(FAIL, "Claude Code hook",
                          f"installed ({scope}) but {path} holds no keyfence command; every Claude Code tool call is refused "
                          "until keyfence install-hooks claude-code runs again")
-        problem = _hook_problem(hook)
-        if problem:
-            return Check(FAIL, "Claude Code hook",
-                         f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every Claude Code "
-                         "tool call is refused until keyfence install-hooks claude-code runs again")
-        if hook.get("onFailure") != "block":
+        for hook in ours:
+            problem = _hook_problem(hook)
+            if problem:
+                return Check(FAIL, "Claude Code hook",
+                             f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; "
+                             "every Claude Code tool call is refused until keyfence install-hooks claude-code runs again")
+        if any(hook.get("onFailure") != "block" for hook in ours):
             open_scopes.append(scope)
         scopes.append((scope, path))
     check = _without_block("Claude Code hook", _claude_hook_check("Claude Code hook", scopes, unreadable, Check(
@@ -446,17 +456,18 @@ def check_prompt_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, s
             continue
         if not prompt_hook_installed(path):
             continue
-        hook = keyfence_hook(path, "UserPromptSubmit")
-        if hook is None:
+        ours = keyfence_hooks(path, "UserPromptSubmit")
+        if not ours:
             return Check(FAIL, "Claude Code prompt hook",
                          f"installed ({scope}) but {path} holds no keyfence command; every submitted prompt is refused "
                          "until keyfence install-hooks claude-code runs again")
-        problem = _hook_problem(hook)
-        if problem:
-            return Check(FAIL, "Claude Code prompt hook",
-                         f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every submitted prompt "
-                         "is refused until keyfence install-hooks claude-code runs again")
-        if hook.get("onFailure") != "block":
+        for hook in ours:
+            problem = _hook_problem(hook)
+            if problem:
+                return Check(FAIL, "Claude Code prompt hook",
+                             f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; "
+                             "every submitted prompt is refused until keyfence install-hooks claude-code runs again")
+        if any(hook.get("onFailure") != "block" for hook in ours):
             open_scopes.append(scope)
         scopes.append((scope, path))
     return _without_block("Claude Code prompt hook", _claude_hook_check("Claude Code prompt hook", scopes, unreadable, Check(

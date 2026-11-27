@@ -409,6 +409,76 @@ def test_hook_check_accepts_a_matcher_that_covers_every_checked_tool(home, tmp_p
     assert doctor.check_hook(tmp_path / "proj").status == doctor.OK
 
 
+def test_hook_check_fails_on_a_broken_keyfence_entry_after_a_healthy_one(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(doctor, "claude_verdicts", lambda paths, cwd: {path: (doctor.OK, "") for path in paths})
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    healthy = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "onFailure": "block"}
+    broken = {"type": "command", "command": str(tmp_path / "gone" / "keyfence"),
+              "args": ["hook", "claude-code"], "onFailure": "block"}
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": doctor.hooks.HOOK_MATCHER, "hooks": [healthy]},
+        {"matcher": doctor.hooks.HOOK_MATCHER, "hooks": [broken]}]}}))
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.FAIL
+    assert f"{tmp_path / 'gone' / 'keyfence'} hook claude-code" in check.detail
+
+
+def test_hook_check_stays_ok_with_two_healthy_keyfence_entries(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(doctor, "claude_verdicts", lambda paths, cwd: {path: (doctor.OK, "") for path in paths})
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    ours = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "onFailure": "block"}
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": doctor.hooks.HOOK_MATCHER, "hooks": [ours]},
+        {"matcher": doctor.hooks.HOOK_MATCHER, "hooks": [dict(ours)]}]}}))
+    assert doctor.check_hook(tmp_path / "proj").status == doctor.OK
+
+
+def test_prompt_hook_check_fails_on_a_broken_keyfence_entry_after_a_healthy_one(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(doctor, "claude_verdicts", lambda paths, cwd: {path: (doctor.OK, "") for path in paths})
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    healthy = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "onFailure": "block"}
+    broken = {"type": "command", "command": str(tmp_path / "gone" / "keyfence"),
+              "args": ["hook", "claude-code"], "onFailure": "block"}
+    (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
+        {"hooks": [healthy]}, {"hooks": [broken]}]}}))
+    check = doctor.check_prompt_hook(tmp_path / "proj")
+    assert check.status == doctor.FAIL
+    assert f"{tmp_path / 'gone' / 'keyfence'} hook claude-code" in check.detail
+    (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
+        {"hooks": [healthy]}, {"hooks": [dict(healthy, command=str(binary), onFailure=None)]}]}}))
+    assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.WARN
+
+
+def test_keyfence_hook_returns_the_first_keyfence_entry(home, tmp_path):
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    first = {"type": "command", "command": "keyfence-first", "args": ["hook", "claude-code"]}
+    second = {"type": "command", "command": "keyfence-second", "args": ["hook", "claude-code"]}
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Read", "hooks": [first]}, {"matcher": "Read", "hooks": [second]}]}}))
+    assert doctor.keyfence_hook(project / "settings.json", "PreToolUse")["command"] == "keyfence-first"
+    assert [h["command"] for h in doctor.keyfence_hooks(project / "settings.json", "PreToolUse")] == \
+        ["keyfence-first", "keyfence-second"]
+
+
 def test_prompt_hook_check(home, tmp_path, monkeypatch):
     monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
     assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.INFO

@@ -106,6 +106,9 @@
   script folders searched; pi's explicit `--command` override still works.
   This completes the failure handling for issue #173 after PR #200 added
   install-scheme discovery.
+- `doctor` checks every settings entry that holds a keyfence hook, not only the
+  first one, so a second entry with a broken command is reported instead of
+  passing as installed and OK (issue #308).
 - The hook folds case with `str.casefold()` instead of `str.lower()`, so a
   long s (U+017F) in a path no longer hides a secret file on macOS: APFS folds
   `.ſsh` to `.ssh`, so the path opened the real directory while the hook
