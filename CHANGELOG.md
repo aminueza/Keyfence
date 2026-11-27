@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- The release build installs its tools from the hashed
+  `requirements-release.txt` with `--require-hashes` and builds without
+  isolation, the jobs that publish to PyPI and to GitHub check that the files
+  match the SHA-256 the build recorded, and each GitHub release carries a
+  CycloneDX SBOM of the wheel and its dependencies. The Docker image starts
+  from a base image pinned by digest and installs the hashed
+  `requirements-docker.txt`; CI builds it. Dependabot now also proposes
+  updates for both requirements files and the base image (issue #222).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
