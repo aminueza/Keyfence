@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The system prompt notice takes its shape from the body and the request
+  path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
+  Anthropic models on Vertex AI get `system` instead of
+  `systemInstruction`, the OpenAI-compatible chat endpoints of Vertex AI and
+  Gemini get a system message, and a Bedrock body for another model (Llama's
+  `prompt`, for example) is left without a notice instead of getting a
+  `system` field its schema does not have (issue #238).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,

@@ -22,8 +22,8 @@ NOTICES = {
 }
 
 
-ANTHROPIC_HOSTS = ("anthropic.com", "amazonaws.com")
-GEMINI_HOSTS = ("googleapis.com",)
+ANTHROPIC_HOSTS = ("anthropic.com",)
+BEDROCK_HOSTS = ("amazonaws.com",)
 SYSTEM_ROLES = ("system", "developer")
 
 
@@ -31,6 +31,8 @@ def _append_text(value, text: str):
     if isinstance(value, str):
         return f"{value}\n\n{text}" if value else text
     if isinstance(value, list):
+        if value and all(isinstance(block, dict) and "type" not in block for block in value):
+            return [*value, {"text": text}]
         return [*value, {"type": "text", "text": text}]
     return value
 
@@ -47,7 +49,7 @@ def _with_system(messages: list, text: str) -> list:
     return [{"role": "system", "content": text}, *messages]
 
 
-def add_notice(body: str, host: str, mode: str = "redact") -> str:
+def add_notice(body: str, host: str, mode: str = "redact", path: str = "") -> str:
     text = NOTICES[mode]
     try:
         obj = json.loads(body)
@@ -56,19 +58,27 @@ def add_notice(body: str, host: str, mode: str = "redact") -> str:
     if not isinstance(obj, dict):
         return body
     host = host.lower()
-    if "system" in obj or _is_host(host, ANTHROPIC_HOSTS):
+    path = path.split("?", 1)[0].lower()
+    messages = obj.get("messages")
+    if path.endswith(("/converse", "/converse-stream")):
+        system = obj.get("system", [])
+        if not isinstance(system, list):
+            return body
+        obj["system"] = [*system, {"text": text}]
+    elif ("system" in obj or "anthropic_version" in obj or path.endswith("rawpredict")
+          or (_is_host(host, ANTHROPIC_HOSTS) and isinstance(messages, list))):
         obj["system"] = _append_text(obj.get("system", ""), text)
     elif "instructions" in obj and isinstance(obj["instructions"], str):
         obj["instructions"] = _append_text(obj["instructions"], text)
-    elif "systemInstruction" in obj or _is_host(host, GEMINI_HOSTS):
+    elif "systemInstruction" in obj or "contents" in obj:
         instruction = obj.get("systemInstruction") or {"parts": []}
         parts = instruction.get("parts")
         if not isinstance(parts, list):
             return body
         instruction["parts"] = [*parts, {"text": text}]
         obj["systemInstruction"] = instruction
-    elif isinstance(obj.get("messages"), list):
-        obj["messages"] = _with_system(obj["messages"], text)
+    elif isinstance(messages, list) and not _is_host(host, BEDROCK_HOSTS):
+        obj["messages"] = _with_system(messages, text)
     else:
         return body
     return json.dumps(obj, ensure_ascii=False).encode("utf-8", "backslashreplace").decode("utf-8")
