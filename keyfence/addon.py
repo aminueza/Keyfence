@@ -293,7 +293,7 @@ class KeyFence:
             return
 
         if self.config.notice:
-            new_text = add_notice(new_text, host, self.config.mode)
+            new_text = add_notice(new_text, host, self.config.mode, flow.request.path)
         flow.request.set_text(new_text)
         if mapping:
             flow.metadata[MAPPING_KEY] = mapping

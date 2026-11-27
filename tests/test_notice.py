@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from keyfence.notice import NOTICES, add_notice
 
 NOTICE = NOTICES["redact"]
@@ -25,10 +27,90 @@ def test_anthropic_block_system_gets_new_block_at_the_end():
 
 
 def test_anthropic_without_system_gets_one():
-    body = json.dumps({"model": "claude", "max_tokens": 10, "messages": []})
-    out = load(add_notice(body, "bedrock-runtime.us-east-1.amazonaws.com"))
+    body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 10, "messages": []})
+    out = load(add_notice(body, BEDROCK, path="/model/anthropic.claude-x/invoke"))
     assert out["system"] == NOTICE
     assert "role" not in json.dumps(out["messages"])
+
+
+def test_anthropic_api_without_system_gets_one():
+    body = json.dumps({"model": "claude", "max_tokens": 10, "messages": [{"role": "user", "content": "hi"}]})
+    out = load(add_notice(body, "api.anthropic.com", path="/v1/messages"))
+    assert out["system"] == NOTICE
+    assert out["messages"] == [{"role": "user", "content": "hi"}]
+
+
+BEDROCK = "bedrock-runtime.us-east-1.amazonaws.com"
+VERTEX = "us-east5-aiplatform.googleapis.com"
+CONVERSE_MESSAGES = [{"role": "user", "content": [{"text": "hi"}]}]
+
+
+@pytest.mark.parametrize("path", ["/model/amazon.nova-pro-v1:0/converse", "/model/x/converse-stream?trace=1"])
+def test_bedrock_converse_gets_a_text_block(path):
+    body = json.dumps({"messages": CONVERSE_MESSAGES, "system": [{"text": "be brief"}]})
+    out = load(add_notice(body, BEDROCK, path=path))
+    assert out["system"] == [{"text": "be brief"}, {"text": NOTICE}]
+    assert out["messages"] == CONVERSE_MESSAGES
+    bare = load(add_notice(json.dumps({"messages": CONVERSE_MESSAGES}), BEDROCK, path=path))
+    assert bare["system"] == [{"text": NOTICE}]
+
+
+def test_bedrock_converse_with_a_system_that_is_not_a_list_is_left_alone():
+    body = json.dumps({"messages": CONVERSE_MESSAGES, "system": "be brief"})
+    assert add_notice(body, BEDROCK, path="/model/x/converse") == body
+
+
+@pytest.mark.parametrize("body", [
+    {"prompt": "hi", "max_gen_len": 10},
+    {"messages": [{"role": "user", "content": [{"text": "hi"}]}], "inferenceConfig": {"maxTokens": 10}},
+])
+def test_a_bedrock_body_of_another_model_is_left_alone(body):
+    raw = json.dumps(body)
+    assert add_notice(raw, BEDROCK, path="/model/meta.llama3-70b-instruct-v1:0/invoke") == raw
+
+
+def test_a_system_list_of_text_blocks_without_a_type_gets_the_same_shape():
+    body = json.dumps({"messages": CONVERSE_MESSAGES, "system": [{"text": "be brief"}]})
+    out = load(add_notice(body, BEDROCK, path="/model/amazon.nova-pro-v1:0/invoke"))
+    assert out["system"] == [{"text": "be brief"}, {"text": NOTICE}]
+
+
+@pytest.mark.parametrize("path", [
+    "/v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-x:rawPredict",
+    "/v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-x:streamRawPredict",
+])
+def test_vertex_anthropic_gets_system(path):
+    body = json.dumps({"anthropic_version": "vertex-2023-10-16", "max_tokens": 10, "messages": []})
+    out = load(add_notice(body, VERTEX, path=path))
+    assert out["system"] == NOTICE and "systemInstruction" not in out
+    no_version = load(add_notice(json.dumps({"max_tokens": 10, "messages": []}), VERTEX, path=path))
+    assert no_version["system"] == NOTICE
+
+
+def test_vertex_raw_predict_for_another_publisher_does_not_get_anthropic_system():
+    path = "/v1/projects/p/locations/us-central1/publishers/mistralai/models/mistral-large:rawPredict"
+    body = json.dumps({"model": "mistral-large", "messages": [{"role": "user", "content": "hi"}]})
+    out = load(add_notice(body, VERTEX, path=path))
+    assert "system" not in out
+    assert out["messages"][0] == {"role": "system", "content": NOTICE}
+    custom = json.dumps({"instances": [{"prompt": "hi"}]})
+    assert add_notice(custom, VERTEX, path="/v1/projects/p/locations/us-central1/endpoints/123:rawPredict") == custom
+
+
+def test_an_anthropic_body_without_messages_is_left_alone():
+    body = json.dumps({"requests": [{"custom_id": "a", "params": {"model": "claude", "messages": []}}]})
+    assert add_notice(body, "api.anthropic.com", path="/v1/messages/batches") == body
+
+
+@pytest.mark.parametrize("host, path", [
+    (VERTEX, "/v1/projects/p/locations/us-east5/endpoints/openapi/chat/completions"),
+    ("generativelanguage.googleapis.com", "/v1beta/openai/chat/completions"),
+])
+def test_openai_compatible_chat_on_google_gets_a_system_message(host, path):
+    body = json.dumps({"model": "gemini", "messages": [{"role": "user", "content": "hi"}]})
+    out = load(add_notice(body, host, path=path))
+    assert out["messages"][0] == {"role": "system", "content": NOTICE}
+    assert "systemInstruction" not in out
 
 
 def test_openai_chat_without_a_system_message_gets_one_first():
@@ -81,6 +163,12 @@ def test_gemini_system_instruction():
     assert out["systemInstruction"]["parts"] == [{"text": "sys"}, {"text": NOTICE}]
     bare = load(add_notice(json.dumps({"contents": []}), "generativelanguage.googleapis.com"))
     assert bare["systemInstruction"]["parts"] == [{"text": NOTICE}]
+
+
+@pytest.mark.parametrize("host", ["api.example.com", "generativelanguage.googleapis.com"])
+def test_a_body_whose_contents_is_not_a_list_is_left_alone(host):
+    body = json.dumps({"contents": "hi"})
+    assert add_notice(body, host, path="/v1/x") == body
 
 
 def test_gemini_with_malformed_parts_is_left_alone():
