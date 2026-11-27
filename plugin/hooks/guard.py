@@ -58,15 +58,15 @@ _KUBECTL_SECRET_TYPE = r"(?<!\S)(?:[\w.-]+,)*secrets?/\S*(?!\S)"
 _KUBECTL_DATA_FORMAT = (r"(?:(?:-o|--output)[\s=]*[\"']?"
                         r"(?:yaml|kyaml|json|jsonpath|go-template|custom-columns|template)|--template\b)")
 _KUBECTL_GET_SECRET = (rf"(?:{_O}\s+get\b{_O}\s+{_KUBECTL_SECRET}"
-                       rf"|[^;&|\n]{{0,{_SEGMENT_SCAN_LIMIT}}}\s+get\b[^;&|\n<>]{{0,{_SEGMENT_SCAN_LIMIT}}}(?={_KUBECTL_SECRET_TYPE}))")
+                       rf"|(?=[^;&|\n]{{0,{_SEGMENT_SCAN_LIMIT}}}\sget\b)(?=[^;&|\n<>]{{0,{_SEGMENT_SCAN_LIMIT}}}{_KUBECTL_SECRET_TYPE}))")
 _SECRET_COMMANDS = re.compile(
     _START + r"(?P<cmd>"
     rf"aws{_O}\s+secretsmanager\s+get-secret-value|aws{_O}\s+ssm\s+get-parameters?\b.*--with-decryption|"
     rf"aws{_O}\s+configure\s+(?:get\s+\S*(?:secret|token|key)|export-credentials)|"
     rf"aws{_O}\s+sts\s+(?:get-session-token|get-federation-token|assume-role\S*)|aws{_O}\s+ecr\s+get-login-password|"
-    rf"op{_O}\s+read|op(?=[^;&|\n]{{0,{_SEGMENT_SCAN_LIMIT}}}(?:--reveal|--format[= ]json|--fields)){_O}\s+item\s+get\b|"
+    rf"op{_O}\s+read|op(?=[^\n]{{0,{_SEGMENT_SCAN_LIMIT}}}(?:--reveal|--format[= ]json|--fields)){_O}\s+item\s+get\b|"
     rf"vault{_O}\s+(?:kv\s+get|read)|doppler{_O}\s+secrets(?:\s+(?:download|get)\b|(?![^;&|\n]*--only-names))|"
-    rf"kubectl(?=[^;&|\n]{{0,{_SEGMENT_SCAN_LIMIT}}}{_KUBECTL_DATA_FORMAT}){_KUBECTL_GET_SECRET}|"
+    rf"kubectl(?=[^\n]{{0,{_SEGMENT_SCAN_LIMIT}}}{_KUBECTL_DATA_FORMAT}){_KUBECTL_GET_SECRET}|"
     rf"kubectl{_O}\s+config\s+view\b(?=.*--raw)|"
     rf"gcloud{_O}\s+secrets\s+versions\s+access|"
     rf"gcloud{_O}\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token|"
@@ -74,11 +74,12 @@ _SECRET_COMMANDS = re.compile(
     rf"gh{_O}\s+auth\s+(?:token|status\b(?=.*--show-token))|heroku{_O}\s+config(?::get)?|"
     rf"infisical{_O}\s+(?:secrets|export)|bw{_O}\s+(?:get|list\s+items)"
     r")\b", re.IGNORECASE | re.MULTILINE)
-_LONG_SEGMENT = rf"(?=[^;&|\n]{{{_SEGMENT_SCAN_LIMIT + 1}}})"
+_LONG_LINE = rf"(?=[^\n]{{{_SEGMENT_SCAN_LIMIT + 1}}})"
 _UNCHECKED_COMMANDS = re.compile(
     _START + r"(?P<cmd>"
-    rf"(?:aws|op|vault|doppler|kubectl|gcloud|az|gh|heroku|infisical|bw)(?=(?:{_OPTION}){{{_OPTION_LIMIT + 1}}})|"
-    rf"op{_LONG_SEGMENT}(?={_O}\s+item\s+get\b)|kubectl{_LONG_SEGMENT}(?={_KUBECTL_GET_SECRET})"
+    rf"(?:aws|op|vault|doppler|kubectl|gcloud|az|gh|heroku|infisical|bw|kubectl{_O}\s+get)"
+    rf"(?=(?:{_OPTION}){{{_OPTION_LIMIT + 1}}})|"
+    rf"op{_LONG_LINE}(?={_O}\s+item\s+get\b)|kubectl{_LONG_LINE}(?={_KUBECTL_GET_SECRET})"
     r")", re.IGNORECASE | re.MULTILINE)
 HOOK_COMMAND = "keyfence hook claude-code"
 HOOK_ARGS = ["hook", "claude-code"]

@@ -548,10 +548,22 @@ def test_a_100_kb_line_of_nested_command_starts_is_decided_quickly(piece):
     "op item get x" + " --vault v" * 60 + " --reveal",
     "aws" + " --debug" * 33 + " secretsmanager get-secret-value --secret-id x",
     "kubectl" + " -v 1" * 33 + " get secret db -o yaml",
+    "kubectl get" + " -v 1" * 33 + " secret db -o yaml",
+    'op item get "A&B"' + " --vault v" * 60 + " --reveal",
 ])
 def test_a_command_past_the_option_or_length_limit_is_refused(command):
     reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
     assert reason and "more options or characters than keyfence reads" in reason
+
+
+@pytest.mark.parametrize("command", [
+    'op item get "AT&T portal" --reveal',
+    "op item get x --vault 'R&D' --fields password",
+    "kubectl get secret db --context 'a&b' -o yaml",
+])
+def test_a_quoted_separator_does_not_hide_the_output_flag(command):
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert reason and "prints secret values" in reason
 
 
 @pytest.mark.parametrize("command", [
@@ -565,12 +577,16 @@ def test_a_long_command_that_cannot_print_a_secret_still_passes(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
 
 
-@pytest.mark.parametrize("piece", [" {aws -x", " (aws -x=", " (kubectl -o", " (kubectl get secret", " (op item get"])
-def test_a_100_kb_line_of_command_starts_without_a_secret_command_is_decided_quickly(piece):
+@pytest.mark.parametrize("piece, refused", [
+    (" {aws -x", True), (" (aws -x=", False), (" (kubectl -o", True), (" (kubectl get secret", True),
+    (" (op item get", True), (" (kubectl get", False), (" (kubectl get -o yaml", False), (" (op item list", False),
+])
+def test_a_100_kb_line_of_command_starts_alone_is_decided_quickly(piece, refused):
     command = "echo" + piece * ((100 * 1024) // len(piece))
     started = time.perf_counter()
-    hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
     assert time.perf_counter() - started < 2
+    assert bool(reason) is refused
 
 
 @pytest.mark.parametrize("binary", ["aws", "kubectl", "gcloud", "op"])
