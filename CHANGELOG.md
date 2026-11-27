@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-- `doctor` names an exec-form hook by its arguments when its `command` is empty,
-  so the message reads "calls hook claude-code" instead of "calls  hook
-  claude-code" (issue #313).
+- A held placeholder prefix stays inside the chat completion choice it came from.
+  With `n > 1` and one choice per chunk, both choices sat at position 0 of their
+  own chunk and shared one hold, so the held text moved into the other choice; a
+  choice now also releases its holds on its `finish_reason` chunk (issue #314).
 - The system prompt notice takes its shape from the body and the request
   path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
   Anthropic models on Vertex AI get `system` instead of
@@ -44,6 +45,9 @@
   one, so a complete string ending in `<` (the instructions echoed in
   `response.created`, for example) no longer holds back the rest of the
   stream (issue #239).
+- `doctor` names an exec-form hook by its arguments when its `command` is empty,
+  so the message reads "calls hook claude-code" instead of "calls  hook
+  claude-code" (issue #313).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
