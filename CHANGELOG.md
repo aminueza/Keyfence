@@ -138,7 +138,14 @@
   loads instead of stopping every command with a `FileNotFoundError`
   traceback. A missing or invalid rules file stops with one `error:` line that
   names `scan.gitleaks_rules` and the path, and an empty value is rejected
-  instead of silently falling back to the bundled rules (issue #216).
+  instead of silently falling back to the bundled rules (issue #216). So
+  does a file that is valid TOML but has the wrong shape (a rule without
+  an `id`, `rules` that is not a list of tables, or a `regex`,
+  `secretGroup`, `entropy`, `keywords` or `allowlists` of the wrong type)
+  or that is not UTF-8, and the line says what is wrong. A `secretGroup`
+  past the groups of its regex is refused when the file loads; before, it
+  loaded, and every request that matched the rule was then blocked with an
+  internal error (issue #278).
 - `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
   with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
   and with `gitleaks: false` the built-in patterns still do.
