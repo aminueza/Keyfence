@@ -339,6 +339,18 @@ def test_hook_check(home, tmp_path, monkeypatch):
     assert doctor.check_hook(tmp_path / "proj").status == doctor.WARN
 
 
+def test_hook_check_names_an_exec_form_hook_without_a_command_without_a_double_space(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Read", "hooks": [{"type": "command", "command": "", "args": ["hook", "claude-code"]}]}]}}))
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.FAIL
+    assert "calls hook claude-code," in check.detail
+    assert "  " not in check.detail
+
+
 def test_prompt_hook_check(home, tmp_path, monkeypatch):
     monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
     assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.INFO

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `doctor` names an exec-form hook by its arguments when its `command` is empty,
+  so the message reads "calls hook claude-code" instead of "calls  hook
+  claude-code" (issue #313).
 - In `placeholder` mode, a `response.function_call_arguments.delta` frame on
   a WebSocket, or line of a JSON-lines response, gets its value escaped for
   the arguments JSON it is part of, as in a stream, so a secret with `"`,
