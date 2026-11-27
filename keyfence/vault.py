@@ -31,7 +31,13 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
 def value_digest(salt: bytes, value: str) -> str:
-    return hmac.new(salt, value.encode("utf-8", errors="surrogateescape"), hashlib.sha256).hexdigest()
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        value.encode("utf-8", errors="surrogateescape"),
+        salt,
+        600_000,
+        dklen=32,
+    ).hex()
 
 
 def _try_lock(handle) -> bool:
