@@ -169,12 +169,7 @@ def _check_shape(data: dict) -> list[dict]:
     return rules
 
 
-def load_rules(path: str | Path | None = None,
-               disabled: Iterable[str] = DEFAULT_DISABLED) -> list[Rule]:
-    source = Path(path) if path else BUNDLED_RULES
-    skip = set(disabled)
-    with source.open("rb") as fh:
-        data = tomllib.load(fh)
+def _rules_from(data: dict, skip: set[str]) -> list[Rule]:
     rules = []
     for raw in _check_shape(data):
         if raw.get("id") in skip:
@@ -182,4 +177,30 @@ def load_rules(path: str | Path | None = None,
         rule = _rule_from_gitleaks(raw)
         if rule is not None:
             rules.append(rule)
+    return rules
+
+
+def load_rules(path: str | Path | None = None,
+               disabled: Iterable[str] = DEFAULT_DISABLED) -> list[Rule]:
+    source = Path(path) if path else BUNDLED_RULES
+    skip = set(disabled)
+    with source.open("rb") as fh:
+        data = tomllib.load(fh)
+    extend = data.get("extend", {})
+    if not isinstance(extend, dict):
+        raise ValueError("`extend` must be a table")
+    if "path" in extend:
+        raise ValueError("`extend.path` is not supported; set scan.gitleaks_rules to that file instead")
+    use_default = extend.get("useDefault", False)
+    if not isinstance(use_default, bool):
+        raise ValueError("`extend.useDefault` must be a boolean")
+    disabled_rules = extend.get("disabledRules", [])
+    if not _is_string_list(disabled_rules):
+        raise ValueError("`extend.disabledRules` must be a list of strings")
+    rules = _rules_from(data, skip)
+    if use_default and source != BUNDLED_RULES:
+        with BUNDLED_RULES.open("rb") as fh:
+            merged = {rule.name: rule for rule in _rules_from(tomllib.load(fh), skip | set(disabled_rules))}
+        merged.update({rule.name: rule for rule in rules})
+        rules = list(merged.values())
     return rules

@@ -84,6 +84,11 @@
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
   `doctor` counted it twice, and OTLP advanced its cursor past it; a log
   written by an older version is still read correctly (issue #206).
+- A gitleaks file with `[extend]` `useDefault = true` now loads the bundled rules
+  and adds to them, instead of loading only its own rules and dropping the 220
+  bundled ones; `disabledRules` drops bundled rules only, a custom rule with
+  the id of a bundled one replaces it, and `[extend] path` stops with an error
+  that names `scan.gitleaks_rules` instead of being ignored (issue #304).
 - `keyfence exec` stops its proxy when SIGTERM or SIGHUP ends it, so the
   terminal closing, an SSH session dropping, `timeout(1)` or a cancelled CI
   job no longer leaves mitmdump running on the port. The proxy starts in its
