@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- In `placeholder` mode, a `<` at the end of a text item in an OpenAI
+  Responses API stream stays in that item. keyfence held it in case a
+  placeholder started there, and released holds only on Anthropic's
+  `content_block_stop`, so the `<` moved into the next item (often a
+  function call, whose arguments then were not valid JSON) and every event
+  behind it waited. Holds are now kept per item and released by the
+  `.done` events of the Responses API, and only a `.delta` event can start
+  one, so a complete string ending in `<` (the instructions echoed in
+  `response.created`, for example) no longer holds back the rest of the
+  stream (issue #239).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry

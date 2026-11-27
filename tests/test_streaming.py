@@ -291,6 +291,127 @@ def test_events_after_block_stop_emitted_without_waiting_for_next_block():
     assert texts(out2) == ["world"]
 
 
+def responses_event(payload: dict) -> str:
+    return f"event: {payload['type']}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def responses_payloads(output: bytes) -> list[dict]:
+    found = []
+    for block in output.decode().split("\n\n"):
+        for line in block.split("\n"):
+            if line.startswith("data:"):
+                found.append(json.loads(line[5:]))
+    return found
+
+
+TEXT_THEN_CALL = [
+    {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "if a <"},
+    {"type": "response.output_text.done", "output_index": 0, "content_index": 0, "text": "if a <"},
+    {"type": "response.output_item.added", "output_index": 1, "item": {"type": "function_call", "name": "run"}},
+    {"type": "response.function_call_arguments.delta", "output_index": 1, "delta": '{"cmd":"ls"}'},
+    {"type": "response.function_call_arguments.done", "output_index": 1, "arguments": '{"cmd":"ls"}'},
+]
+
+
+def test_responses_api_text_ending_with_lt_does_not_move_into_the_next_item():
+    r = SSERestorer(MAPPING)
+    out = r.feed("".join(responses_event(e) for e in TEXT_THEN_CALL).encode()) + r.feed(b"")
+    payloads = responses_payloads(out)
+    assert payloads[0]["delta"] == "if a <"
+    assert payloads[1]["text"] == "if a <"
+    assert payloads[3]["delta"] == '{"cmd":"ls"}'
+
+
+def test_responses_api_events_after_a_done_event_are_emitted_without_waiting():
+    r = SSERestorer(MAPPING)
+    out = r.feed("".join(responses_event(e) for e in TEXT_THEN_CALL[:3]).encode())
+    assert [e["type"] for e in responses_payloads(out)] == [e["type"] for e in TEXT_THEN_CALL[:3]]
+
+
+@pytest.mark.parametrize("done", [
+    {"type": "response.output_item.done", "output_index": 0, "item": {"type": "message"}},
+    {"type": "response.content_part.done", "output_index": 0, "content_index": 0, "part": {"type": "output_text"}},
+])
+def test_responses_api_item_and_part_done_release_the_hold(done):
+    r = SSERestorer(MAPPING)
+    delta = {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "x <"}
+    out = r.feed((responses_event(delta) + responses_event(done)).encode())
+    assert [e["type"] for e in responses_payloads(out)] == [delta["type"], done["type"]]
+    assert responses_payloads(out)[0]["delta"] == "x <"
+
+
+def test_responses_api_placeholder_split_across_deltas_of_one_item_is_restored():
+    r = SSERestorer(MAPPING)
+    events = [
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "key <<SECRET"},
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "_1>> end"},
+        {"type": "response.output_text.done", "output_index": 0, "content_index": 0, "text": "key <<SECRET_1>> end"},
+    ]
+    out = r.feed("".join(responses_event(e) for e in events).encode()) + r.feed(b"")
+    payloads = responses_payloads(out)
+    assert payloads[0]["delta"] + payloads[1]["delta"] == f"key {KEY} end"
+    assert payloads[2]["text"] == f"key {KEY} end"
+
+
+def test_responses_api_done_of_another_item_keeps_the_hold():
+    r = SSERestorer(MAPPING)
+    events = [
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "key <<SECRET"},
+        {"type": "response.output_item.done", "output_index": 1, "item": {"type": "reasoning"}},
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "_1>> end"},
+    ]
+    out = r.feed("".join(responses_event(e) for e in events).encode()) + r.feed(b"")
+    payloads = responses_payloads(out)
+    assert payloads[0]["delta"] + payloads[2]["delta"] == f"key {KEY} end"
+
+
+def test_responses_api_done_of_another_content_part_keeps_the_hold():
+    r = SSERestorer(MAPPING)
+    events = [
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "key <<SECRET"},
+        {"type": "response.content_part.done", "output_index": 0, "content_index": 1, "part": {"type": "output_text"}},
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "_1>> end"},
+    ]
+    out = r.feed("".join(responses_event(e) for e in events).encode()) + r.feed(b"")
+    payloads = responses_payloads(out)
+    assert payloads[0]["delta"] + payloads[2]["delta"] == f"key {KEY} end"
+
+
+def test_responses_api_item_done_without_an_output_index_does_not_break_the_stream():
+    r = SSERestorer(MAPPING)
+    events = [
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "x <"},
+        {"type": "response.output_item.done", "item": {"type": "message"}},
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "y"},
+    ]
+    out = r.feed("".join(responses_event(e) for e in events).encode()) + r.feed(b"")
+    assert [e["type"] for e in responses_payloads(out)] == [e["type"] for e in events]
+
+
+@pytest.mark.parametrize("event", [
+    {"type": "response.created", "response": {"instructions": "answer with <"}},
+    {"type": "response.completed", "response": {"output": [{"content": [{"text": "if a <"}]}]}},
+])
+def test_responses_api_complete_strings_outside_deltas_do_not_hold_the_stream(event):
+    r = SSERestorer(MAPPING)
+    after = {"type": "response.in_progress", "response": {"status": "in_progress"}}
+    out = r.feed((responses_event(event) + responses_event(after)).encode())
+    assert [e["type"] for e in responses_payloads(out)] == [event["type"], after["type"]]
+
+
+def test_responses_api_text_and_arguments_of_the_same_item_index_do_not_share_a_hold():
+    r = SSERestorer(MAPPING)
+    events = [
+        {"type": "response.function_call_arguments.delta", "output_index": 0, "delta": '{"a":"<'},
+        {"type": "response.output_text.delta", "output_index": 0, "delta": "plain"},
+        {"type": "response.function_call_arguments.delta", "output_index": 0, "delta": '"}'},
+    ]
+    out = r.feed("".join(responses_event(e) for e in events).encode()) + r.feed(b"")
+    payloads = responses_payloads(out)
+    assert payloads[1]["delta"] == "plain"
+    assert payloads[0]["delta"] + payloads[2]["delta"] == '{"a":"<"}'
+
+
 def test_openai_two_choices_restores_each_independently():
     r = SSERestorer(MAPPING)
 
