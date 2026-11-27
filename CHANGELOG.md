@@ -8,6 +8,16 @@
   `\` or a newline no longer breaks the arguments the client puts together.
   The docs now say that a placeholder split across WebSocket frames is not
   restored (issue #240).
+- In `placeholder` mode, a `<` at the end of a text item in an OpenAI
+  Responses API stream stays in that item. keyfence held it in case a
+  placeholder started there, and released holds only on Anthropic's
+  `content_block_stop`, so the `<` moved into the next item (often a
+  function call, whose arguments then were not valid JSON) and every event
+  behind it waited. Holds are now kept per item and released by the
+  `.done` events of the Responses API, and only a `.delta` event can start
+  one, so a complete string ending in `<` (the instructions echoed in
+  `response.created`, for example) no longer holds back the rest of the
+  stream (issue #239).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
@@ -134,7 +144,14 @@
   loads instead of stopping every command with a `FileNotFoundError`
   traceback. A missing or invalid rules file stops with one `error:` line that
   names `scan.gitleaks_rules` and the path, and an empty value is rejected
-  instead of silently falling back to the bundled rules (issue #216).
+  instead of silently falling back to the bundled rules (issue #216). So
+  does a file that is valid TOML but has the wrong shape (a rule without
+  an `id`, `rules` that is not a list of tables, or a `regex`,
+  `secretGroup`, `entropy`, `keywords` or `allowlists` of the wrong type)
+  or that is not UTF-8, and the line says what is wrong. A `secretGroup`
+  past the groups of its regex is refused when the file loads; before, it
+  loaded, and every request that matched the rule was then blocked with an
+  internal error (issue #278).
 - `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
   with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
   and with `gitleaks: false` the built-in patterns still do.
