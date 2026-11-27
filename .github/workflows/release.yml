@@ -93,25 +93,51 @@ jobs:
   build:
     needs: check-ci
     runs-on: ubuntu-24.04
+    outputs:
+      dist-sha256: ${{ steps.digest.outputs.dist-sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.13"
-      - run: pip install build
+      - run: pip install --require-hashes -r requirements-release.txt
       - run: python tools/release_notes.py "${GITHUB_REF_NAME}" > /dev/null
-      - run: python -m build
-      - run: |
-          pip install dist/*.whl
-          keyfence --help
-          test "v$(python -c 'import keyfence; print(keyfence.__version__)')" = "${GITHUB_REF_NAME}"
+      - run: python -m build --no-isolation
+      - id: digest
+        run: echo "dist-sha256=$(cd dist && sha256sum * | base64 -w0)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dist
           path: dist/
 
-  publish:
+  sbom:
     needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.13"
+      - run: pip install --require-hashes -r requirements-release.txt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: dist
+          path: dist/
+      - run: |
+          python -m venv wheel-env
+          wheel-env/bin/pip install dist/*.whl
+          wheel-env/bin/keyfence --help
+          test "v$(wheel-env/bin/python -c 'import keyfence; print(keyfence.__version__)')" = "${GITHUB_REF_NAME}"
+      - run: cyclonedx-py environment --output-format json --output-file sbom.cdx.json wheel-env/bin/python
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
+  publish:
+    needs: [build, sbom]
     runs-on: ubuntu-24.04
     environment: pypi
     permissions:
@@ -121,10 +147,16 @@ jobs:
         with:
           name: dist
           path: dist/
+      - run: |
+          echo "$DIST_SHA256" | base64 -d > dist.sha256
+          test "$(ls dist | sort)" = "$(awk '{print $2}' dist.sha256 | sort)"
+          (cd dist && sha256sum -c ../dist.sha256)
+        env:
+          DIST_SHA256: ${{ needs.build.outputs.dist-sha256 }}
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
 
   release:
-    needs: publish
+    needs: [build, publish]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -137,7 +169,17 @@ jobs:
         with:
           name: dist
           path: dist/
+      - run: |
+          echo "$DIST_SHA256" | base64 -d > dist.sha256
+          test "$(ls dist | sort)" = "$(awk '{print $2}' dist.sha256 | sort)"
+          (cd dist && sha256sum -c ../dist.sha256)
+        env:
+          DIST_SHA256: ${{ needs.build.outputs.dist-sha256 }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: sbom
+          path: sbom/
       - run: python tools/release_notes.py "${GITHUB_REF_NAME}" > notes.md
-      - run: gh release create "${GITHUB_REF_NAME}" dist/* --title "${GITHUB_REF_NAME}" --notes-file notes.md --verify-tag
+      - run: gh release create "${GITHUB_REF_NAME}" dist/* sbom/sbom.cdx.json --title "${GITHUB_REF_NAME}" --notes-file notes.md --verify-tag
         env:
           GH_TOKEN: ${{ github.token }}

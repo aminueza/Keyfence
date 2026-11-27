@@ -110,8 +110,6 @@ class Config:
             else:
                 data = raw_data
             cfg.mode = data.get("mode", cfg.mode)
-            # A single string here used to be iterated into one-character
-            # "hosts", which silently stopped monitoring (issue #175).
             hosts = _string_list(data, "hosts")
             if hosts:
                 cfg.hosts = hosts
