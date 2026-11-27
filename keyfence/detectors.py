@@ -69,7 +69,7 @@ BUILTIN_RULES: list[Rule] = [
          ignore_regexes=(
              compile_regex(_PLACEHOLDER_VALUES, re.IGNORECASE),
              compile_regex(r"(?i)^(?:\$\{|\$[a-z_]|<|your|chang|exemplo|example)"),
-             compile_regex(r"^\$?[\w.\[\]]*\("),
+             compile_regex(r"^\$?(?:[\w.\[\]]|::|->|\?\.)*\("),
              compile_regex(r"^\[REDACTED"),
              compile_regex(r"^(?:[/~]|\.\.?/)"),
              compile_regex(r"(?i)^(?:os\.environ|os\.getenv|process\.env|import\.meta\.env|settings|config|env|var|local|module|data)[.\[]"),

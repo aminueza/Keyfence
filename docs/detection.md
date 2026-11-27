@@ -60,18 +60,19 @@ in the decoded text so they act as token separators.
 
 The built-in assignment rule matches names that hold `password`, `passwd`,
 `secret`, `token`, `api_key` and similar, and also `SECRET_KEY`,
-`SECRET_ACCESS_KEY`, `SECRET_KEY_BASE`, and `PASS` or `PWD` as a whole part
-of the name (`MYSQL_PWD`, `SMTP_PASS`; not `ASKPASS`, and `PASS` only after
-a separator, so a test runner's `PASS: name` line is not a secret). The name can be
-quoted, as in `{"password": "..."}`, and then the value must be quoted
-too. A `&` stays in the value unless what follows it looks like the next
-parameter of a URL query (`&next=`, `&amp;`) or is another `&`. The rule ignores placeholder values
-such as `changeme` or `${VAR}`, values that start with a call
-(`hash_password(`, `$(openssl`), paths, Terraform references (`var.`,
+`SECRET_ACCESS_KEY`, `SECRET_KEY_BASE`, and `PASS` or `PWD` as a whole
+part of the name (`MYSQL_PWD`, `SMTP_PASS`; not `ASKPASS`, and `PASS` only
+after a separator, so a test runner's `PASS: name` line is not a secret).
+The name can be quoted, as in `{"password": "..."}`, and then the value
+must be quoted too. A `&` stays in the value unless what follows it looks
+like the next parameter of a URL query (`&next=`, `&amp;`) or is another
+`&`. The rule ignores placeholder values such as `changeme` or `${VAR}`,
+values that start with a call (`hash_password(`, `$(openssl`, `env::var(`,
+`self->get(`, `a?.split(`), paths, Terraform references (`var.`,
 `aws_iam_access_key.deploy.secret`), reads of the environment or of
-settings (`os.environ[`, `process.env.`,
-`settings.`), and values that are already a redaction token, so a model
-repeating `TOKEN=[REDACTED]` is not flagged again.
+settings (`os.environ[`, `process.env.`, `settings.`), and values that are
+already a redaction token, so a model repeating `TOKEN=[REDACTED]` is not
+flagged again.
 
 `generic-api-key` is disabled by default because it matches ordinary prose
 and code. `scan.gitleaks_disabled` controls the list, and

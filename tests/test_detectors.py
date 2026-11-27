@@ -372,6 +372,10 @@ def test_generic_assignment_keeps_a_value_with_parentheses_that_is_not_a_call():
     "PASS: t0001-init.sh",
     "secret_key = var.secret_key",
     "secret_access_key = aws_iam_access_key.deploy.secret",
+    'let token = std::env::var("GITHUB_TOKEN")?;',
+    "let token = Token::new(&config);",
+    'const token = req.headers.authorization?.split(" ")[1];',
+    "token = self->get_token(ctx);",
 ])
 def test_generic_assignment_ignores_names_and_values_that_are_not_secrets(text):
     assert scan(text, config=NO_ENTROPY) == []
