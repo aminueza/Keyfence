@@ -34,6 +34,7 @@ _URL_WITH_SCHEME = re.compile(r"""(?<![A-Za-z0-9+.-])(?:https?|ftps?|wss?)://[^\
 _GLOB = re.compile(r"[*?]+")
 _BRACKET_CLASS = re.compile(r"\[([^\]/]+)\]")
 _BRACKET_EXPANSION_LIMIT = 10000
+_BRACKET_TOTAL_LIMIT = 50000
 _PREFIXES = (
     r"(?:(?:sudo|xargs|nohup|time|nice|exec)(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+|(?:command(?:\s+-p)?|builtin|eval)\s+|"
     r"(?:ba|da|k|z)?sh\s+(?:-\S+\s+)*-\w*c\s+[\"']?|[A-Za-z_]\w*=\S*\s+)*")
@@ -189,6 +190,9 @@ def _sync_command(entries: list, fields: dict) -> bool:
                 else:
                     hook.pop("args", None)
                 fixed = True
+            if hook.get("onFailure") != "block":
+                hook["onFailure"] = "block"
+                fixed = True
     return fixed
 
 
@@ -272,6 +276,9 @@ def _positions(text: str) -> list[set[str]]:
 
 
 def _may_name_sensitive(word: str) -> bool:
+    if _GLOB.search(word) or "[" in _BRACKET_CLASS.sub("", word) or any(
+            match.group(1)[0] in "!^" or "[" in match.group(1) for match in _BRACKET_CLASS.finditer(word)):
+        return True
     positions: list[set[str]] = [{"/"}]
     cursor = 0
     members_seen = 0
@@ -348,16 +355,23 @@ def paths_in_command(command: str) -> list[str]:
 
 
 def _refusal_for_too_many_bracket_classes(command: str) -> str | None:
+    total = 0
     for word in _WORD_SEPARATORS.split(_mask_url_spans(command)):
         if not word or word.startswith("-") or not any(c in word for c in "/._"):
             continue
-        if _is_url_remainder(word):
+        if _is_url_remainder(word) or not _BRACKET_CLASS.search(word):
             continue
         try:
-            _bracket_expansion_size(word)
+            total += _bracket_expansion_size(word)
         except _ExpansionTooLarge:
             if _may_name_sensitive(word):
-                return word
+                return (f"keyfence blocked {word}: it carries so many bracket classes that "
+                        f"deciding whether it names a secret file would take too long to be a "
+                        f"guard. Write the path without a character class.")
+        if total > _BRACKET_TOTAL_LIMIT:
+            return (f"keyfence blocked this command: its bracket classes expand to more than "
+                    f"{_BRACKET_TOTAL_LIMIT} paths, so deciding whether one names a secret file "
+                    f"would take too long to be a guard. Write the paths without character classes.")
     return None
 
 
@@ -389,9 +403,7 @@ def decide(payload: dict) -> str | None:
         command = tool_input.get("command") or ""
         oversized = _refusal_for_too_many_bracket_classes(command)
         if oversized:
-            return (f"keyfence blocked {oversized}: it carries so many bracket classes that "
-                    f"deciding whether it names a secret file would take too long to be a "
-                    f"guard. Write the path without a character class.")
+            return oversized
         for path in paths_in_command(command):
             if is_sensitive(path):
                 return _reason(path)
@@ -541,7 +553,7 @@ def install(path: Path, command: str | None = None) -> bool:
     if not any(_is_ours(e) for e in pre):
         pre.append({
             "matcher": HOOK_MATCHER,
-            "hooks": [{"type": "command", **fields, "timeout": 10}],
+            "hooks": [{"type": "command", **fields, "timeout": 10, "onFailure": "block"}],
         })
         changed = True
     elif _sync_command(pre, fields):
