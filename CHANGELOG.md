@@ -6,6 +6,13 @@
   With `n > 1` and one choice per chunk, both choices sat at position 0 of their
   own chunk and shared one hold, so the held text moved into the other choice; a
   choice now also releases its holds on its `finish_reason` chunk (issue #314).
+- The system prompt notice takes its shape from the body and the request
+  path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
+  Anthropic models on Vertex AI get `system` instead of
+  `systemInstruction`, the OpenAI-compatible chat endpoints of Vertex AI and
+  Gemini get a system message, and a Bedrock body for another model (Llama's
+  `prompt`, for example) is left without a notice instead of getting a
+  `system` field its schema does not have (issue #238).
 - Common `.env` and config shapes of a secret that is not in the vault are
   redacted: `AWS_SECRET_ACCESS_KEY=`, `SECRET_KEY=`, `SECRET_KEY_BASE=`,
   `JWT_SECRET_KEY=`, `MYSQL_PWD=` and `SMTP_PASS=` lines, Django's
@@ -27,7 +34,7 @@
   the arguments JSON it is part of, as in a stream, so a secret with `"`,
   `\` or a newline no longer breaks the arguments the client puts together.
   The docs now say that a placeholder split across WebSocket frames is not
-  restored (issue #240)
+  restored (issue #240).
 - In `placeholder` mode, a `<` at the end of a text item in an OpenAI
   Responses API stream stays in that item. keyfence held it in case a
   placeholder started there, and released holds only on Anthropic's
@@ -37,7 +44,7 @@
   `.done` events of the Responses API, and only a `.delta` event can start
   one, so a complete string ending in `<` (the instructions echoed in
   `response.created`, for example) no longer holds back the rest of the
-  stream (issue #239)
+  stream (issue #239).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
