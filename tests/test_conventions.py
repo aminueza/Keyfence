@@ -13,7 +13,8 @@ def violations(path: Path) -> list[str]:
     source = path.read_text(encoding="utf-8")
     found = [(token.start[0], f"comment {token.string!r}")
              for token in tokenize.generate_tokens(io.StringIO(source).readline)
-             if token.type == tokenize.COMMENT and not LINT_DIRECTIVE.fullmatch(token.string)]
+             if token.type == tokenize.COMMENT and not LINT_DIRECTIVE.fullmatch(token.string)
+             and not (token.start == (1, 0) and token.string.startswith("#!"))]
     found += [(node.body[0].lineno, f"docstring of {getattr(node, 'name', 'the module')}")
               for node in ast.walk(ast.parse(source))
               if isinstance(node, DOCUMENTED) and ast.get_docstring(node) is not None]
@@ -60,3 +61,9 @@ def test_the_checker_ignores_a_hash_inside_a_string(tmp_path):
     module = tmp_path / "module.py"
     module.write_text('PATTERN = "#[0-9]+"\n')
     assert violations(module) == []
+
+
+def test_the_checker_allows_a_shebang_on_the_first_line_only(tmp_path):
+    module = tmp_path / "module.py"
+    module.write_text("#!/usr/bin/env python3\nx = 1\n#!not a shebang\n")
+    assert violations(module) == [f"{module}:3: comment '#!not a shebang'"]
