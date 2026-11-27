@@ -191,11 +191,10 @@ def load_rules(path: str | Path | None = None,
     disabled_rules = extend.get("disabledRules", [])
     if not _is_string_list(disabled_rules):
         raise ValueError("`extend.disabledRules` must be a list of strings")
-    skip.update(disabled_rules)
     rules = _rules_from(data, skip)
     if use_default and source != BUNDLED_RULES:
         with BUNDLED_RULES.open("rb") as fh:
-            merged = {rule.name: rule for rule in _rules_from(tomllib.load(fh), skip)}
+            merged = {rule.name: rule for rule in _rules_from(tomllib.load(fh), skip | set(disabled_rules))}
         merged.update({rule.name: rule for rule in rules})
         rules = list(merged.values())
     return rules

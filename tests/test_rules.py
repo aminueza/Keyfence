@@ -88,12 +88,28 @@ def test_extend_path_is_refused(tmp_path):
         load_rules(path)
 
 
-@pytest.mark.parametrize("extend", ['useDefault = "yes"', 'disabledRules = "aws-access-token"', '5'])
-def test_a_bad_extend_table_is_refused(tmp_path, extend):
+@pytest.mark.parametrize("text", ['[extend]\nuseDefault = "yes"\n', '[extend]\ndisabledRules = "aws-access-token"\n',
+                                  'extend = "x"\n'])
+def test_a_bad_extend_table_is_refused(tmp_path, text):
     path = tmp_path / "gitleaks.toml"
-    path.write_text(f"[extend]\n{extend}\n")
-    with pytest.raises(ValueError):
+    path.write_text(text)
+    with pytest.raises(ValueError, match="extend"):
         load_rules(path)
+
+
+def test_extend_disabled_rules_leaves_a_rule_of_the_file_itself(tmp_path):
+    path = tmp_path / "gitleaks.toml"
+    path.write_text('[extend]\nuseDefault = true\ndisabledRules = ["aws-access-token"]\n\n[[rules]]\nid = "aws-access-token"\n'
+                    'regex = "AKIA[0-9]{16}"\nkeywords = ["AKIA"]\n')
+    rules = load_rules(path)
+    assert [r.pattern.pattern for r in rules if r.name == "aws-access-token"] == ["AKIA[0-9]{16}"]
+    assert len(rules) == len(load_rules())
+
+
+def test_extend_disabled_rules_without_use_default_drops_nothing(tmp_path):
+    path = tmp_path / "gitleaks.toml"
+    path.write_text('[extend]\ndisabledRules = ["mine"]\n\n[[rules]]\nid = "mine"\nregex = "mine_[a-z]{20}"\n')
+    assert [r.name for r in load_rules(path)] == ["mine"]
 
 
 def test_allowlists_are_parsed(tmp_path):
