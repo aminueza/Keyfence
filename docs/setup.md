@@ -312,6 +312,24 @@ are listed in `keyfence-deny-rules.json` next to the settings file, and
 rules that were already there stay, even when they are identical to
 keyfence's.
 
+keyfence knows its own hook by the command the entry calls: an executable
+named `keyfence` (or `keyfence.exe`, `keyfence.bat`, `keyfence.cmd` or
+`keyfence.com`, the names of a Windows launcher), with `hook claude-code`.
+`install-hooks claude-code` and `--remove` change only such an entry, or
+one that has those two arguments and no command at all, which no other
+program writes. A hook of another program stays as it is, also when it
+takes the same two arguments: the install adds keyfence's own entry beside
+it, and `--remove` keeps it. `install-hooks --list` and `keyfence doctor`
+look wider on purpose, so that a broken entry does not drop out of the
+report: they count every hook with those arguments whose file name holds
+`keyfence`, `keyfence-wrapper` for example.
+
+`install-hooks claude-code` writes the absolute path of the `keyfence`
+executable it finds (`--command` applies to pi only). If you edit the entry
+to call keyfence through a wrapper with another file name, the install adds
+a second entry beside it, and `--remove` removes the deny rules but leaves
+that entry in place. Delete it by hand.
+
 Note: the `Read` deny rules also cover `Edit` on Claude Code 2.1.208+
 and `Write` on 2.1.228+. On older versions those tools are not blocked by
 the `Read` rules; the Python hook still refuses them. Claude Code 2.1.311

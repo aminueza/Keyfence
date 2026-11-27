@@ -909,6 +909,9 @@ def test_list_reports_nothing_installed_for_a_foreign_hook_only(tmp_path, monkey
     ("/venv/bin/keyfence hook claude-code", True),
     ("C:\\venv\\Scripts\\keyfence.exe hook claude-code", True),
     ("C:\\venv\\Scripts\\keyfence.EXE hook claude-code", True),
+    ("C:\\shims\\keyfence.BAT hook claude-code", True),
+    ("C:\\shims\\keyfence.cmd hook claude-code", True),
+    ("C:\\shims\\keyfence.COM hook claude-code", True),
     ('"/opt/my tools/keyfence" hook claude-code', True),
     (FOREIGN, False),
     ("/opt/keyfence-cli/bin/hook claude-code", False),
@@ -922,11 +925,183 @@ def test_only_an_entry_this_program_wrote_counts_as_its_own(command, ours):
     ("keyfence", True),
     ("/venv/bin/keyfence", True),
     ("C:\\venv\\Scripts\\keyfence.exe", True),
-    ("/opt/agentlog/bin/agentlog", True),
+    ("/opt/agentlog/bin/agentlog", False),
 ])
 def test_an_args_entry_is_the_exec_form_this_program_writes(command, ours):
     hook = {"type": "command", "command": command, "args": ["hook", "claude-code"]}
     assert hooks._is_our_hook(hook) is ours
+
+
+@pytest.mark.parametrize("command, named", [
+    ("agentlog", False),
+    ("C:\\Program Files\\AgentLog\\agentlog.exe", False),
+    ("/opt/keyfence-cli/bin/hook", False),
+    ("/usr/local/bin/keyfence-wrapper", True),
+    ("/usr/local/bin/keyfence.sh", True),
+    ("old-keyfence", True),
+])
+def test_an_args_entry_with_another_command_is_not_its_own_and_reaches_doctor_only_with_keyfence_in_its_name(command, named):
+    hook = {"type": "command", "command": command, "args": ["hook", "claude-code"]}
+    assert not hooks._is_our_hook(hook)
+    assert hooks._names_our_hook(hook) is named
+
+
+FOREIGN_EXEC = {"type": "command", "command": "/opt/agentlog/bin/agentlog", "args": ["hook", "claude-code"]}
+
+
+def foreign_exec_settings(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"hooks": {
+        "PreToolUse": [{"matcher": "Bash", "hooks": [FOREIGN_EXEC]}],
+        "UserPromptSubmit": [{"hooks": [FOREIGN_EXEC]}],
+    }}))
+    return path
+
+
+def hook_commands(path):
+    data = json.loads(path.read_text())
+    return {event: [hook["command"] for entry in data["hooks"][event] for hook in entry["hooks"]]
+            for event in ("PreToolUse", "UserPromptSubmit")}
+
+
+def test_install_keeps_another_programs_exec_form_hook_and_adds_its_own_entry(tmp_path):
+    binary = tmp_path / "bin" / "keyfence"
+    path = foreign_exec_settings(tmp_path)
+    assert hooks.install(path, str(binary))
+    data = json.loads(path.read_text())
+    own = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "timeout": 10, "onFailure": "block"}
+    assert data["hooks"]["PreToolUse"] == [{"matcher": "Bash", "hooks": [FOREIGN_EXEC]},
+                                          {"matcher": hooks.HOOK_MATCHER, "hooks": [own]}]
+    assert data["hooks"]["UserPromptSubmit"] == [{"hooks": [FOREIGN_EXEC]}, {"hooks": [own]}]
+
+
+def test_a_second_install_beside_another_programs_exec_form_hook_changes_nothing(tmp_path):
+    binary = tmp_path / "bin" / "keyfence"
+    path = foreign_exec_settings(tmp_path)
+    assert hooks.install(path, str(binary))
+    written = path.read_bytes()
+    assert not hooks.install(path, str(binary))
+    assert path.read_bytes() == written
+    assert hook_commands(path) == {"PreToolUse": [FOREIGN_EXEC["command"], str(binary)],
+                                   "UserPromptSubmit": [FOREIGN_EXEC["command"], str(binary)]}
+
+
+def test_uninstall_keeps_another_programs_exec_form_hook(tmp_path):
+    path = foreign_exec_settings(tmp_path)
+    before = json.loads(path.read_text())
+    assert not hooks.uninstall(path).hook
+    assert json.loads(path.read_text()) == before
+    assert hooks.install(path, str(tmp_path / "bin" / "keyfence"))
+    assert hooks.uninstall(path).hook
+    assert json.loads(path.read_text()) == before
+
+
+def test_list_reports_nothing_installed_for_another_programs_exec_form_hook(tmp_path, monkeypatch, capsys):
+    path = foreign_exec_settings(tmp_path)
+    monkeypatch.setattr(hooks.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    monkeypatch.setattr(hooks, "settings_path", lambda project=False, cwd=None: path)
+    from keyfence import cli
+    assert cli.main(["install-hooks", "--list"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1] == "  tool-call hook" and lines[4] == "  prompt hook"
+    for line in lines[2:4] + lines[5:7]:
+        assert "not installed" in line and str(path) in line
+
+
+def test_remove_finds_no_keyfence_hook_in_another_programs_exec_form_hook(tmp_path, monkeypatch, capsys):
+    path = foreign_exec_settings(tmp_path)
+    before = path.read_bytes()
+    monkeypatch.setattr(hooks, "settings_path", lambda project=False, cwd=None: path)
+    from keyfence import cli
+    assert cli.main(["install-hooks", "claude-code", "--remove"]) == 0
+    assert f"No keyfence hook in {path}." in capsys.readouterr().out
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("stale", [
+    "/old/venv/bin/keyfence",
+    "C:\\old\\Scripts\\keyfence.exe",
+    "C:\\old\\Scripts\\keyfence.EXE",
+    "C:\\old\\shims\\keyfence.BAT",
+    "/old/My Projects/keyfence",
+    "/old/venv/bin/keyfence hook claude-code",
+    "",
+], ids=["path", "exe", "upper-case-exe", "bat-launcher", "spaces", "shell-form-command", "no-command"])
+def test_install_repairs_and_uninstall_removes_its_own_exec_form_entry_beside_another_programs(tmp_path, stale):
+    binary = tmp_path / "bin" / "keyfence"
+    old = {"type": "command", "command": stale, "args": ["hook", "claude-code"], "timeout": 10}
+    foreign_tool = {"matcher": "Bash", "hooks": [FOREIGN_EXEC]}
+    foreign_prompt = {"hooks": [FOREIGN_EXEC]}
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"hooks": {
+        "PreToolUse": [foreign_tool, {"matcher": "Read", "hooks": [old]}],
+        "UserPromptSubmit": [foreign_prompt, {"hooks": [old]}],
+    }}))
+    assert hooks.install(path, str(binary))
+    data = json.loads(path.read_text())
+    repaired = dict(old, command=str(binary), onFailure="block")
+    assert data["hooks"]["PreToolUse"] == [foreign_tool, {"matcher": hooks.HOOK_MATCHER, "hooks": [repaired]}]
+    assert data["hooks"]["UserPromptSubmit"] == [foreign_prompt, {"hooks": [repaired]}]
+    assert not hooks.install(path, str(binary))
+    assert hooks.uninstall(path).hook
+    assert json.loads(path.read_text()) == {"hooks": {"PreToolUse": [foreign_tool], "UserPromptSubmit": [foreign_prompt]}}
+
+
+@pytest.mark.parametrize("command", ["/opt/tools/kf-wrapper", "wrapper.sh hook claude-code"])
+def test_a_second_install_with_the_same_command_adds_no_second_entry_whatever_its_file_name(tmp_path, command):
+    path = foreign_exec_settings(tmp_path)
+    assert hooks.install(path, command)
+    written = path.read_bytes()
+    assert not hooks.install(path, command)
+    assert path.read_bytes() == written
+    assert hook_commands(path) == {"PreToolUse": [FOREIGN_EXEC["command"], command],
+                                   "UserPromptSubmit": [FOREIGN_EXEC["command"], command]}
+
+
+def test_install_repairs_an_entry_that_already_calls_the_command_it_installs_whatever_its_file_name(tmp_path):
+    command = "/opt/tools/kf-wrapper"
+    old = {"type": "command", "command": command, "args": ["hook", "claude-code"], "timeout": 10}
+    other_use = {"matcher": "Write", "hooks": [{"type": "command", "command": command, "args": ["audit"]}]}
+    foreign_tool = {"matcher": "Bash", "hooks": [FOREIGN_EXEC]}
+    foreign_prompt = {"hooks": [FOREIGN_EXEC]}
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"hooks": {
+        "PreToolUse": [foreign_tool, other_use, {"matcher": "Read", "hooks": [old]}],
+        "UserPromptSubmit": [foreign_prompt, {"hooks": [old]}],
+    }}))
+    assert hooks.install(path, command)
+    data = json.loads(path.read_text())
+    repaired = dict(old, onFailure="block")
+    assert data["hooks"]["PreToolUse"] == [foreign_tool, other_use, {"matcher": hooks.HOOK_MATCHER, "hooks": [repaired]}]
+    assert data["hooks"]["UserPromptSubmit"] == [foreign_prompt, {"hooks": [repaired]}]
+    assert not hooks.install(path, command)
+
+
+def test_install_moves_a_hook_that_already_calls_the_command_it_installs_out_of_a_shared_entry(tmp_path):
+    command = "/opt/tools/kf-wrapper"
+    old = {"type": "command", "command": command, "args": ["hook", "claude-code"], "timeout": 10}
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"hooks": {
+        "PreToolUse": [{"matcher": "Bash", "hooks": [FOREIGN_EXEC, old]}],
+        "UserPromptSubmit": [{"hooks": [FOREIGN_EXEC, old]}],
+    }}))
+    assert hooks.install(path, command)
+    data = json.loads(path.read_text())
+    own = dict(old, onFailure="block")
+    assert data["hooks"]["PreToolUse"] == [{"matcher": "Bash", "hooks": [FOREIGN_EXEC]},
+                                          {"matcher": hooks.HOOK_MATCHER, "hooks": [own]}]
+    assert data["hooks"]["UserPromptSubmit"] == [{"hooks": [FOREIGN_EXEC, own]}]
+    assert not hooks.install(path, command)
+
+
+def test_uninstall_leaves_an_entry_whose_command_has_another_file_name_and_removes_the_deny_rules(tmp_path):
+    command = "/opt/tools/kf-wrapper"
+    path = tmp_path / "settings.json"
+    assert hooks.install(path, command)
+    result = hooks.uninstall(path)
+    assert not result.hook and result.rules == len(hooks.DENY_RULES)
+    assert hook_commands(path) == {"PreToolUse": [command], "UserPromptSubmit": [command]}
+    assert "permissions" not in json.loads(path.read_text())
 
 
 def test_installed_exec_form_command_actually_spawns(tmp_path):

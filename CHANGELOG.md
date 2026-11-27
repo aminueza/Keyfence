@@ -101,6 +101,20 @@
   `flow.request.set_text` could not encode it as UTF-8; it is now written back
   as the escape it arrived as, and the rest of the non-ASCII text stays
   readable (issue #237).
+- A Claude Code hook in the exec form (`command` plus the arguments `hook
+  claude-code`) counts as keyfence's only when its command is a `keyfence`
+  executable, or when it has no command at all. Another program's hook with
+  the same two arguments used to be taken over: `install-hooks claude-code`
+  rewrote its command to keyfence's path, `--remove` deleted it, and
+  `install-hooks --list` and `doctor` reported it as keyfence's hook. It is
+  now left alone, and the install adds keyfence's own entry beside it;
+  `--list` and `doctor` still report a hook with those arguments when its
+  file name holds `keyfence`. A `keyfence.bat`, `keyfence.cmd` or
+  `keyfence.com` launcher is a `keyfence` executable like `keyfence.exe`, in
+  the shell form too, where the install used to leave such an entry and add
+  a second one. An entry edited to call keyfence through a wrapper with
+  another file name no longer counts as keyfence's, so `--remove` leaves it
+  in place (issue #306).
 - `install-hooks` refuses an unresolved automatic `keyfence` command before
   writing settings or an extension. Missing-script errors now name the Python
   script folders searched; pi's explicit `--command` override still works.

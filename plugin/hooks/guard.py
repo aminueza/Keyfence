@@ -168,16 +168,19 @@ def _is_keyfence_executable(path: str) -> bool:
     if len(path) >= 2 and path[0] == path[-1] and path[0] in "\"'":
         path = path[1:-1]
     name = PurePosixPath(path.replace("\\", "/")).name.lower()
-    return name.removesuffix(".exe") == "keyfence"
+    return name in ("keyfence", "keyfence.exe", "keyfence.bat", "keyfence.cmd", "keyfence.com")
 
 
-def _is_our_hook(hook: dict) -> bool:
+def _is_our_hook(hook: dict, fields: dict | None = None) -> bool:
     command = str(hook.get("command", ""))
     if command == HOOK_COMMAND:
         return True
     args = hook.get("args")
-    if isinstance(args, list) and [str(a) for a in args] == HOOK_ARGS:
+    if fields and command == fields["command"] and args == fields.get("args"):
         return True
+    if isinstance(args, list) and [str(a) for a in args] == HOOK_ARGS:
+        if not command or _is_keyfence_executable(command):
+            return True
     head, _, tail = command.rpartition(" hook claude-code")
     return bool(head) and not tail.strip() and _is_keyfence_executable(head)
 
@@ -186,7 +189,8 @@ def _names_our_hook(hook: dict) -> bool:
     command = str(hook.get("command", ""))
     args = hook.get("args")
     if isinstance(args, list) and [str(a) for a in args] == HOOK_ARGS:
-        return True
+        if not command or "keyfence" in PurePosixPath(command.replace("\\", "/")).name:
+            return True
     if command == HOOK_COMMAND:
         return True
     head, _, tail = command.rpartition(" hook claude-code")
@@ -197,7 +201,7 @@ def _sync_command(entries: list, fields: dict) -> bool:
     fixed = False
     for entry in entries:
         for hook in _entry_hooks(entry):
-            if not _is_our_hook(hook):
+            if not _is_our_hook(hook, fields):
                 continue
             if hook.get("command") != fields["command"]:
                 hook["command"] = fields["command"]
@@ -214,15 +218,15 @@ def _sync_command(entries: list, fields: dict) -> bool:
     return fixed
 
 
-def _only_ours(entry) -> bool:
+def _only_ours(entry, fields: dict | None = None) -> bool:
     nested = _entry_hooks(entry)
-    return bool(nested) and all(_is_our_hook(hook) for hook in nested)
+    return bool(nested) and all(_is_our_hook(hook, fields) for hook in nested)
 
 
-def _sync_matcher(entries: list) -> bool:
+def _sync_matcher(entries: list, fields: dict | None = None) -> bool:
     fixed = False
     for entry in entries:
-        if _only_ours(entry) and entry.get("matcher") != HOOK_MATCHER:
+        if _only_ours(entry, fields) and entry.get("matcher") != HOOK_MATCHER:
             entry["matcher"] = HOOK_MATCHER
             fixed = True
     return fixed
@@ -505,15 +509,15 @@ def _entry_hooks(entry) -> list:
     return [hook for hook in nested if isinstance(hook, dict)] if isinstance(nested, list) else []
 
 
-def _is_ours(entry) -> bool:
-    return any(_is_our_hook(h) for h in _entry_hooks(entry))
+def _is_ours(entry, fields: dict | None = None) -> bool:
+    return any(_is_our_hook(h, fields) for h in _entry_hooks(entry))
 
 
 def _names_our_entry(entry) -> bool:
     return any(_names_our_hook(h) for h in _entry_hooks(entry))
 
 
-def _remove_our_hooks(entries: list) -> tuple[list, bool]:
+def _remove_our_hooks(entries: list, fields: dict | None = None) -> tuple[list, bool]:
     kept = []
     removed = False
     for entry in entries:
@@ -521,7 +525,7 @@ def _remove_our_hooks(entries: list) -> tuple[list, bool]:
         if not isinstance(nested, list):
             kept.append(entry)
             continue
-        remaining = [hook for hook in nested if not (isinstance(hook, dict) and _is_our_hook(hook))]
+        remaining = [hook for hook in nested if not (isinstance(hook, dict) and _is_our_hook(hook, fields))]
         if len(remaining) == len(nested):
             kept.append(entry)
             continue
@@ -587,16 +591,16 @@ def install(path: Path, command: str | None = None) -> bool:
     prompt = data.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
     deny = data.setdefault("permissions", {}).setdefault("deny", [])
     changed = False
-    if not any(_only_ours(e) for e in pre):
-        pre[:] = _remove_our_hooks(pre)[0]
+    if not any(_only_ours(e, fields) for e in pre):
+        pre[:] = _remove_our_hooks(pre, fields)[0]
         pre.append({
             "matcher": HOOK_MATCHER,
             "hooks": [{"type": "command", **fields, "timeout": 10, "onFailure": "block"}],
         })
         changed = True
-    elif _sync_command(pre, fields) | _sync_matcher(pre):
+    elif _sync_command(pre, fields) | _sync_matcher(pre, fields):
         changed = True
-    if not any(_is_ours(e) for e in prompt):
+    if not any(_is_ours(e, fields) for e in prompt):
         prompt.append({
             "hooks": [{"type": "command", **fields, "timeout": 10, "onFailure": "block"}],
         })
