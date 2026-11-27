@@ -129,12 +129,12 @@ config directory is moved with that variable — or `./.claude/settings.json` wi
 `--project`):
 
 - a `PreToolUse` entry with the matcher above and the command
-  `keyfence hook claude-code`, timeout 10;
+  `keyfence hook claude-code`, timeout 10, `onFailure: block`;
 - a `UserPromptSubmit` entry with the command
   `keyfence hook claude-code`, timeout 10, `onFailure: block` (no matcher
-  key — the event fires on every prompt). This requires Claude Code
+  key — the event fires on every prompt). Both require Claude Code
   v2.1.295+ for the `onFailure` field; without it a hook that crashes or
-  times out would let the prompt through. Both entries use exec form:
+  times out would let the tool call or the prompt through. Both entries use exec form:
   `command` is the installer's keyfence executable and `args` is
   `["hook", "claude-code"]`, so Claude Code spawns it directly with no
   shell on any platform — paths with spaces or Windows backslashes need
