@@ -10,6 +10,14 @@
   before `get` included, and it also treats `kyaml`, `template`, a quoted
   format such as `-o 'jsonpath=...'`, and `--template` without `-o` as
   printing the data (issue #224).
+- The release build installs its tools from the hashed
+  `requirements-release.txt` with `--require-hashes` and builds without
+  isolation, the jobs that publish to PyPI and to GitHub check that the files
+  match the SHA-256 the build recorded, and each GitHub release carries a
+  CycloneDX SBOM of the wheel and its dependencies. The Docker image starts
+  from a base image pinned by digest and installs the hashed
+  `requirements-docker.txt`; CI builds it. Dependabot now also proposes
+  updates for both requirements files and the base image (issue #222).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
@@ -19,7 +27,8 @@
   terminal closing, an SSH session dropping, `timeout(1)` or a cancelled CI
   job no longer leaves mitmdump running on the port. The proxy starts in its
   own session, so the signal reached keyfence alone and its cleanup never ran
-  (issue #205).
+  (issue #205). A SIGHUP or SIGTERM that is already ignored, as under `nohup`,
+  stays ignored for keyfence and the command (issue #282).
 - A request whose JSON body holds a lone surrogate escape, such as `\ud83d`
   from a truncated emoji, is redacted and sent when `notice` is on instead of
   being refused with a 403. The notice step rewrote the surrogate raw and
@@ -78,7 +87,9 @@
   while the child runs, so a command that traps SIGINT finishes and its exit
   code is returned instead of a traceback with `-2`. mitmdump now starts in its
   own session (POSIX) or process group (Windows), so the same Ctrl+C no longer
-  stops the proxy while the command is still running (issue #179).
+  stops the proxy while the command is still running (issue #179). A SIGINT
+  that is already ignored, as for `cmd &` in a script, stays ignored for the
+  command (issue #282).
 
 - `keyfence canary` leaves no orphan behind when it fails: a path it cannot
   read or write (missing directory, a directory, a read-only file) prints
