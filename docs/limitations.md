@@ -72,9 +72,12 @@ real incidents. Out of scope:
   notice is added to request bodies only, so a model on a realtime
   connection receives the `[REDACTED:...]` markers with no explanation.
   In `placeholder` mode each frame from the server is restored on its
-  own, so a placeholder split across two frames reaches the client as the
-  token, not the value: unlike a stream, a frame cannot be held back and
-  edited once the rest of the token arrives.
+  own and relayed at once, so a placeholder split across frames reaches
+  the client as pieces of the token, not as the value. The `.done` frame
+  that ends the item carries the full text and is restored. Holding a
+  frame back would mean dropping it and injecting it again later, and
+  mitmproxy does not keep an injected frame in order with the frames the
+  server sends meanwhile.
 - **Streams ending mid-placeholder.** If a streamed response ends in the
   middle of a placeholder, the last characters are passed through as they
   are.
