@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- In `placeholder` mode, a `<` at the end of a text item in an OpenAI
+  Responses API stream stays in that item. keyfence held it in case a
+  placeholder started there, and released holds only on Anthropic's
+  `content_block_stop`, so the `<` moved into the next item (often a
+  function call, whose arguments then were not valid JSON) and every event
+  behind it waited. Holds are now kept per item and released by the
+  `.done` events of the Responses API (issue #239).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,

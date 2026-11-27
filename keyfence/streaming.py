@@ -118,7 +118,7 @@ class SSERestorer:
         self.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self.pending = ""
         self.queue: list[Event] = []
-        self.held: dict[tuple[JsonPath, int | None], tuple[Event, str]] = {}
+        self.held: dict[tuple, tuple[Event, str]] = {}
 
     def feed(self, chunk: bytes) -> bytes:
         final = chunk == b""
@@ -152,16 +152,18 @@ class SSERestorer:
         ]
         return min(candidates) if candidates else None
 
-    def _block_index(self, event: Event) -> int | None:
+    def _block_index(self, event: Event):
         if isinstance(event.obj, dict):
+            if "output_index" in event.obj:
+                return (event.obj["output_index"], event.obj.get("content_index"))
             return event.obj.get("index")
         return None
 
-    def _held_key(self, path: JsonPath, index: int | None) -> tuple[JsonPath, int | None]:
-        return (path, index)
-
-    def _release_held(self, index: int | None) -> None:
-        keys_to_remove = [k for k in self.held if k[1] == index]
+    def _release_held(self, index, whole_item: bool = False) -> None:
+        keys_to_remove = [
+            k for k in self.held
+            if k[1] == index or (whole_item and isinstance(k[1], tuple) and k[1][0] == index[0])
+        ]
         for key in keys_to_remove:
             self.held.pop(key)
 
@@ -177,9 +179,13 @@ class SSERestorer:
         if event_type == "content_block_stop":
             self._release_held(index)
             return
+        done = isinstance(event_type, str) and event_type.endswith(".done")
+        if done:
+            self._release_held(index, whole_item=event_type == "response.output_item.done")
+        family = event_type.removesuffix(".delta").removesuffix(".done") if isinstance(event_type, str) else None
 
         def fn(path: JsonPath, s: str) -> str:
-            held_key = self._held_key(path, index)
+            held_key = (path, index, family)
             previous = self.held.pop(held_key, None)
             if previous is not None:
                 prev_event, partial = previous
@@ -193,7 +199,7 @@ class SSERestorer:
             else:
                 escape = 0
             s = restore(s, self.mapping, escape)
-            suffix = partial_suffix(s, self.tokens, self.max_len)
+            suffix = None if done else partial_suffix(s, self.tokens, self.max_len)
             if suffix:
                 self.held[held_key] = (event, suffix)
             return s
