@@ -371,6 +371,44 @@ def test_hook_check_accepts_a_shared_entry_when_its_own_entry_covers_every_tool(
     assert doctor.check_hook(tmp_path / "proj").status == doctor.OK
 
 
+def test_keyfence_hook_returns_the_keyfence_hook_not_the_foreign_one(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(doctor, "claude_verdicts", lambda paths, cwd: {path: (doctor.OK, "") for path in paths})
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    agentlog = tmp_path / "bin" / "agentlog"
+    agentlog.write_text("")
+    agentlog.chmod(0o755)
+    own = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"]}
+    foreign = {"type": "command", "command": f"{agentlog} hook claude-code"}
+    settings = project / "settings.json"
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Read", "hooks": [foreign, own]}]}}))
+    assert doctor.keyfence_hook(settings, "PreToolUse") == own
+
+
+def test_a_shared_entry_with_a_broken_keyfence_hook_is_not_reported_as_ok(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(doctor, "claude_verdicts", lambda paths, cwd: {path: (doctor.OK, "") for path in paths})
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    agentlog = tmp_path / "bin" / "agentlog"
+    agentlog.parent.mkdir()
+    agentlog.write_text("")
+    agentlog.chmod(0o755)
+    own = {"type": "command", "command": str(tmp_path / "bin" / "keyfence"), "args": ["hook", "claude-code"]}
+    foreign = {"type": "command", "command": f"{agentlog} hook claude-code"}
+    settings = project / "settings.json"
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": doctor.hooks.HOOK_MATCHER, "hooks": [foreign, own]}]}}))
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.FAIL and "keyfence" in check.detail
+
+
 @pytest.mark.parametrize("matcher", [None, "", "*", ".*", "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash|PowerShell|Glob"])
 def test_hook_check_accepts_a_matcher_that_covers_every_checked_tool(home, tmp_path, monkeypatch, matcher):
     monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))

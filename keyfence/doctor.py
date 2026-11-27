@@ -308,8 +308,10 @@ def keyfence_hook(path: Path, event: str) -> dict | None:
         return None
     for entry in data.get("hooks", {}).get(event, []):
         if hooks._names_our_entry(entry):
+            # A shared entry also holds other programs' hooks; keyfence's is
+            # the one to check, not the foreign hook that comes first.
             for hook in hooks._entry_hooks(entry):
-                if hook.get("command"):
+                if hooks._names_our_hook(hook) and hook.get("command"):
                     return hook
     return None
 
