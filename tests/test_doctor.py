@@ -325,10 +325,16 @@ def test_hook_check(home, tmp_path, monkeypatch):
     binary.parent.mkdir()
     binary.write_text("")
     binary.chmod(0o755)
-    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
-        {"matcher": "Read", "hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"]}]}]}}))
+    hook = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "onFailure": "block"}
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [hook]}]}}))
     check = doctor.check_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
+    del hook["onFailure"]
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [hook]}]}}))
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.WARN
+    assert "without onFailure: block" in check.detail and "lets the tool call through" in check.detail
+    assert "install-hooks claude-code --project" in check.detail
     (project / "settings.json").write_text("not json")
     assert doctor.check_hook(tmp_path / "proj").status == doctor.WARN
 
@@ -347,6 +353,10 @@ def test_prompt_hook_check(home, tmp_path, monkeypatch):
         {"hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "timeout": 10, "onFailure": "block"}]}]}}))
     check = doctor.check_prompt_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
+    (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
+        {"hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "timeout": 10}]}]}}))
+    check = doctor.check_prompt_hook(tmp_path / "proj")
+    assert check.status == doctor.WARN and "lets the prompt through" in check.detail
     (project / "settings.json").write_text("not json")
     assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.WARN
     (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
