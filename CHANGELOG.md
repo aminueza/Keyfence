@@ -6,11 +6,12 @@
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
   `onFailure: block`, as the prompt hook already had, and running the
-  install again adds it to an existing entry. A Bash command with many
-  bracket classes is refused right away when they expand to more than
-  10000 paths across the whole command, not only in one word: 150 words
-  at the old per-word limit took the hook about 47 seconds, so Claude Code
-  timed it out and ran the command (issue #226).
+  install again adds it to an existing entry; `doctor` warns about an
+  entry without it. A Bash command whose bracket classes expand to more
+  than 50000 paths across all its words is refused right away, as one
+  word past 10000 already was: 150 words at the per-word limit
+  took the hook about 47 seconds, so Claude Code timed it out and ran the
+  command (issue #226).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,

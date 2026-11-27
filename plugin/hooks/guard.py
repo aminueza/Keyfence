@@ -34,6 +34,7 @@ _URL_WITH_SCHEME = re.compile(r"""(?<![A-Za-z0-9+.-])(?:https?|ftps?|wss?)://[^\
 _GLOB = re.compile(r"[*?]+")
 _BRACKET_CLASS = re.compile(r"\[([^\]/]+)\]")
 _BRACKET_EXPANSION_LIMIT = 10000
+_BRACKET_TOTAL_LIMIT = 50000
 _PREFIXES = (
     r"(?:(?:sudo|xargs|nohup|time|nice|exec)(?:\s+-\S+(?:\s+[^-\s]\S*)?)*\s+|(?:command(?:\s+-p)?|builtin|eval)\s+|"
     r"(?:ba|da|k|z)?sh\s+(?:-\S+\s+)*-\w*c\s+[\"']?|[A-Za-z_]\w*=\S*\s+)*")
@@ -326,9 +327,9 @@ def _refusal_for_too_many_bracket_classes(command: str) -> str | None:
             return (f"keyfence blocked {word}: it carries so many bracket classes that "
                     f"deciding whether it names a secret file would take too long to be a "
                     f"guard. Write the path without a character class.")
-        if total > _BRACKET_EXPANSION_LIMIT:
+        if total > _BRACKET_TOTAL_LIMIT:
             return (f"keyfence blocked this command: its bracket classes expand to more than "
-                    f"{_BRACKET_EXPANSION_LIMIT} paths, so deciding whether one names a secret file "
+                    f"{_BRACKET_TOTAL_LIMIT} paths, so deciding whether one names a secret file "
                     f"would take too long to be a guard. Write the paths without character classes.")
     return None
 

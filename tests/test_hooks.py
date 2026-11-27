@@ -278,10 +278,25 @@ def test_past_the_expansion_limit_is_refused_rather_than_expanded():
     assert reason and word in reason
 
 
-def test_words_that_pass_the_expansion_limit_together_are_refused():
+def test_words_that_pass_the_total_expansion_limit_together_are_refused():
     word = "/tmp/" + "[abcdefghij]" * 4 + "/notes.md"
-    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word} {word}"}})
-    assert reason and "bracket classes expand to more than 10000 paths" in reason
+    command = "cat " + " ".join([word] * 6)
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert reason and "bracket classes expand to more than 50000 paths" in reason
+
+
+def test_words_at_the_total_expansion_limit_are_still_decided():
+    word = "/tmp/" + "[abcdefghij]" * 4 + "/notes.md"
+    command = "cat " + " ".join([word] * 5) + " ~/.ssh/id_rsa"
+    assert hooks._refusal_for_too_many_bracket_classes(command) is None
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert reason and "~/.ssh/id_rsa" in reason
+
+
+def test_regexes_in_a_few_sed_expressions_are_not_refused_as_too_many_paths():
+    expression = "'s/[A-Za-z0-9_.-]+@[A-Za-z0-9.-]+/X/g'"
+    command = "sed " + " ".join(["-e " + expression] * 3) + " users.txt"
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
 
 
 @pytest.mark.parametrize("tail", ["", " ~/.ssh/id_rsa"])
@@ -291,7 +306,7 @@ def test_many_words_at_the_expansion_limit_are_refused_without_expanding_them(ta
     start = time.perf_counter()
     reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
     assert time.perf_counter() - start < 1
-    assert reason and "bracket classes expand to more than 10000 paths" in reason
+    assert reason and "bracket classes expand to more than 50000 paths" in reason
 
 
 @pytest.mark.parametrize("command", [
@@ -585,15 +600,20 @@ def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
     assert not hooks.install(path, str(binary))
 
 
-def test_install_makes_an_existing_tool_hook_refuse_on_timeout(tmp_path):
+@pytest.mark.parametrize("on_failure", [None, "continue"])
+def test_install_makes_an_existing_hook_refuse_on_failure(tmp_path, on_failure):
+    hook = {"type": "command", "command": hooks.HOOK_COMMAND, "timeout": 10}
+    if on_failure:
+        hook["onFailure"] = on_failure
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"hooks": {
-        "PreToolUse": [{"matcher": hooks.HOOK_MATCHER, "hooks": [{"type": "command", "command": hooks.HOOK_COMMAND, "timeout": 10}]}],
-        "UserPromptSubmit": [{"hooks": [{"type": "command", "command": hooks.HOOK_COMMAND, "timeout": 10, "onFailure": "block"}]}],
+        "PreToolUse": [{"matcher": hooks.HOOK_MATCHER, "hooks": [dict(hook)]}],
+        "UserPromptSubmit": [{"hooks": [dict(hook)]}],
     }}))
     assert hooks.install(path)
     data = json.loads(path.read_text())
-    assert data["hooks"]["PreToolUse"][0]["hooks"][0]["onFailure"] == "block"
+    for event in ("PreToolUse", "UserPromptSubmit"):
+        assert data["hooks"][event][0]["hooks"][0]["onFailure"] == "block"
     assert not hooks.install(path)
 
 
