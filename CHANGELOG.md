@@ -16,7 +16,7 @@
   the arguments JSON it is part of, as in a stream, so a secret with `"`,
   `\` or a newline no longer breaks the arguments the client puts together.
   The docs now say that a placeholder split across WebSocket frames is not
-  restored (issue #240).e50725b28877bd946dfe67788ab6285c8f4a
+  restored (issue #240)
 - In `placeholder` mode, a `<` at the end of a text item in an OpenAI
   Responses API stream stays in that item. keyfence held it in case a
   placeholder started there, and released holds only on Anthropic's
@@ -26,7 +26,7 @@
   `.done` events of the Responses API, and only a `.delta` event can start
   one, so a complete string ending in `<` (the instructions echoed in
   `response.created`, for example) no longer holds back the rest of the
-  stream (issue #239).f13ce45fbe3d04799a76ae55b243ff42a959
+  stream (issue #239)
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
