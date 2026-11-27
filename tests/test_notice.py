@@ -87,6 +87,21 @@ def test_vertex_anthropic_gets_system(path):
     assert no_version["system"] == NOTICE
 
 
+def test_vertex_raw_predict_for_another_publisher_does_not_get_anthropic_system():
+    path = "/v1/projects/p/locations/us-central1/publishers/mistralai/models/mistral-large:rawPredict"
+    body = json.dumps({"model": "mistral-large", "messages": [{"role": "user", "content": "hi"}]})
+    out = load(add_notice(body, VERTEX, path=path))
+    assert "system" not in out
+    assert out["messages"][0] == {"role": "system", "content": NOTICE}
+    custom = json.dumps({"instances": [{"prompt": "hi"}]})
+    assert add_notice(custom, VERTEX, path="/v1/projects/p/locations/us-central1/endpoints/123:rawPredict") == custom
+
+
+def test_an_anthropic_body_without_messages_is_left_alone():
+    body = json.dumps({"requests": [{"custom_id": "a", "params": {"model": "claude", "messages": []}}]})
+    assert add_notice(body, "api.anthropic.com", path="/v1/messages/batches") == body
+
+
 @pytest.mark.parametrize("host, path", [
     (VERTEX, "/v1/projects/p/locations/us-east5/endpoints/openapi/chat/completions"),
     ("generativelanguage.googleapis.com", "/v1beta/openai/chat/completions"),

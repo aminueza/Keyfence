@@ -65,7 +65,7 @@ def add_notice(body: str, host: str, mode: str = "redact", path: str = "") -> st
         if not isinstance(system, list):
             return body
         obj["system"] = [*system, {"text": text}]
-    elif ("system" in obj or "anthropic_version" in obj or path.endswith("rawpredict")
+    elif ("system" in obj or "anthropic_version" in obj or "/publishers/anthropic/" in path
           or (_is_host(host, ANTHROPIC_HOSTS) and isinstance(messages, list))):
         obj["system"] = _append_text(obj.get("system", ""), text)
     elif "instructions" in obj and isinstance(obj["instructions"], str):

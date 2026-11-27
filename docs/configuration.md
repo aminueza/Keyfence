@@ -115,17 +115,18 @@ commands as if they were the value. In `placeholder` it says to write
 `<<SECRET_id>>` tokens exactly as shown so they can be restored. Without
 the note, models tend to treat the tokens as evidence of compromise.
 
-Supported shapes: Anthropic `system` as a string or as a list of blocks (the
-note is a new block at the end, so cached prefixes stay valid), also on
-Bedrock and Vertex AI (a body with `anthropic_version`, or a `rawPredict`
-path), Bedrock Converse (a `{"text": ...}` block in `system`), OpenAI chat
-(a leading system message, or the existing one extended) and Responses
-`instructions`, Gemini `systemInstruction` (a body with `contents`). The
-shape comes from the body and the request path; the host only tells an
-Anthropic body without `system` apart from an OpenAI one. Other bodies are
-left alone, among them Bedrock bodies for other models, such as Llama's
-`prompt`. Clean requests are never touched. Set `notice: false` to
-disable.
+Supported shapes: Anthropic `system` as a string or as a list of blocks
+(the note is a new block at the end, so cached prefixes stay valid), also
+on Bedrock and Vertex AI (a body with `anthropic_version`, or a path under
+Vertex AI's `publishers/anthropic/`), Bedrock Converse (a `{"text": ...}`
+block in `system`), OpenAI chat (a leading system message, or the existing
+one extended) and Responses `instructions`, Gemini `systemInstruction` (a
+body with `contents`). The shape comes from the body and the request path.
+The host decides only two things: a `messages` body without `system` on
+Anthropic's API gets `system`, and one on Bedrock is left alone, as are
+other Bedrock bodies for models whose shape keyfence does not know, such
+as Llama's `prompt`. Other bodies are left alone too. Clean requests are
+never touched. Set `notice: false` to disable.
 
 ## Other behaviour
 
