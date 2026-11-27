@@ -543,6 +543,36 @@ def test_a_100_kb_line_of_nested_command_starts_is_decided_quickly(piece):
     assert reason and "aws secretsmanager" in reason
 
 
+@pytest.mark.parametrize("command", [
+    "kubectl get secret db --request-timeout=" + "0" * 520 + "1s -o yaml",
+    "op item get x" + " --vault v" * 60 + " --reveal",
+    "aws" + " --debug" * 33 + " secretsmanager get-secret-value --secret-id x",
+    "kubectl" + " -v 1" * 33 + " get secret db -o yaml",
+])
+def test_a_command_past_the_option_or_length_limit_is_refused(command):
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert reason and "more options or characters than keyfence reads" in reason
+
+
+@pytest.mark.parametrize("command", [
+    "kubectl get pods -o wide --selector=" + "a" * 600,
+    "kubectl patch deploy x -p '" + "y" * 800 + "'",
+    "aws dynamodb put-item --table-name t --item '" + "x" * 800 + "'",
+    "op item list" + " --vault v" * 60,
+    "aws" + " --debug" * 32 + " s3 ls",
+])
+def test_a_long_command_that_cannot_print_a_secret_still_passes(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("piece", [" {aws -x", " (aws -x=", " (kubectl -o", " (kubectl get secret", " (op item get"])
+def test_a_100_kb_line_of_command_starts_without_a_secret_command_is_decided_quickly(piece):
+    command = "echo" + piece * ((100 * 1024) // len(piece))
+    started = time.perf_counter()
+    hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert time.perf_counter() - started < 2
+
+
 @pytest.mark.parametrize("binary", ["aws", "kubectl", "gcloud", "op"])
 def test_a_long_run_of_key_value_options_is_decided_quickly(binary):
     command = binary + " --a=b" * 16 + " --p v" * 40 + " s3 ls"
