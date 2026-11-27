@@ -5,11 +5,14 @@
 - The hook refuses a secret-printing command when a global option comes
   before the subcommand, as in `kubectl -n prod get secret db -o yaml`,
   `aws --profile prod secretsmanager get-secret-value` or `op --account a
-  read ...`. For kubectl it finds `secret`, `secrets` or `secret/<name>` in
-  the resource list and the output format anywhere in the command, `-o`
-  before `get` included, and it also treats `kyaml`, `template`, a quoted
-  format such as `-o 'jsonpath=...'`, and `--template` without `-o` as
-  printing the data (issue #224).
+  read ...`. For kubectl it takes `secret`, `secrets` or `secret/<name>` as
+  the resource argument, or a `secret/<name>` pair further along the
+  command, and it looks for the output format within 500 characters of
+  `kubectl`, `-o` before `get` included; it also treats `kyaml`, `template`,
+  a quoted format such as `-o 'jsonpath=...'`, and `--template` without
+  `-o` as printing the data. It reads at most 48 options between the command
+  and its subcommand, so `kubectl get configmap secret -o yaml` and
+  `kubectl get pods -l secret -o yaml` stay allowed (issue #224).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry

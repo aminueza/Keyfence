@@ -419,6 +419,7 @@ def test_ordinary_commands_pass(command):
     "doppler --project p secrets download --no-file",
     "gh --hostname example.com auth token",
     "kubectl get secret db -o 'jsonpath={.data.password}'",
+    "kubectl get deploy/app secret/db -o yaml",
     "kubectl get secret db --output=\"yaml\"",
     "kubectl get secret db --template='{{.data.password}}'",
     "kubectl -n prod --request-timeout=-1 get secret db -o yaml",
@@ -436,9 +437,21 @@ def test_a_global_option_before_the_subcommand_does_not_hide_a_secret_command(co
     "gcloud --project p secrets list", "doppler --project p secrets --only-names",
     "kubectl get configmap my-secret-config -o yaml", "kubectl get pods -o yaml; echo secret",
     "kubectl -n prod get secret db -o name",
+    "kubectl get configmap secret -o yaml", "kubectl get pods -l secret -o yaml",
 ])
 def test_listing_and_unrelated_commands_with_global_options_still_pass(command):
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("piece", [" {aws -x", " (aws -x", " (kubectl -o", " (op ", " {op --a"])
+def test_a_100_kb_line_of_nested_command_starts_is_decided_quickly(piece):
+    tail = "; aws secretsmanager" + " get-secret-value --secret-id app"
+    command = "echo" + piece * ((100 * 1024) // len(piece)) + tail
+    assert len(command) > 100 * 1024
+    started = time.perf_counter()
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert time.perf_counter() - started < 1
+    assert reason and "aws secretsmanager" in reason
 
 
 @pytest.mark.parametrize("binary", ["aws", "kubectl", "gcloud", "op"])
