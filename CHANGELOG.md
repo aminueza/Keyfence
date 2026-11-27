@@ -2,20 +2,10 @@
 
 ## Unreleased
 
-- The hook refuses a secret-printing command when a global option comes
-  before the subcommand, as in `kubectl -n prod get secret db -o yaml`,
-  `aws --profile prod secretsmanager get-secret-value` or `op --account a
-  read ...`. For kubectl it takes `secret`, `secrets` or `secret/<name>` as
-  the resource argument, or a `secret/<name>` pair further along the
-  command, and it looks for the output format within 500 characters of
-  `kubectl`, `-o` before `get` included; it also treats `kyaml`, `template`,
-  a quoted format such as `-o 'jsonpath=...'`, and `--template` without
-  `-o` as printing the data. It reads at most 32 options between the command
-  and its subcommand, and refuses a command past that, or a `kubectl get` of
-  a secret or an `op item get` longer than 500 characters, since it cannot
-  check them. Tying the resource to the argument after `get` keeps
-  `kubectl get configmap secret -o yaml` and `kubectl get pods -l secret -o
-  yaml` allowed (issue #224).
+- A held placeholder prefix stays inside the chat completion choice it came from.
+  With `n > 1` and one choice per chunk, both choices sat at position 0 of their
+  own chunk and shared one hold, so the held text moved into the other choice; a
+  choice now also releases its holds on its `finish_reason` chunk (issue #314).
 - The system prompt notice takes its shape from the body and the request
   path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
   Anthropic models on Vertex AI get `system` instead of
@@ -55,6 +45,9 @@
   one, so a complete string ending in `<` (the instructions echoed in
   `response.created`, for example) no longer holds back the rest of the
   stream (issue #239).
+- `doctor` names an exec-form hook by its arguments when its `command` is empty,
+  so the message reads "calls hook claude-code" instead of "calls  hook
+  claude-code" (issue #313).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
@@ -78,6 +71,10 @@
   from a base image pinned by digest and installs the hashed
   `requirements-docker.txt`; CI builds it. Dependabot now also proposes
   updates for both requirements files and the base image (issue #222).
+- A custom rules file with a regex that Python compiles and then refuses, such as
+  `a{4294967296}` or 600 nested groups, drops that rule instead of stopping
+  keyfence: `re.error` came with `OverflowError` and `RecursionError`, and only
+  the first was caught (issue #312).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
@@ -114,6 +111,20 @@
   that was truncated or rotated is read again from the start, which can deliver
   some entries twice to the collector; losing a detection was the worse trade
   (issue #178).
+- The hook refuses a secret-printing command when a global option comes
+  before the subcommand, as in `kubectl -n prod get secret db -o yaml`,
+  `aws --profile prod secretsmanager get-secret-value` or `op --account a
+  read ...`. For kubectl it takes `secret`, `secrets` or `secret/<name>` as
+  the resource argument, or a `secret/<name>` pair further along the
+  command, and it looks for the output format within 500 characters of
+  `kubectl`, `-o` before `get` included; it also treats `kyaml`, `template`,
+  a quoted format such as `-o 'jsonpath=...'`, and `--template` without
+  `-o` as printing the data. It reads at most 32 options between the command
+  and its subcommand, and refuses a command past that, or a `kubectl get` of
+  a secret or an `op item get` longer than 500 characters, since it cannot
+  check them. Tying the resource to the argument after `get` keeps
+  `kubectl get configmap secret -o yaml` and `kubectl get pods -l secret -o
+  yaml` allowed (issue #224).
 - `keyfence export --otlp` prints one `error: could not send to <url>: ...` line
   and exits 1 when the collector cannot be reached or answers an error status,
   instead of a traceback, and leaves the cursor untouched so the next run

@@ -337,10 +337,11 @@ def prompt_hook_command(path: Path) -> str | None:
 
 
 def _hook_display(hook: dict) -> str:
+    parts = [str(hook.get("command", "")).strip()]
     args = hook.get("args")
     if isinstance(args, list):
-        return " ".join([str(hook.get("command", "")), *(str(a) for a in args)])
-    return str(hook.get("command", ""))
+        parts.extend(str(a).strip() for a in args)
+    return " ".join(part for part in parts if part)
 
 
 def _hook_problem(hook: dict) -> str | None:

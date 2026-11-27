@@ -87,6 +87,14 @@ def _map_strings(obj, fn, path: JsonPath = ()):
     return obj
 
 
+def _choice_index(obj, path: JsonPath):
+    if not isinstance(obj, dict) or path[:1] != ("choices",) or len(path) < 2:
+        return None
+    choice = obj["choices"][path[1]]
+    index = choice.get("index") if isinstance(choice, dict) else None
+    return index if isinstance(index, int) else path[1]
+
+
 class Event:
     def __init__(self, raw: str):
         self.raw = raw
@@ -199,7 +207,7 @@ class SSERestorer:
         family = event_type.removesuffix(".delta").removesuffix(".done") if typed else None
 
         def fn(path: JsonPath, s: str) -> str:
-            held_key = (path, index, family)
+            held_key = (path, _choice_index(obj, path) if index is None else index, family)
             previous = self.held.pop(held_key, None)
             if previous is not None:
                 prev_event, partial = previous
@@ -222,6 +230,10 @@ class SSERestorer:
         if new_obj != event.obj:
             event.obj = new_obj
             event.dirty = True
+        choices = obj.get("choices") if event_type is None and isinstance(obj, dict) else None
+        for position, choice in enumerate(choices if isinstance(choices, list) else []):
+            if isinstance(choice, dict) and choice.get("finish_reason"):
+                self._release_held(choice["index"] if isinstance(choice.get("index"), int) else position)
 
     def _drain(self) -> list[str]:
         rendered = [e.render() for e in self.queue]
