@@ -70,7 +70,7 @@ def add_notice(body: str, host: str, mode: str = "redact", path: str = "") -> st
         obj["system"] = _append_text(obj.get("system", ""), text)
     elif "instructions" in obj and isinstance(obj["instructions"], str):
         obj["instructions"] = _append_text(obj["instructions"], text)
-    elif "systemInstruction" in obj or "contents" in obj:
+    elif "systemInstruction" in obj or isinstance(obj.get("contents"), list):
         instruction = obj.get("systemInstruction") or {"parts": []}
         parts = instruction.get("parts")
         if not isinstance(parts, list):

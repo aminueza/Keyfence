@@ -165,6 +165,12 @@ def test_gemini_system_instruction():
     assert bare["systemInstruction"]["parts"] == [{"text": NOTICE}]
 
 
+@pytest.mark.parametrize("host", ["api.example.com", "generativelanguage.googleapis.com"])
+def test_a_body_whose_contents_is_not_a_list_is_left_alone(host):
+    body = json.dumps({"contents": "hi"})
+    assert add_notice(body, host, path="/v1/x") == body
+
+
 def test_gemini_with_malformed_parts_is_left_alone():
     body = json.dumps({"contents": [], "systemInstruction": {"parts": "oops"}})
     assert add_notice(body, "generativelanguage.googleapis.com") == body
