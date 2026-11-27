@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `doctor` checks every settings entry that holds a keyfence hook, not only the
+  first one, so a second entry with a broken command is reported instead of
+  passing as installed and OK (issue #308).
 - The Claude Code hook and the plugin also match the `PowerShell` tool, which
   Claude Code uses on Windows without Git Bash or with
   `CLAUDE_CODE_USE_POWERSHELL_TOOL`. Before, no PowerShell call reached the
