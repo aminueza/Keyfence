@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -273,7 +274,24 @@ def test_a_word_past_the_expansion_limit_is_refused():
 
 def test_past_the_expansion_limit_is_refused_rather_than_expanded():
     word = "/tmp/" + "[abcdefghij]" * 6 + "/.env"
-    assert hooks._refusal_for_too_many_bracket_classes(f"cat {word}") == word
+    reason = hooks._refusal_for_too_many_bracket_classes(f"cat {word}")
+    assert reason and word in reason
+
+
+def test_words_that_pass_the_expansion_limit_together_are_refused():
+    word = "/tmp/" + "[abcdefghij]" * 4 + "/notes.md"
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word} {word}"}})
+    assert reason and "bracket classes expand to more than 10000 paths" in reason
+
+
+@pytest.mark.parametrize("tail", ["", " ~/.ssh/id_rsa"])
+def test_many_words_at_the_expansion_limit_are_refused_without_expanding_them(tail):
+    word = "/tmp/" + "[abcdefghij]" * 4 + "/n.md"
+    command = "cat " + " ".join([word] * 150) + tail
+    start = time.perf_counter()
+    reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert time.perf_counter() - start < 1
+    assert reason and "bracket classes expand to more than 10000 paths" in reason
 
 
 @pytest.mark.parametrize("command", [
@@ -437,6 +455,7 @@ def test_plugin_guard_is_the_same_file_and_runs_standalone():
     assert guard.read_text() == (ROOT / "keyfence" / "hooks.py").read_text()
     hook = json.loads((ROOT / "plugin" / "hooks" / "hooks.json").read_text())["hooks"]["PreToolUse"][0]
     assert hook["matcher"] == hooks.HOOK_MATCHER
+    assert hook["hooks"][0]["onFailure"] == "block"
     assert "guard.py" in hook["hooks"][0]["command"] and "CLAUDE_PLUGIN_ROOT" in hook["hooks"][0]["command"]
     payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "printenv"}})
     done = subprocess.run([sys.executable, str(guard)], input=payload, capture_output=True, text=True)
@@ -566,6 +585,18 @@ def test_install_repairs_a_stale_command_that_cannot_start(tmp_path):
     assert not hooks.install(path, str(binary))
 
 
+def test_install_makes_an_existing_tool_hook_refuse_on_timeout(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"hooks": {
+        "PreToolUse": [{"matcher": hooks.HOOK_MATCHER, "hooks": [{"type": "command", "command": hooks.HOOK_COMMAND, "timeout": 10}]}],
+        "UserPromptSubmit": [{"hooks": [{"type": "command", "command": hooks.HOOK_COMMAND, "timeout": 10, "onFailure": "block"}]}],
+    }}))
+    assert hooks.install(path)
+    data = json.loads(path.read_text())
+    assert data["hooks"]["PreToolUse"][0]["hooks"][0]["onFailure"] == "block"
+    assert not hooks.install(path)
+
+
 FOREIGN = "/opt/agentlog/bin/agentlog hook claude-code"
 
 
@@ -665,6 +696,7 @@ def test_install_and_uninstall_merge_with_existing_settings(tmp_path):
     assert len(data["hooks"]["PreToolUse"]) == 2
     assert data["hooks"]["PreToolUse"][1]["hooks"][0]["command"] == hooks.HOOK_COMMAND
     assert data["hooks"]["PreToolUse"][1]["matcher"] == hooks.HOOK_MATCHER
+    assert data["hooks"]["PreToolUse"][1]["hooks"][0]["onFailure"] == "block"
     assert "UserPromptSubmit" in data["hooks"]
     assert data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"] == hooks.HOOK_COMMAND
     assert data["hooks"]["UserPromptSubmit"][0]["hooks"][0]["timeout"] == 10
