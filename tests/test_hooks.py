@@ -259,23 +259,110 @@ def test_two_bracket_classes_are_expanded_together():
 
 
 def test_a_word_at_the_expansion_limit_is_still_decided():
-    word = "/tmp/" + "[abcdefghij]" * 4 + "/notes.md"
+    word = "/tmp/" + "[abcdefghij]" * 4 + "/notes.env.md"
+    assert hooks._may_name_sensitive(word)
     assert hooks._bracket_expansion_size(word) == hooks._BRACKET_EXPANSION_LIMIT
     assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word}"}}) is None
 
 
 def test_a_word_past_the_expansion_limit_is_refused():
-    word = "/tmp/" + "[abcdefghij]" * 5 + "/notes.md"
+    word = "/tmp/" + "[abcdefghij]" * 5 + "/.env"
     with pytest.raises(hooks._ExpansionTooLarge):
         hooks._bracket_expansion_size(word)
     reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word}"}})
     assert reason and word in reason and "character class" in reason
 
 
+def test_bracket_classes_are_counted_by_the_characters_their_ranges_expand_to():
+    assert hooks._bracket_expansion_size("/tmp/x[a-z]") == 26
+
+
+@pytest.mark.parametrize("command", [
+    "grep -E '[A-Za-z0-9_]+@[A-Za-z0-9.]+\\.[a-z]+' users.txt",
+    "sed 's/[a-z][a-z][a-z]/X/' f.txt",
+    "ls log_[0-9][0-9][0-9][0-9][0-9].txt",
+    "cat /tmp/" + "[abcdefghij]" * 5 + "/notes.md",
+])
+def test_a_word_that_cannot_spell_a_secret_name_is_not_refused_for_its_size(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("command", [
+    "cat x/.kube\\/co[mn]fig",
+    "cat ~/./.ss[g-i]/id",
+    "cat ~//.ssh//[a-z]d_rsa",
+    "cat .[dE]nv",
+    "cat .ss[g-i]/config",
+    "cat .E[N]V",
+    "cat a[.-0].ssh[.-0]config",
+    "cat x/.kube/./co[mn]fig",
+])
+def test_a_secret_name_behind_slashes_or_case_is_still_expanded(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+def test_a_word_past_the_limit_with_a_class_that_folds_to_two_letters_is_still_refused():
+    word = "/tmp/" + "[abcdefghij]" * 4 + "[ßx]/notes.md"
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word}"}})
+
+
+def test_the_spelling_check_stays_fast_on_long_slash_runs_and_huge_classes():
+    start = time.perf_counter()
+    assert hooks._may_name_sensitive("[ab]" + "/" * 20000 + ".ssh/x")
+    assert not hooks._may_name_sensitive("[ab]" + "/" * 20000 + ".ss")
+    assert hooks._may_name_sensitive("x." + "[\U00010000-\U0010ffff]" * 8)
+    cjk = "[" + chr(0x4E00) + "-" + chr(0x4E00 + 9999) + "]"
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": "cat x." + cjk * 2000}})
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": "cat a" + "/./" * 20000 + "[.s]h"}}) is None
+    assert time.perf_counter() - start < 2
+
+
+def test_a_word_skipped_by_the_spelling_check_never_expands_to_a_secret_name():
+    import random
+    r = random.Random(276)
+    names = [n.replace("*", "") for n in hooks.SENSITIVE_NAMES] + [
+        "~/.ssh/config", "x/.kube/config", "a/.gnupg/k", "h/.aws/credentials", "~/.docker/config.json",
+        "u/.config/gcloud/app_credentials.json"]
+    alphabet = "abcdeknsvyACDEKS0123._-/\\"
+    for _ in range(3000):
+        base = list(r.choice(names)) if r.random() < 0.7 else [r.choice(alphabet) for _ in range(r.randint(1, 10))]
+        if r.random() < 0.3:
+            i = r.randrange(len(base) + 1)
+            base[i:i] = list(r.choice(["x", "//", "./", "\\", "ſ", "ß", "*", "?"]))
+        pieces = []
+        for ch in base:
+            roll = r.random()
+            if roll < 0.2 and ch not in "/]":
+                pieces.append("[" + ch + "".join(r.choice(alphabet.replace("/", "")) for _ in range(r.randint(0, 3))) + "]")
+            elif roll < 0.25 and ch not in "/]-":
+                low = chr(max(33, ord(ch) - r.randint(0, 5)))
+                high = chr(min(126, ord(ch) + r.randint(0, 5)))
+                body = low + "-" + high
+                pieces.append("[" + body + "]" if "/" not in body and "]" not in body else ch)
+            elif roll < 0.27 and ch == "/":
+                pieces.append("[.-0]")
+            else:
+                pieces.append(ch)
+        word = "".join(pieces)
+        try:
+            hooks._bracket_expansion_size(word)
+        except hooks._ExpansionTooLarge:
+            continue
+        if any(hooks.is_sensitive(e) for e in hooks._expand_bracket_classes(word)):
+            assert hooks._may_name_sensitive(word), word
+
+
 def test_past_the_expansion_limit_is_refused_rather_than_expanded():
     word = "/tmp/" + "[abcdefghij]" * 6 + "/.env"
     reason = hooks._refusal_for_too_many_bracket_classes(f"cat {word}")
     assert reason and word in reason
+
+
+@pytest.mark.parametrize("tail", [".e?v", ".e*", "id_*", "*.p?m", ".[!x]nv", ".[^x]nv", ".[[:alpha:]]nv", ".[]e]nv"])
+def test_a_word_too_large_to_expand_that_holds_a_part_the_check_cannot_read_is_refused(tail):
+    prefix = "/tmp/" + "[a-j]" * 5
+    reason = hooks._refusal_for_too_many_bracket_classes(f"cat {prefix}/{tail}")
+    assert reason and prefix in reason
 
 
 def test_words_that_pass_the_total_expansion_limit_together_are_refused():
