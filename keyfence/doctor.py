@@ -306,10 +306,9 @@ def keyfence_hook(path: Path, event: str) -> dict | None:
     except (OSError, ValueError):
         return None
     for entry in data.get("hooks", {}).get(event, []):
-        if hooks._names_our_entry(entry):
-            for hook in hooks._entry_hooks(entry):
-                if hook.get("command"):
-                    return hook
+        for hook in hooks._entry_hooks(entry):
+            if hooks._names_our_hook(hook):
+                return hook
     return None
 
 

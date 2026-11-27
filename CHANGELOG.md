@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `doctor` checks keyfence's own hook when it shares a Claude Code settings
+  entry with another program's hook. It used to check the first hook with a
+  command in that entry, so a missing keyfence executable could show as
+  "installed", and another program's missing executable as a keyfence
+  failure (issue #290).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
