@@ -82,7 +82,7 @@ def release_job():
 
 
 def test_the_release_job_runs_after_the_package_is_published():
-    assert release_job()["needs"] == "publish"
+    assert "publish" in release_job()["needs"]
 
 
 def test_the_release_job_can_write_releases_and_nothing_else():
@@ -112,7 +112,69 @@ def test_the_changelog_section_is_checked_before_the_package_is_published():
     build_at = next(i for i, run in enumerate(runs) if "python -m build" in run)
     assert check_at < build_at, "the changelog is checked after the package is built"
 
-    assert workflow_needs("publish") == "build"
+    assert "build" in workflow_needs("publish")
+
+
+def workflow_job(job):
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text())
+    return workflow["jobs"][job]
+
+
+def job_runs(job):
+    return [step["run"] for step in workflow_job(job)["steps"] if "run" in step]
+
+
+def test_the_build_job_installs_only_hashed_packages_and_builds_without_isolation():
+    installs = [run for run in job_runs("build") if "pip install" in run]
+    assert installs, "the build job installs nothing"
+    for run in installs:
+        assert "--require-hashes -r requirements-release.txt" in run, run
+    builds = [run for run in job_runs("build") if "python -m build" in run]
+    assert builds and all("--no-isolation" in run for run in builds), builds
+
+
+def test_the_wheel_is_checked_and_described_in_a_job_that_does_not_produce_it():
+    runs = "\n".join(job_runs("sbom"))
+    assert workflow_job("sbom")["needs"] == "build"
+    assert "python -m venv wheel-env" in runs
+    assert "wheel-env/bin/keyfence --help" in runs
+    assert "GITHUB_REF_NAME" in runs
+    assert "cyclonedx-py environment" in runs and "wheel-env/bin/python" in runs
+    assert set(workflow_needs("publish")) == {"build", "sbom"}
+
+
+def test_the_build_job_records_the_digest_of_every_file_it_built():
+    job = workflow_job("build")
+    assert job["outputs"]["dist-sha256"] == "${{ steps.digest.outputs.dist-sha256 }}"
+    digest = next(step for step in job["steps"] if step.get("id") == "digest")
+    assert "sha256sum *" in digest["run"] and "GITHUB_OUTPUT" in digest["run"]
+
+
+@pytest.mark.parametrize("job", ["publish", "release"])
+def test_publish_and_release_refuse_files_the_build_job_did_not_build(job):
+    steps = workflow_job(job)["steps"]
+    check = next(i for i, step in enumerate(steps) if "sha256sum -c" in step.get("run", ""))
+    assert steps[check]["env"]["DIST_SHA256"] == "${{ needs.build.outputs.dist-sha256 }}"
+    assert "ls dist" in steps[check]["run"], "an extra file in dist/ would go through"
+    download = next(i for i, step in enumerate(steps)
+                    if "download-artifact" in step.get("uses", "") and step["with"]["name"] == "dist")
+    assert download < check
+    uses_after = [step.get("uses", "") + step.get("run", "") for step in steps[check + 1:]]
+    assert any("pypi-publish" in u or "gh release create" in u for u in uses_after)
+    assert "build" in workflow_needs(job)
+
+
+def test_the_sbom_job_does_not_keep_the_checkout_token():
+    checkout = next(step for step in workflow_job("sbom")["steps"] if "actions/checkout" in step.get("uses", ""))
+    assert checkout["with"]["persist-credentials"] is False
+
+
+def test_the_release_attaches_the_sbom():
+    create = next(run for run in job_runs("release") if "gh release create" in run)
+    assert "sbom/sbom.cdx.json" in create
+    downloads = [step["with"]["name"] for step in workflow_job("release")["steps"]
+                 if "download-artifact" in step.get("uses", "")]
+    assert "sbom" in downloads
 
 
 def workflow_needs(job):
