@@ -80,12 +80,15 @@ def _line_anchored(pattern: re.Pattern) -> re.Pattern | LineAnchoredPattern:
     return LineAnchoredPattern(pattern, re.compile(rf"\b{found[1]}\b", pattern.flags))
 
 
+_COMPILE_ERRORS = (re.error, OverflowError, RecursionError)
+
+
 def _compile_many(regexes: list[str]) -> tuple[re.Pattern, ...]:
     compiled = []
     for regex in regexes:
         try:
             compiled.append(compile_regex(regex))
-        except re.error:
+        except _COMPILE_ERRORS:
             continue
     return tuple(compiled)
 
@@ -95,7 +98,7 @@ def _rule_from_gitleaks(raw: dict) -> Rule | None:
         return None
     try:
         pattern = compile_regex(raw["regex"])
-    except re.error:
+    except _COMPILE_ERRORS:
         return None
     ignore_regexes: list[str] = []
     stopwords: list[str] = []
@@ -108,7 +111,10 @@ def _rule_from_gitleaks(raw: dict) -> Rule | None:
     if secret_group:
         trimmed = _IDENTIFIER_PREFIX.sub(r"\1\2", raw["regex"], count=1)
         if trimmed != raw["regex"]:
-            pattern = compile_regex(trimmed)
+            try:
+                pattern = compile_regex(trimmed)
+            except _COMPILE_ERRORS:
+                return None
     return Rule(
         name=raw["id"],
         pattern=_line_anchored(pattern),

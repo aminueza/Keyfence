@@ -340,6 +340,18 @@ def test_hook_check(home, tmp_path, monkeypatch):
     assert doctor.check_hook(tmp_path / "proj").status == doctor.WARN
 
 
+def test_hook_check_names_an_exec_form_hook_without_a_command_without_a_double_space(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Read", "hooks": [{"type": "command", "command": "", "args": ["hook", "claude-code"]}]}]}}))
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.FAIL
+    assert "calls hook claude-code," in check.detail
+    assert "  " not in check.detail
+
+
 @pytest.mark.parametrize("verdict", [(doctor.OK, ""), (doctor.WARN, "claude is not on PATH")])
 def test_hook_check_warns_when_the_installed_matcher_leaves_out_a_tool(home, tmp_path, monkeypatch, verdict):
     monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))

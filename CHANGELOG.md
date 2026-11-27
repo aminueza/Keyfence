@@ -2,11 +2,10 @@
 
 ## Unreleased
 
-- A gitleaks file with `[extend]` `useDefault = true` now loads the bundled rules
-  and adds to them, instead of loading only its own rules and dropping the 220
-  bundled ones; `disabledRules` drops bundled rules only, a custom rule with
-  the id of a bundled one replaces it, and `[extend] path` stops with an error
-  that names `scan.gitleaks_rules` instead of being ignored (issue #304).
+- A held placeholder prefix stays inside the chat completion choice it came from.
+  With `n > 1` and one choice per chunk, both choices sat at position 0 of their
+  own chunk and shared one hold, so the held text moved into the other choice; a
+  choice now also releases its holds on its `finish_reason` chunk (issue #314).
 - The system prompt notice takes its shape from the body and the request
   path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
   Anthropic models on Vertex AI get `system` instead of
@@ -46,6 +45,9 @@
   one, so a complete string ending in `<` (the instructions echoed in
   `response.created`, for example) no longer holds back the rest of the
   stream (issue #239).
+- `doctor` names an exec-form hook by its arguments when its `command` is empty,
+  so the message reads "calls hook claude-code" instead of "calls  hook
+  claude-code" (issue #313).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry
@@ -69,11 +71,20 @@
   from a base image pinned by digest and installs the hashed
   `requirements-docker.txt`; CI builds it. Dependabot now also proposes
   updates for both requirements files and the base image (issue #222).
+- A custom rules file with a regex that Python compiles and then refuses, such as
+  `a{4294967296}` or 600 nested groups, drops that rule instead of stopping
+  keyfence: `re.error` came with `OverflowError` and `RecursionError`, and only
+  the first was caught (issue #312).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
   `doctor` counted it twice, and OTLP advanced its cursor past it; a log
   written by an older version is still read correctly (issue #206).
+- A gitleaks file with `[extend]` `useDefault = true` now loads the bundled rules
+  and adds to them, instead of loading only its own rules and dropping the 220
+  bundled ones; `disabledRules` drops bundled rules only, a custom rule with
+  the id of a bundled one replaces it, and `[extend] path` stops with an error
+  that names `scan.gitleaks_rules` instead of being ignored (issue #304).
 - `keyfence exec` stops its proxy when SIGTERM or SIGHUP ends it, so the
   terminal closing, an SSH session dropping, `timeout(1)` or a cancelled CI
   job no longer leaves mitmdump running on the port. The proxy starts in its
