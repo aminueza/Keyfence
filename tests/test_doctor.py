@@ -599,6 +599,59 @@ def test_keyfence_hook_in_exec_form_with_an_empty_command_is_the_one_checked(hom
     assert result.status == doctor.FAIL and "agentlog" not in result.detail
 
 
+@pytest.mark.parametrize("event, check", [("PreToolUse", "check_hook"), ("UserPromptSubmit", "check_prompt_hook")])
+@pytest.mark.parametrize("keyfence_present, foreign_present, expected", [
+    (True, False, "ok"), (False, True, "fail"),
+])
+def test_hook_checks_look_at_keyfence_hook_behind_another_programs_exec_form_hook(home, tmp_path, monkeypatch, event, check,
+                                                                                 keyfence_present, foreign_present, expected):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    keyfence = bin_dir / "keyfence"
+    agentlog = bin_dir / "agentlog"
+    for path, present in ((keyfence, keyfence_present), (agentlog, foreign_present)):
+        if present:
+            path.write_text("")
+            path.chmod(0o755)
+    own = {"type": "command", "command": str(keyfence), "args": ["hook", "claude-code"], "timeout": 10, "onFailure": "block"}
+    foreign = {"type": "command", "command": str(agentlog), "args": ["hook", "claude-code"]}
+    entry = {"hooks": [foreign, own]}
+    if event == "PreToolUse":
+        entry["matcher"] = doctor.hooks.HOOK_MATCHER
+    (project / "settings.json").write_text(json.dumps({"hooks": {event: [entry]}}))
+    assert doctor.keyfence_hook(project / "settings.json", event) == own
+    result = getattr(doctor, check)(tmp_path / "proj")
+    assert result.status == expected
+    if expected == "fail":
+        assert str(keyfence) in result.detail and "agentlog" not in result.detail
+
+
+@pytest.mark.parametrize("foreign_present", [True, False])
+def test_doctor_does_not_take_another_programs_exec_form_hook_for_keyfence(home, tmp_path, monkeypatch, foreign_present):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(doctor, "claude_doctor", lambda cwd=None: pytest.fail("claude doctor ran"))
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    agentlog = tmp_path / "agentlog"
+    if foreign_present:
+        agentlog.write_text("")
+        agentlog.chmod(0o755)
+    foreign = {"type": "command", "command": str(agentlog), "args": ["hook", "claude-code"]}
+    path = project / "settings.json"
+    path.write_text(json.dumps({"hooks": {
+        "PreToolUse": [{"matcher": "Bash", "hooks": [foreign]}], "UserPromptSubmit": [{"hooks": [foreign]}]}}))
+    assert not doctor.hook_installed(path) and not doctor.prompt_hook_installed(path)
+    assert doctor.keyfence_hook(path, "PreToolUse") is None and doctor.keyfence_hook(path, "UserPromptSubmit") is None
+    assert doctor.keyfence_matchers(path) == []
+    assert not any(installed for _, _, installed in doctor.installed_scopes("claude-code", tmp_path / "proj"))
+    assert not any(installed for _, _, installed in doctor.prompt_hook_scopes("claude-code", tmp_path / "proj"))
+    for result in (doctor.check_hook(tmp_path / "proj"), doctor.check_prompt_hook(tmp_path / "proj")):
+        assert result.status == doctor.INFO and result.detail.startswith("not installed")
+
+
 def test_prompt_hook_check_parses_quoted_commands_like_a_shell(home, tmp_path, monkeypatch):
     monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
     project = tmp_path / "proj" / ".claude"

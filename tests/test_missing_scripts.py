@@ -56,7 +56,7 @@ def test_pi_explicit_command_still_installs_without_keyfence(home, missing_scrip
 def test_missing_keyfence_does_not_block_listing_or_removal(missing_scripts, agent, capsys):
     module = hooks if agent == "claude-code" else pi
     path = hooks.settings_path(True) if agent == "claude-code" else pi.extension_path(True)
-    module.install(path, "old-keyfence")
+    module.install(path, os.path.join("old", "keyfence"))
     before = path.read_bytes()
     assert cli.main(["install-hooks", "--list"]) == 0
     assert "installed" in capsys.readouterr().out
