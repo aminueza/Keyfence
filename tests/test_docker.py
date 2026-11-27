@@ -170,30 +170,47 @@ def test_image_runs_as_a_non_root_user():
     assert int(uid) != 0, "the image user is root"
 
 
+def docker_requirements():
+    text = (ROOT / "requirements-docker.txt").read_text()
+    return {match[0].lower(): match[1] for match in re.findall(r"^([A-Za-z0-9_.-]+)==(\S+) \\$", text, re.M)}
+
+
+def test_the_image_starts_from_a_base_image_pinned_by_digest():
+    base = next(line for line in instructions() if line.startswith("FROM "))
+    assert re.fullmatch(r"FROM python:3\.12-slim@sha256:[0-9a-f]{64}", base), base
+
+
 def test_image_installs_pinned_dependencies():
-    pins = build_args()
     commands = pip_commands()
-    assert commands
-    for requirement, argument in (("mitmproxy", "MITMPROXY_VERSION"), ("PyYAML", "PYYAML_VERSION")):
-        assert any(f"{requirement}==${{{argument}}}" in command for command in commands)
-        assert re.fullmatch(r"[0-9][0-9.]*", pins.get(argument, "")), f"{argument} has no version"
+    hashed = [command for command in commands if "--require-hashes" in command]
+    assert hashed == [command for command in commands if "-r /app/requirements-docker.txt" in command], commands
+    assert len(hashed) == 1
+    assert any("requirements-docker.txt" in line for line in instructions() if line.startswith("COPY "))
+    pins = docker_requirements()
+    for requirement in ("mitmproxy", "pyyaml", "certifi", "setuptools"):
+        assert re.fullmatch(r"[0-9][0-9.]*", pins.get(requirement, "")), f"{requirement} has no version"
+    blocks = re.split(r"\n(?=[A-Za-z])", (ROOT / "requirements-docker.txt").read_text())
+    for block in blocks:
+        if re.match(r"[A-Za-z]", block):
+            assert "--hash=sha256:" in block, block.splitlines()[0]
     assert not [command for command in commands if re.search(r"[><~]=[0-9]", command)]
 
 
 def test_the_image_pins_every_dependency_the_project_declares():
     declared = tomllib.loads(PYPROJECT.read_text())["project"]["dependencies"]
     names = {re.match(r"[A-Za-z0-9_.-]+", requirement).group().lower() for requirement in declared}
-    pins = set(re.findall(r'"([A-Za-z0-9_.-]+)==', " ".join(instructions())))
-    assert {name.lower() for name in pins} == names
+    assert names <= set(docker_requirements())
 
 
 def test_the_image_installs_the_project_without_resolving_dependencies_again():
     project = [command for command in pip_commands() if command.endswith("/app")]
     assert len(project) == 1, project
     assert "--no-deps" in project[0], "pip resolves the pins again and the image drifts"
-    pinned = [command for command in pip_commands() if "==" in command]
-    assert pinned, "the image installs nothing with a version"
-    assert not any("--no-deps" in command for command in pinned)
+    assert "--no-build-isolation" in project[0], "the build backend is fetched without a hash"
+    install = next(line for line in instructions() if line.startswith("RUN ") and "/app" in line)
+    assert install.index("--no-build-isolation /app") < install.index("pip uninstall -y setuptools")
+    hashed = [command for command in pip_commands() if "--require-hashes" in command]
+    assert hashed and not any("--no-deps" in command for command in hashed)
 
 
 def test_the_image_and_the_entrypoint_agree_on_where_the_ca_lives():

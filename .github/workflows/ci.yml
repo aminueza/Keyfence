@@ -61,8 +61,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.13"
-      - run: pip install build cyclonedx-bom
-      - run: python -m build
+      - run: pip install --require-hashes -r requirements-release.txt
+      - run: python -m build --no-isolation
       - run: pip install dist/*.whl && keyfence --help
       - run: python -c "import zipfile,glob; names=zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert 'keyfence/rules/gitleaks.toml' in names, names"
       - run: |
@@ -77,9 +77,21 @@ jobs:
           for needed in ('LICENSE', 'keyfence/rules/gitleaks.toml', 'keyfence/rules/GITLEAKS-LICENSE'):
               assert f'{root}/{needed}' in names, f'the sdist is missing {needed}'
           PY
-      - run: cyclonedx-py environment --output-format json --output-file sbom.cdx.json
+      - run: |
+          python -m venv sbom-env
+          sbom-env/bin/pip install dist/*.whl
+          cyclonedx-py environment --output-format json --output-file sbom.cdx.json sbom-env/bin/python
+      - run: python -c "import json; names={c['name'] for c in json.load(open('sbom.cdx.json'))['components']}; assert 'keyfence' in names and not names & {'cyclonedx-bom', 'build'}, sorted(names)"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sbom
           path: sbom.cdx.json
       - run: npx --yes @anthropic-ai/claude-code@2.1.282 plugin validate ./plugin
+
+  image:
+    name: build the Docker image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: docker build -t keyfence-ci .
+      - run: docker run --rm --entrypoint keyfence keyfence-ci --help

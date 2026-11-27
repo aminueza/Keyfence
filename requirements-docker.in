@@ -1,0 +1,4 @@
+mitmproxy==12.3.1
+PyYAML==6.0.4
+certifi==2026.11.20
+setuptools>=77

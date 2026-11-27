@@ -39,10 +39,6 @@ def _run(command: list[str]) -> tuple[int, str]:
 
 
 def _hook_executable(command: str) -> str:
-    # Claude Code runs the command through a shell, so parse it the way the
-    # shell would: a quoted path with spaces yields its real executable, and
-    # an unquoted one that the shell would split or mangle does not pass for
-    # a healthy single token.
     try:
         parts = shlex.split(command)
     except ValueError:
@@ -330,10 +326,6 @@ def _hook_display(hook: dict) -> str:
 
 
 def _hook_problem(hook: dict) -> str | None:
-    # Exec form (command + args) is spawned directly, no shell: the command
-    # is the executable. Shell form goes through a shell, so parse it the way
-    # the shell would -- an unquoted path the shell splits or mangles does
-    # not pass for a healthy single token.
     args = hook.get("args")
     if isinstance(args, list):
         executable = str(hook.get("command", ""))

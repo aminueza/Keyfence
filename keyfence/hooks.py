@@ -99,12 +99,6 @@ def resolve_command(command: Sequence[str]) -> list[str]:
 
 
 def script_dirs() -> list[Path]:
-    """Folders that may hold console scripts for this interpreter.
-
-    A venv puts them next to the interpreter, but the install schemes can put
-    them in a Scripts/bin folder that is not beside python and not on PATH —
-    the Windows system and `--user` layouts (issue #173).
-    """
     dirs = [Path(sys.executable).parent]
     schemes = (None, "nt_user", "posix_user")
     for scheme in schemes:
@@ -119,16 +113,11 @@ def script_dirs() -> list[Path]:
 
 
 def find_script(name: str, finder=None) -> str | None:
-    """A console script by name, looking in the interpreter's script folders
-    before PATH. Returns None when nothing is found."""
     for folder in script_dirs():
         for candidate_name in (name, f"{name}.exe"):
             candidate = folder / candidate_name
             if candidate.is_file():
                 return str(candidate)
-    # Only the plain name on PATH: shutil.which already applies PATHEXT on
-    # Windows, and asking for name.exe on WSL can pick up a Windows script
-    # from the interop PATH instead of failing cleanly.
     if finder is None:
         finder = find_executable
     return finder(name)
@@ -148,11 +137,6 @@ def keyfence_path() -> str:
 
 
 def _hook_fields(command: str | None) -> dict:
-    # Exec form (command + args) spawns the executable directly, with no
-    # shell on any platform: a path with spaces or Windows backslashes needs
-    # no quoting, and the same entry works under Git Bash and under the
-    # PowerShell fallback alike. Shell form stays for a caller-given command
-    # string, where the caller owns the quoting.
     if not command or command == HOOK_COMMAND:
         return {"command": HOOK_COMMAND}
     if "hook claude-code" in command:
@@ -191,9 +175,6 @@ def _names_our_hook(hook: dict) -> bool:
 
 
 def _sync_command(entries: list, fields: dict) -> bool:
-    # An entry written by an older keyfence can hold a command that cannot
-    # start (unquoted path with spaces or backslashes); re-running install
-    # must repair it, because that entry blocks every prompt meanwhile.
     fixed = False
     for entry in entries:
         for hook in _entry_hooks(entry):
@@ -377,14 +358,10 @@ def _reason(path: str) -> str:
 
 
 def _read_hook_input(stdin) -> str:
-    # A piped stdin is decoded with the locale codec, which on Windows is the
-    # ANSI code page, so a UTF-8 tool call holding a byte undefined there (the
-    # 0x8D in an emoji, for example) fails as unreadable. Read the bytes and
-    # decode them as UTF-8, the encoding the agent writes (issue #185).
     if stdin is not None:
         return stdin.read()
     buffer = getattr(sys.stdin, "buffer", None)
-    if buffer is None:  # replaced stdin without a byte stream, as in tests
+    if buffer is None:
         return sys.stdin.read()
     return buffer.read().decode("utf-8")
 
@@ -412,8 +389,6 @@ def run_hook(stdin=None, stderr=None) -> int:
 def settings_path(project: bool, cwd: Path | None = None) -> Path:
     if project:
         return (cwd or Path.cwd()) / ".claude" / "settings.json"
-    # Claude Code moves its user directory when CLAUDE_CONFIG_DIR is set, so a
-    # hook written to ~/.claude/settings.json would never be read (issue #184).
     config_dir = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
     base = Path(config_dir).expanduser() if config_dir else Path.home() / ".claude"
     return base / "settings.json"
