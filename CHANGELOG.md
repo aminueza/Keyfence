@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-- A custom rules file with a regex that Python compiles and then refuses, such as
-  `a{4294967296}` or 600 nested groups, drops that rule instead of stopping
-  keyfence: `re.error` came with `OverflowError` and `RecursionError`, and only
-  the first was caught (issue #312).
+- A held placeholder prefix stays inside the chat completion choice it came from.
+  With `n > 1` and one choice per chunk, both choices sat at position 0 of their
+  own chunk and shared one hold, so the held text moved into the other choice; a
+  choice now also releases its holds on its `finish_reason` chunk (issue #314).
 - The system prompt notice takes its shape from the body and the request
   path instead of the host. Bedrock Converse gets a `{"text": ...}` block,
   Anthropic models on Vertex AI get `system` instead of
@@ -68,6 +68,10 @@
   from a base image pinned by digest and installs the hashed
   `requirements-docker.txt`; CI builds it. Dependabot now also proposes
   updates for both requirements files and the base image (issue #222).
+- A custom rules file with a regex that Python compiles and then refuses, such as
+  `a{4294967296}` or 600 nested groups, drops that rule instead of stopping
+  keyfence: `re.error` came with `OverflowError` and `RecursionError`, and only
+  the first was caught (issue #312).
 - An audit entry whose request key or tool input key holds U+2028, U+2029 or
   U+0085 is now written as one ASCII JSON line, and every reader splits the
   log on `\n` only. Before, `export` dropped the entry, `status` hid it,
