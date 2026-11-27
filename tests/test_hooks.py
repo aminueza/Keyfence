@@ -264,11 +264,58 @@ def test_a_word_at_the_expansion_limit_is_still_decided():
 
 
 def test_a_word_past_the_expansion_limit_is_refused():
-    word = "/tmp/" + "[abcdefghij]" * 5 + "/notes.md"
+    word = "/tmp/" + "[abcdefghij]" * 5 + "/.env"
     with pytest.raises(hooks._ExpansionTooLarge):
         hooks._bracket_expansion_size(word)
     reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": f"cat {word}"}})
     assert reason and word in reason and "character class" in reason
+
+
+def test_bracket_classes_are_counted_by_the_characters_their_ranges_expand_to():
+    assert hooks._bracket_expansion_size("/tmp/x[a-z]") == 26
+
+
+@pytest.mark.parametrize("command", [
+    "grep -E '[A-Za-z0-9_]+@[A-Za-z0-9.]+\\.[a-z]+' users.txt",
+    "sed 's/[a-z][a-z][a-z]/X/' f.txt",
+    "ls log_[0-9][0-9][0-9][0-9][0-9].txt",
+    "cat /tmp/" + "[abcdefghij]" * 5 + "/notes.md",
+])
+def test_a_word_that_cannot_spell_a_secret_name_is_not_refused_for_its_size(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}}) is None
+
+
+@pytest.mark.parametrize("command", [
+    "cat x/.kube\\/co[mn]fig",
+    "cat ~/./.ss[g-i]/id",
+    "cat ~//.ssh//[a-z]d_rsa",
+    "cat .[dE]nv",
+    "cat .ss[g-i]/config",
+])
+def test_a_secret_name_behind_slashes_or_case_is_still_expanded(command):
+    assert hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
+def test_a_word_skipped_by_the_spelling_check_never_expands_to_a_secret_name():
+    import random
+    r = random.Random(276)
+    names = [n.replace("*", "") for n in hooks.SENSITIVE_NAMES] + ["~/.ssh/config", "x/.kube/config", "a/.gnupg/k"]
+    alphabet = "abcdeknsvyACDEKS0123._-/\\"
+    for _ in range(3000):
+        base = list(r.choice(names)) if r.random() < 0.7 else [r.choice(alphabet) for _ in range(r.randint(1, 10))]
+        if r.random() < 0.3:
+            i = r.randrange(len(base) + 1)
+            base[i:i] = list(r.choice(["x", "//", "./", "\\", "ſ", "ß"]))
+        word = "".join(
+            "[" + ch + "".join(r.choice(alphabet.replace("/", "")) for _ in range(r.randint(0, 3))) + "]"
+            if r.random() < 0.25 and ch not in "/]" else ch
+            for ch in base)
+        try:
+            hooks._bracket_expansion_size(word)
+        except hooks._ExpansionTooLarge:
+            continue
+        if any(hooks.is_sensitive(e) for e in hooks._expand_bracket_classes(word)):
+            assert hooks._may_name_sensitive(word), word
 
 
 def test_past_the_expansion_limit_is_refused_rather_than_expanded():

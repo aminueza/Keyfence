@@ -111,7 +111,9 @@
   with `--no-build-isolation` or a constraints file failed (issue #217).
 - The hook expands a bracket range such as `.en[u-w]` as the shell does,
   so the range no longer hides `.env` or another secret file from the
-  hook (issue #231).
+  hook (issue #231). A word whose characters cannot spell any secret file
+  name is neither expanded nor refused as too large, so a regex in `grep`
+  or `sed` such as `s/[a-z][a-z][a-z]/X/` is allowed again (issue #276).
 - The sdist no longer ships `tests/`. Those tests need files that only
   the repository has, so they failed on import. The sdist still carries
   `LICENSE` and the bundled gitleaks rules, and CI checks both
