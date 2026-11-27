@@ -184,6 +184,10 @@ class Config:
                 raise ValueError(
                     f"scan.gitleaks_rules: {cfg.scan.gitleaks_rules} is not valid TOML: "
                     f"{exc}") from None
+            except ValueError as exc:
+                if cfg.scan.gitleaks_rules is None:
+                    raise
+                raise ValueError(f"scan.gitleaks_rules: {cfg.scan.gitleaks_rules}: {exc}") from None
         return cfg
 
     def ignore_list(self, vault: Vault) -> IgnoreList:

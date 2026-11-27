@@ -476,6 +476,14 @@ def test_status_reports_a_missing_gitleaks_rules_file_with_one_error_line(home, 
     assert "scan.gitleaks_rules" in lines[0]
 
 
+def test_status_reports_a_gitleaks_rule_without_an_id_with_one_error_line(home, write_config, capsys):
+    (home / "rules.toml").write_text('[[rules]]\nregex = "abc"\n')
+    write_config("scan:\n  gitleaks_rules: rules.toml\n")
+    assert cli.main(["status"]) == 1
+    lines = capsys.readouterr().err.strip().splitlines()
+    assert lines == [f"error: scan.gitleaks_rules: {home / 'rules.toml'}: rule 1 needs a string `id`"]
+
+
 def test_status_shows_the_tcp_timeout(home, write_config, capsys):
     write_config("mode: block\n")
     assert cli.main(["status"]) == 0
