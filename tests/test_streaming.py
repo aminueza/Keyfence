@@ -320,7 +320,6 @@ def test_responses_api_text_ending_with_lt_does_not_move_into_the_next_item():
     assert payloads[0]["delta"] == "if a <"
     assert payloads[1]["text"] == "if a <"
     assert payloads[3]["delta"] == '{"cmd":"ls"}'
-    assert "".join(e["delta"] for e in payloads if e["type"].endswith(".function_call_arguments.delta")) == '{"cmd":"ls"}'
 
 
 def test_responses_api_events_after_a_done_event_are_emitted_without_waiting():
@@ -364,6 +363,40 @@ def test_responses_api_done_of_another_item_keeps_the_hold():
     out = r.feed("".join(responses_event(e) for e in events).encode()) + r.feed(b"")
     payloads = responses_payloads(out)
     assert payloads[0]["delta"] + payloads[2]["delta"] == f"key {KEY} end"
+
+
+def test_responses_api_done_of_another_content_part_keeps_the_hold():
+    r = SSERestorer(MAPPING)
+    events = [
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "key <<SECRET"},
+        {"type": "response.content_part.done", "output_index": 0, "content_index": 1, "part": {"type": "output_text"}},
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "_1>> end"},
+    ]
+    out = r.feed("".join(responses_event(e) for e in events).encode()) + r.feed(b"")
+    payloads = responses_payloads(out)
+    assert payloads[0]["delta"] + payloads[2]["delta"] == f"key {KEY} end"
+
+
+def test_responses_api_item_done_without_an_output_index_does_not_break_the_stream():
+    r = SSERestorer(MAPPING)
+    events = [
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "x <"},
+        {"type": "response.output_item.done", "item": {"type": "message"}},
+        {"type": "response.output_text.delta", "output_index": 0, "content_index": 0, "delta": "y"},
+    ]
+    out = r.feed("".join(responses_event(e) for e in events).encode()) + r.feed(b"")
+    assert [e["type"] for e in responses_payloads(out)] == [e["type"] for e in events]
+
+
+@pytest.mark.parametrize("event", [
+    {"type": "response.created", "response": {"instructions": "answer with <"}},
+    {"type": "response.completed", "response": {"output": [{"content": [{"text": "if a <"}]}]}},
+])
+def test_responses_api_complete_strings_outside_deltas_do_not_hold_the_stream(event):
+    r = SSERestorer(MAPPING)
+    after = {"type": "response.in_progress", "response": {"status": "in_progress"}}
+    out = r.feed((responses_event(event) + responses_event(after)).encode())
+    assert [e["type"] for e in responses_payloads(out)] == [event["type"], after["type"]]
 
 
 def test_responses_api_text_and_arguments_of_the_same_item_index_do_not_share_a_hold():

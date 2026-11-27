@@ -179,10 +179,11 @@ class SSERestorer:
         if event_type == "content_block_stop":
             self._release_held(index)
             return
-        done = isinstance(event_type, str) and event_type.endswith(".done")
-        if done:
-            self._release_held(index, whole_item=event_type == "response.output_item.done")
-        family = event_type.removesuffix(".delta").removesuffix(".done") if isinstance(event_type, str) else None
+        typed = isinstance(event_type, str)
+        if typed and event_type.endswith(".done"):
+            self._release_held(index, whole_item=event_type == "response.output_item.done" and isinstance(index, tuple))
+        complete = typed and event_type.startswith("response.") and not event_type.endswith(".delta")
+        family = event_type.removesuffix(".delta").removesuffix(".done") if typed else None
 
         def fn(path: JsonPath, s: str) -> str:
             held_key = (path, index, family)
@@ -199,7 +200,7 @@ class SSERestorer:
             else:
                 escape = 0
             s = restore(s, self.mapping, escape)
-            suffix = None if done else partial_suffix(s, self.tokens, self.max_len)
+            suffix = None if complete else partial_suffix(s, self.tokens, self.max_len)
             if suffix:
                 self.held[held_key] = (event, suffix)
             return s
