@@ -107,6 +107,44 @@ def test_invalid_gitleaks_rules_raises_value_error(write_config, home):
         Config.load()
 
 
+@pytest.mark.parametrize("content, problem", [
+    (b'[[rules]]\nregex = "abc"\n', "rule 1 needs a string `id`"),
+    (b'rules = "x"\n', "`rules` must be a list of tables"),
+    (b'[[rules]]\nid = "a"\nregex = "abc"\nsecretGroup = "one"\n', "rule 1 (a): `secretGroup` must be an integer"),
+    (b'[[rules]]\nid = "a"\nregex = "abc"\nsecretGroup = true\n', "rule 1 (a): `secretGroup` must be an integer"),
+    (b"\xff\xfe junk", "codec can't decode"),
+    (b'[[rules]]\nid = "a"\nregex = "abc"\nentropy = "x"\n', "rule 1 (a): `entropy` must be a number"),
+    (b'[[rules]]\nid = "a"\nregex = "abc"\nentropy = nan\n', "rule 1 (a): `entropy` must be a number"),
+    (b'[[rules]]\nid = "a"\nregex = "tok_(x+)"\nsecretGroup = 3\n', "rule a: `secretGroup` is 3, but its regex has 1 group(s)"),
+    (b'[[rules]]\nid = "a"\nregex = "tok_(x+)"\nsecretGroup = -1\n', "rule a: `secretGroup` is -1, but its regex has 1 group(s)"),
+    (b'[[rules]]\nid = "a"\nregex = 5\n', "rule 1 (a): `regex` must be a string"),
+    (b'[[rules]]\nid = "a"\nregex = "abc"\nkeywords = "abc"\n', "rule 1 (a): `keywords` must be a list of strings"),
+    (b'[[rules]]\nid = "a"\nregex = "abc"\nallowlists = "x"\n', "rule 1 (a): `allowlists` must be a list of tables"),
+    (b'[[rules]]\nid = "a"\nregex = "abc"\n[[rules.allowlists]]\nregexes = "x"\n', "rule 1 (a): `allowlists.regexes` must be a list of strings"),
+])
+def test_a_gitleaks_rules_file_of_the_wrong_shape_names_the_setting_the_file_and_the_problem(write_config, home, content, problem):
+    (home / "rules.toml").write_bytes(content)
+    write_config("scan:\n  gitleaks_rules: rules.toml\n")
+    with pytest.raises(ValueError) as excinfo:
+        Config.load()
+    message = str(excinfo.value)
+    assert message.startswith(f"scan.gitleaks_rules: {home / 'rules.toml'}: ")
+    assert problem in message
+
+
+def test_a_gitleaks_rule_with_a_huge_integer_entropy_is_refused_with_one_message(write_config, home):
+    (home / "rules.toml").write_text('[[rules]]\nid = "a"\nregex = "abc"\nentropy = 1' + "0" * 400 + "\n")
+    write_config("scan:\n  gitleaks_rules: rules.toml\n")
+    with pytest.raises(ValueError, match="rule 1 \\(a\\): `entropy` must be a number"):
+        Config.load()
+
+
+def test_a_gitleaks_rule_without_a_regex_is_still_accepted(write_config, home):
+    (home / "rules.toml").write_text('[[rules]]\nid = "a"\npath = "x.pem"\n[[rules]]\nid = "b"\nregex = "abc"\nentropy = 2\n')
+    write_config("scan:\n  gitleaks_rules: rules.toml\n")
+    assert [r.name for r in Config.load().scan.rules] == ["b"]
+
+
 def test_gitleaks_disabled_list(write_config, home):
     assert "generic-api-key" not in {r.name for r in Config.load().scan.rules}
     write_config("scan:\n  gitleaks_disabled: []\n")

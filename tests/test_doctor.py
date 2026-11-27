@@ -326,7 +326,8 @@ def test_hook_check(home, tmp_path, monkeypatch):
     binary.write_text("")
     binary.chmod(0o755)
     hook = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "onFailure": "block"}
-    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [hook]}]}}))
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": doctor.hooks.HOOK_MATCHER, "hooks": [hook]}]}}))
     check = doctor.check_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
     del hook["onFailure"]
@@ -337,6 +338,63 @@ def test_hook_check(home, tmp_path, monkeypatch):
     assert "install-hooks claude-code --project" in check.detail
     (project / "settings.json").write_text("not json")
     assert doctor.check_hook(tmp_path / "proj").status == doctor.WARN
+
+
+@pytest.mark.parametrize("verdict", [(doctor.OK, ""), (doctor.WARN, "claude is not on PATH")])
+def test_hook_check_warns_when_the_installed_matcher_leaves_out_a_tool(home, tmp_path, monkeypatch, verdict):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(doctor, "claude_verdicts", lambda paths, cwd: {path: verdict for path in paths})
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash",
+         "hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"],
+                    "onFailure": "block"}]}]}}))
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.WARN
+    assert "PowerShell" in check.detail and "install-hooks claude-code --project updates it" in check.detail
+
+
+def test_hook_check_accepts_a_shared_entry_when_its_own_entry_covers_every_tool(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(doctor, "claude_verdicts", lambda paths, cwd: {path: (doctor.OK, "") for path in paths})
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    agentlog = tmp_path / "bin" / "agentlog"
+    agentlog.write_text("")
+    agentlog.chmod(0o755)
+    own = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "onFailure": "block"}
+    foreign = {"type": "command", "command": f"{agentlog} hook claude-code"}
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
+        {"matcher": "Read", "hooks": [foreign, own]},
+        {"matcher": doctor.hooks.HOOK_MATCHER, "hooks": [own]}]}}))
+    assert doctor.check_hook(tmp_path / "proj").status == doctor.OK
+
+
+@pytest.mark.parametrize("matcher", [None, "", "*", ".*", "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash|PowerShell|Glob"])
+def test_hook_check_accepts_a_matcher_that_covers_every_checked_tool(home, tmp_path, monkeypatch, matcher):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(doctor, "claude_verdicts", lambda paths, cwd: {path: (doctor.OK, "") for path in paths})
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    binary = tmp_path / "bin" / "keyfence"
+    binary.parent.mkdir()
+    binary.write_text("")
+    binary.chmod(0o755)
+    entry = {"hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"],
+                        "onFailure": "block"}]}
+    if matcher is not None:
+        entry["matcher"] = matcher
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [entry]}}))
+    assert doctor.check_hook(tmp_path / "proj").status == doctor.OK
 
 
 def test_prompt_hook_check(home, tmp_path, monkeypatch):

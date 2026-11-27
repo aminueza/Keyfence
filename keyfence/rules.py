@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import tomllib
 import warnings
@@ -102,6 +103,8 @@ def _rule_from_gitleaks(raw: dict) -> Rule | None:
         ignore_regexes.extend(allow.get("regexes", []))
         stopwords.extend(allow.get("stopwords", []))
     secret_group = int(raw.get("secretGroup", 0)) or (1 if pattern.groups == 1 else 0)
+    if not 0 <= secret_group <= pattern.groups:
+        raise ValueError(f"rule {raw['id']}: `secretGroup` is {secret_group}, but its regex has {pattern.groups} group(s)")
     if secret_group:
         trimmed = _IDENTIFIER_PREFIX.sub(r"\1\2", raw["regex"], count=1)
         if trimmed != raw["regex"]:
@@ -120,6 +123,46 @@ def _rule_from_gitleaks(raw: dict) -> Rule | None:
 DEFAULT_DISABLED = ("generic-api-key",)
 
 
+def _is_number(value) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
+
+
+def _is_string_list(value) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _check_shape(data: dict) -> list[dict]:
+    rules = data.get("rules", [])
+    if not isinstance(rules, list) or not all(isinstance(raw, dict) for raw in rules):
+        raise ValueError("`rules` must be a list of tables ([[rules]])")
+    for number, raw in enumerate(rules, 1):
+        name = raw.get("id")
+        if not isinstance(name, str):
+            raise ValueError(f"rule {number} needs a string `id`")
+        where = f"rule {number} ({name})"
+        if "regex" in raw and not isinstance(raw["regex"], str):
+            raise ValueError(f"{where}: `regex` must be a string")
+        if "secretGroup" in raw and not (isinstance(raw["secretGroup"], int) and not isinstance(raw["secretGroup"], bool)):
+            raise ValueError(f"{where}: `secretGroup` must be an integer")
+        if "entropy" in raw and not _is_number(raw["entropy"]):
+            raise ValueError(f"{where}: `entropy` must be a number")
+        if "keywords" in raw and not _is_string_list(raw["keywords"]):
+            raise ValueError(f"{where}: `keywords` must be a list of strings")
+        allowlists = raw.get("allowlists", [])
+        if not isinstance(allowlists, list) or not all(isinstance(allow, dict) for allow in allowlists):
+            raise ValueError(f"{where}: `allowlists` must be a list of tables")
+        for allow in allowlists:
+            for key in ("regexes", "stopwords"):
+                if key in allow and not _is_string_list(allow[key]):
+                    raise ValueError(f"{where}: `allowlists.{key}` must be a list of strings")
+    return rules
+
+
 def load_rules(path: str | Path | None = None,
                disabled: Iterable[str] = DEFAULT_DISABLED) -> list[Rule]:
     source = Path(path) if path else BUNDLED_RULES
@@ -127,7 +170,7 @@ def load_rules(path: str | Path | None = None,
     with source.open("rb") as fh:
         data = tomllib.load(fh)
     rules = []
-    for raw in data.get("rules", []):
+    for raw in _check_shape(data):
         if raw.get("id") in skip:
             continue
         rule = _rule_from_gitleaks(raw)
