@@ -65,7 +65,7 @@ _SECRET_COMMANDS = re.compile(
     r")\b", re.IGNORECASE | re.MULTILINE)
 HOOK_COMMAND = "keyfence hook claude-code"
 HOOK_ARGS = ["hook", "claude-code"]
-HOOK_MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash"
+HOOK_MATCHER = "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Bash|PowerShell"
 PROMPT_HOOK_MIN_CLAUDE_CODE = "2.1.295"
 _DENY_BASE = (
     "./.env", "./.env.*", "./**/.env", "./**/.env.*", "./**/*.pem",
@@ -193,6 +193,20 @@ def _sync_command(entries: list, fields: dict) -> bool:
             if hook.get("onFailure") != "block":
                 hook["onFailure"] = "block"
                 fixed = True
+    return fixed
+
+
+def _only_ours(entry) -> bool:
+    nested = _entry_hooks(entry)
+    return bool(nested) and all(_is_our_hook(hook) for hook in nested)
+
+
+def _sync_matcher(entries: list) -> bool:
+    fixed = False
+    for entry in entries:
+        if _only_ours(entry) and entry.get("matcher") != HOOK_MATCHER:
+            entry["matcher"] = HOOK_MATCHER
+            fixed = True
     return fixed
 
 
@@ -490,13 +504,14 @@ def install(path: Path, command: str | None = None) -> bool:
     prompt = data.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
     deny = data.setdefault("permissions", {}).setdefault("deny", [])
     changed = False
-    if not any(_is_ours(e) for e in pre):
+    if not any(_only_ours(e) for e in pre):
+        pre[:] = _remove_our_hooks(pre)[0]
         pre.append({
             "matcher": HOOK_MATCHER,
             "hooks": [{"type": "command", **fields, "timeout": 10, "onFailure": "block"}],
         })
         changed = True
-    elif _sync_command(pre, fields):
+    elif _sync_command(pre, fields) | _sync_matcher(pre):
         changed = True
     if not any(_is_ours(e) for e in prompt):
         prompt.append({
