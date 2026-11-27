@@ -563,7 +563,7 @@ def test_a_command_past_the_option_or_length_limit_is_refused(command):
 ])
 def test_a_quoted_separator_does_not_hide_the_output_flag(command):
     reason = hooks.decide({"tool_name": "Bash", "tool_input": {"command": command}})
-    assert reason and "prints secret values" in reason
+    assert reason and "` prints secret values" in reason and "more options" not in reason
 
 
 @pytest.mark.parametrize("command", [
