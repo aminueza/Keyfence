@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A `logprobs` token that ends with what could be the start of a placeholder stays
+  in its own chunk. keyfence held it and joined it to the next chunk's token, so
+  the logprobs no longer matched the text; the text itself keeps its hold and a
+  placeholder split across chunks is still restored there (issue #299).
 - The Claude Code hook and the plugin also match the `PowerShell` tool, which
   Claude Code uses on Windows without Git Bash or with
   `CLAUDE_CODE_USE_POWERSHELL_TOOL`. Before, no PowerShell call reached the

@@ -213,7 +213,7 @@ class SSERestorer:
             else:
                 escape = 0
             s = restore(s, self.mapping, escape)
-            suffix = None if complete else partial_suffix(s, self.tokens, self.max_len)
+            suffix = None if complete or "logprobs" in path else partial_suffix(s, self.tokens, self.max_len)
             if suffix:
                 self.held[held_key] = (event, suffix)
             return s
