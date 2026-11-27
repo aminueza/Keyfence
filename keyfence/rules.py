@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import tomllib
 import warnings
@@ -102,6 +103,8 @@ def _rule_from_gitleaks(raw: dict) -> Rule | None:
         ignore_regexes.extend(allow.get("regexes", []))
         stopwords.extend(allow.get("stopwords", []))
     secret_group = int(raw.get("secretGroup", 0)) or (1 if pattern.groups == 1 else 0)
+    if not 0 <= secret_group <= pattern.groups:
+        raise ValueError(f"rule {raw['id']}: `secretGroup` is {secret_group}, but its regex has {pattern.groups} group(s)")
     if secret_group:
         trimmed = _IDENTIFIER_PREFIX.sub(r"\1\2", raw["regex"], count=1)
         if trimmed != raw["regex"]:
@@ -121,7 +124,7 @@ DEFAULT_DISABLED = ("generic-api-key",)
 
 
 def _is_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _is_string_list(value) -> bool:

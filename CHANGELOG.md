@@ -106,7 +106,10 @@
   does a file that is valid TOML but has the wrong shape (a rule without
   an `id`, `rules` that is not a list of tables, or a `regex`,
   `secretGroup`, `entropy`, `keywords` or `allowlists` of the wrong type)
-  or that is not UTF-8, and the line says what is wrong (issue #278).
+  or that is not UTF-8, and the line says what is wrong. A `secretGroup`
+  past the groups of its regex is refused when the file loads; before, it
+  loaded, and every request that matched the rule was then blocked with an
+  internal error (issue #278).
 - `scan.patterns` and `scan.gitleaks` are now independent, as the docs say:
   with `patterns: false, gitleaks: true` the bundled gitleaks rules still run,
   and with `gitleaks: false` the built-in patterns still do.
