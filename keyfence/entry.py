@@ -16,16 +16,11 @@ def _block(reason: str) -> int:
 
 
 def _read_stdin() -> str | None:
-    # Claude Code sends UTF-8, but sys.stdin decodes with the locale codec,
-    # an ANSI code page on Windows that raises on valid UTF-8 (cp1252 chokes
-    # on the bytes of U+1F44D). Refusing there would block every prompt, so
-    # read the bytes and decode them explicitly; undecodable input stays
-    # fail-closed through run_hook().
     stream = getattr(sys.stdin, "buffer", None)
     try:
         data = stream.read() if stream is not None else sys.stdin.read()
     except BaseException:
-        return None  # run_hook() reads stdin itself and refuses with exit 2
+        return None
     if isinstance(data, bytes):
         try:
             return data.decode("utf-8")
@@ -37,7 +32,7 @@ def _read_stdin() -> str | None:
 def _is_prompt_event(text: str) -> bool:
     try:
         payload = json.loads(text)
-    except Exception:  # ValueError, RecursionError: run_hook reports it as before
+    except Exception:
         return False
     return isinstance(payload, dict) and payload.get("hook_event_name") == "UserPromptSubmit"
 
@@ -53,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
             if text is not None and _is_prompt_event(text):
                 try:
                     from .prompt import run as run_prompt
-                except BaseException as exc:  # a broken install must not pass the prompt
+                except BaseException as exc:
                     return _block(f"keyfence blocked this prompt because its guard crashed: {type(exc).__name__}")
                 return run_prompt(stdin=io.StringIO(text))
             from .hooks import run_hook
