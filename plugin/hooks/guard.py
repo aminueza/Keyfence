@@ -276,6 +276,64 @@ def _bracket_class_chars(body: str) -> list[str]:
     return chars
 
 
+_SENSITIVE_LITERALS = tuple(sorted({
+    max(re.split(r"[*?]", pattern.casefold()), key=len) for pattern in SENSITIVE_NAMES + SENSITIVE_PATHS
+}))
+
+
+def _positions(text: str) -> list[set[str]]:
+    positions = []
+    for ch in text:
+        folded = ch.casefold()
+        positions.extend({c, "/"} if c == "\\" else {c} for c in folded)
+    return positions
+
+
+def _may_name_sensitive(word: str) -> bool:
+    if _GLOB.search(word) or "[" in _BRACKET_CLASS.sub("", word) or any(
+            match.group(1)[0] in "!^" or "[" in match.group(1) for match in _BRACKET_CLASS.finditer(word)):
+        return True
+    positions: list[set[str]] = [{"/"}]
+    cursor = 0
+    members_seen = 0
+    for match in _BRACKET_CLASS.finditer(word):
+        positions.extend(_positions(word[cursor:match.start()]))
+        chars: set[str] = set()
+        members = _bracket_class_chars(match.group(1))
+        members_seen += len(members)
+        if members_seen > _BRACKET_EXPANSION_LIMIT:
+            return True
+        for ch in members:
+            folded = ch.casefold()
+            if len(folded) != 1:
+                return True
+            chars.add(folded)
+            if folded == "\\":
+                chars.add("/")
+        positions.append(chars)
+        cursor = match.end()
+    positions.extend(_positions(word[cursor:]))
+    present = set().union(*positions)
+    return any(_spells(positions, literal) for literal in _SENSITIVE_LITERALS if present.issuperset(literal))
+
+
+def _spells(positions: list[set[str]], literal: str) -> bool:
+    ahead: list[set[int]] = [set() for _ in range(len(positions) + 2)]
+    for index, chars in enumerate(positions):
+        for offset in ahead[index] | {0}:
+            ch = literal[offset]
+            if ch not in chars:
+                continue
+            if offset + 1 == len(literal):
+                return True
+            ahead[index + 1].add(offset + 1)
+            if ch == "/":
+                ahead[index + 1].add(offset)
+                if index + 1 < len(positions) and "." in positions[index + 1]:
+                    ahead[index + 2].add(offset)
+    return False
+
+
 def _expand_bracket_classes(word: str) -> list[str]:
     classes = list(_BRACKET_CLASS.finditer(word))
     if not classes:
@@ -305,7 +363,8 @@ def paths_in_command(command: str) -> list[str]:
                 unglobbed = _GLOB.sub("", word)
                 if unglobbed and unglobbed != word:
                     found.append(unglobbed)
-                found.extend(_expand_bracket_classes(word))
+                if _BRACKET_CLASS.search(word) and _may_name_sensitive(word):
+                    found.extend(_expand_bracket_classes(word))
     return found
 
 
@@ -319,9 +378,10 @@ def _refusal_for_too_many_bracket_classes(command: str) -> str | None:
         try:
             total += _bracket_expansion_size(word)
         except _ExpansionTooLarge:
-            return (f"keyfence blocked {word}: it carries so many bracket classes that "
-                    f"deciding whether it names a secret file would take too long to be a "
-                    f"guard. Write the path without a character class.")
+            if _may_name_sensitive(word):
+                return (f"keyfence blocked {word}: it carries so many bracket classes that "
+                        f"deciding whether it names a secret file would take too long to be a "
+                        f"guard. Write the path without a character class.")
         if total > _BRACKET_TOTAL_LIMIT:
             return (f"keyfence blocked this command: its bracket classes expand to more than "
                     f"{_BRACKET_TOTAL_LIMIT} paths, so deciding whether one names a secret file "
