@@ -10,9 +10,10 @@
   command, and it looks for the output format within 500 characters of
   `kubectl`, `-o` before `get` included; it also treats `kyaml`, `template`,
   a quoted format such as `-o 'jsonpath=...'`, and `--template` without
-  `-o` as printing the data. It reads at most 48 options between the command
-  and its subcommand, so `kubectl get configmap secret -o yaml` and
-  `kubectl get pods -l secret -o yaml` stay allowed (issue #224).
+  `-o` as printing the data. It reads at most 32 options between the command
+  and its subcommand. Tying the resource to the argument after `get` keeps
+  `kubectl get configmap secret -o yaml` and `kubectl get pods -l secret -o
+  yaml` allowed (issue #224).
 - The Claude Code tool hook refuses a call when it crashes or passes its
   10 second timeout, instead of letting the call through: `install-hooks
   claude-code` and the plugin now give the `PreToolUse` entry

@@ -49,7 +49,7 @@ _NAMED_DUMP = re.compile(
     _START + r"(?:printenv\s+" + _SECRET_VAR + r"\b|(?:echo|printf)\b[^;&|\n]*\$\{?" + _SECRET_VAR + r"\b)|"
     r"/proc/(?:self|\d+)/environ", re.IGNORECASE | re.MULTILINE)
 _HERESTRING_DUMP = re.compile(r"<<<(?!<)[^;&|\n]*\$\{?" + _SECRET_VAR + r"\b", re.IGNORECASE)
-_OPTION_LIMIT = 48
+_OPTION_LIMIT = 32
 _SEGMENT_SCAN_LIMIT = 500
 _O = r"(?:\s+-[^\s=;&|]+(?:=[^\s;&|]*|\s+[^-\s;&|][^\s;&|]*)?){0,%d}" % _OPTION_LIMIT
 _KUBECTL_SECRET = r"(?<!\S)(?:[\w.-]+,)*secrets?(?:/\S*)?(?:,[\w.-]+)*(?!\S)"
@@ -64,7 +64,8 @@ _SECRET_COMMANDS = re.compile(
     rf"op{_O}\s+read|op(?=[^;&|\n]{{0,{_SEGMENT_SCAN_LIMIT}}}(?:--reveal|--format[= ]json|--fields)){_O}\s+item\s+get\b|"
     rf"vault{_O}\s+(?:kv\s+get|read)|doppler{_O}\s+secrets(?:\s+(?:download|get)\b|(?![^;&|\n]*--only-names))|"
     rf"kubectl(?=[^;&|\n]{{0,{_SEGMENT_SCAN_LIMIT}}}{_KUBECTL_DATA_FORMAT})"
-    rf"(?:{_O}\s+get\b{_O}\s+{_KUBECTL_SECRET}|[^;&|\n]{{0,{_SEGMENT_SCAN_LIMIT}}}\s+get\b[^;&|\n]{{0,{_SEGMENT_SCAN_LIMIT}}}(?={_KUBECTL_SECRET_TYPE}))|"
+    rf"(?:{_O}\s+get\b{_O}\s+{_KUBECTL_SECRET}"
+    rf"|[^;&|\n]{{0,{_SEGMENT_SCAN_LIMIT}}}\s+get\b[^;&|\n<>]{{0,{_SEGMENT_SCAN_LIMIT}}}(?={_KUBECTL_SECRET_TYPE}))|"
     rf"kubectl{_O}\s+config\s+view\b(?=.*--raw)|"
     rf"gcloud{_O}\s+secrets\s+versions\s+access|"
     rf"gcloud{_O}\s+auth\s+(?:application-default\s+)?print-(?:access|identity)-token|"
