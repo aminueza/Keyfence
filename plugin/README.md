@@ -10,7 +10,10 @@ Two layers against secret leakage:
   `doppler secrets`, `kubectl get secret`, `gcloud secrets versions access`,
   `az keyvault secret show`, `gh auth token`, `heroku config`. The hook is
   a self-contained Python 3 file inside the plugin, so it works even before
-  keyfence is installed. **The plugin requires `python3` on PATH.** Plugins
+  keyfence is installed. **The plugin requires `python3` on PATH and
+  Claude Code v2.1.295+.** The hook has `onFailure: block`, so when it
+  cannot run (no `python3`) or passes its 10 second timeout, Claude Code
+  refuses the tool call instead of letting it through. Plugins
   cannot ship `permissions.deny` rules, so `/keyfence:setup` runs
   `keyfence install-hooks claude-code` to add those as well.
 - Skills: `/keyfence:status` shows what the proxy is protecting and

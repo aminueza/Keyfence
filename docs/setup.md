@@ -337,9 +337,10 @@ shows the mode each entry was written under, so a blocked prompt reads
 Claude Code's hook contract; the known limit is that anything else
 written to the hook's stdout (a line a shell profile echoes, say) stops
 Claude Code from reading the reply as JSON, and the prompt goes through.
-The hook requires Claude Code v2.1.295+ for the `onFailure: block`
-field; without it a hook that crashes or times out would let the prompt
-through.
+Both hooks require Claude Code v2.1.295+ for the `onFailure: block`
+field; without it a hook that crashes or times out would let the tool
+call or the prompt through. Run `keyfence install-hooks claude-code`
+again to add the field to a `PreToolUse` hook installed before it.
 
 Detection is the proxy's: the prompt hook only catches secrets that are
 registered in the vault, match a known secret pattern (API keys, tokens,
@@ -348,8 +349,8 @@ and does not look like a secret (a short, low-entropy phrase) still passes.
 With `--project`, the hook lands in `./.claude/settings.json`, a file teams
 often commit: it calls the absolute keyfence path of the machine that
 installed it (the install note prints it), and `onFailure: block` refuses
-every prompt when that path is missing, so teammates without keyfence at
-that path would be blocked.
+every prompt and every tool call when that path is missing, so teammates
+without keyfence at that path would be blocked.
 
 Installations made with 0.4.0 have no such list. There `--remove` takes
 out the hook, leaves every deny rule in place, prints the ones that match
