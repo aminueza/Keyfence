@@ -10,6 +10,21 @@
   before `get` included, and it also treats `kyaml`, `template`, a quoted
   format such as `-o 'jsonpath=...'`, and `--template` without `-o` as
   printing the data (issue #224).
+- The Claude Code tool hook refuses a call when it crashes or passes its
+  10 second timeout, instead of letting the call through: `install-hooks
+  claude-code` and the plugin now give the `PreToolUse` entry
+  `onFailure: block`, as the prompt hook already had, and running the
+  install again adds it to an existing entry; `doctor` warns about an
+  entry without it. A Bash command whose bracket classes expand to more
+  than 50000 paths across all its words is refused right away, as one
+  word past 10000 already was: 150 words at the per-word limit
+  took the hook about 47 seconds, so Claude Code timed it out and ran the
+  command (issue #226).
+- `doctor` checks keyfence's own hook when it shares a Claude Code settings
+  entry with another program's hook. It used to check the first hook with a
+  command in that entry, so a missing keyfence executable could show as
+  "installed", and another program's missing executable as a keyfence
+  failure (issue #290).
 - The release build installs its tools from the hashed
   `requirements-release.txt` with `--require-hashes` and builds without
   isolation, the jobs that publish to PyPI and to GitHub check that the files

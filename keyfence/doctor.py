@@ -302,10 +302,9 @@ def keyfence_hook(path: Path, event: str) -> dict | None:
     except (OSError, ValueError):
         return None
     for entry in data.get("hooks", {}).get(event, []):
-        if hooks._names_our_entry(entry):
-            for hook in hooks._entry_hooks(entry):
-                if hook.get("command"):
-                    return hook
+        for hook in hooks._entry_hooks(entry):
+            if hooks._names_our_hook(hook):
+                return hook
     return None
 
 
@@ -374,8 +373,17 @@ def _claude_hook_check(label: str, found: list[tuple[str, Path]], unreadable: li
     return Check(OK, label, f"installed ({scopes})")
 
 
+def _without_block(label: str, result: Check, scopes: list[str], what: str) -> Check:
+    if not scopes or result.status not in (OK, WARN):
+        return result
+    scope = scopes[0]
+    flag = " --project" if scope == "project" else ""
+    return Check(WARN, label, f"installed ({scope}) without onFailure: block, so a hook that crashes or passes its "
+                              f"timeout lets the {what} through; keyfence install-hooks claude-code{flag} adds it")
+
+
 def check_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, str]] | None = None) -> Check:
-    scopes, unreadable = [], []
+    scopes, unreadable, open_scopes = [], [], []
     for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
         problem = settings_problem(path)
         if problem:
@@ -393,14 +401,16 @@ def check_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, str]] | 
             return Check(FAIL, "Claude Code hook",
                          f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every Claude Code "
                          "tool call is refused until keyfence install-hooks claude-code runs again")
+        if hook.get("onFailure") != "block":
+            open_scopes.append(scope)
         scopes.append((scope, path))
-    return _claude_hook_check("Claude Code hook", scopes, unreadable, Check(
+    return _without_block("Claude Code hook", _claude_hook_check("Claude Code hook", scopes, unreadable, Check(
         INFO, "Claude Code hook", "not installed; keyfence install-hooks claude-code stops Claude Code from reading secret files"),
-        cwd, verdicts)
+        cwd, verdicts), open_scopes, "tool call")
 
 
 def check_prompt_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, str]] | None = None) -> Check:
-    scopes, unreadable = [], []
+    scopes, unreadable, open_scopes = [], [], []
     for scope, path in (("global", hooks.settings_path(False)), ("project", hooks.settings_path(True, cwd))):
         problem = settings_problem(path)
         if problem:
@@ -418,11 +428,13 @@ def check_prompt_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, s
             return Check(FAIL, "Claude Code prompt hook",
                          f"installed ({scope}) but the {scope} hook calls {_hook_display(hook)}, which {problem}; every submitted prompt "
                          "is refused until keyfence install-hooks claude-code runs again")
+        if hook.get("onFailure") != "block":
+            open_scopes.append(scope)
         scopes.append((scope, path))
-    return _claude_hook_check("Claude Code prompt hook", scopes, unreadable, Check(
+    return _without_block("Claude Code prompt hook", _claude_hook_check("Claude Code prompt hook", scopes, unreadable, Check(
         INFO, "Claude Code prompt hook",
         f"not installed; keyfence install-hooks claude-code adds it (needs Claude Code v{hooks.PROMPT_HOOK_MIN_CLAUDE_CODE}+)"),
-        cwd, verdicts)
+        cwd, verdicts), open_scopes, "prompt")
 
 
 def check_pi_extension(cwd: Path | None = None) -> Check:

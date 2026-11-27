@@ -325,10 +325,16 @@ def test_hook_check(home, tmp_path, monkeypatch):
     binary.parent.mkdir()
     binary.write_text("")
     binary.chmod(0o755)
-    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
-        {"matcher": "Read", "hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"]}]}]}}))
+    hook = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "onFailure": "block"}
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [hook]}]}}))
     check = doctor.check_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
+    del hook["onFailure"]
+    (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [hook]}]}}))
+    check = doctor.check_hook(tmp_path / "proj")
+    assert check.status == doctor.WARN
+    assert "without onFailure: block" in check.detail and "lets the tool call through" in check.detail
+    assert "install-hooks claude-code --project" in check.detail
     (project / "settings.json").write_text("not json")
     assert doctor.check_hook(tmp_path / "proj").status == doctor.WARN
 
@@ -347,6 +353,10 @@ def test_prompt_hook_check(home, tmp_path, monkeypatch):
         {"hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "timeout": 10, "onFailure": "block"}]}]}}))
     check = doctor.check_prompt_hook(tmp_path / "proj")
     assert check.status == doctor.OK and "project" in check.detail
+    (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
+        {"hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "timeout": 10}]}]}}))
+    check = doctor.check_prompt_hook(tmp_path / "proj")
+    assert check.status == doctor.WARN and "lets the prompt through" in check.detail
     (project / "settings.json").write_text("not json")
     assert doctor.check_prompt_hook(tmp_path / "proj").status == doctor.WARN
     (project / "settings.json").write_text(json.dumps({"hooks": {"UserPromptSubmit": [
@@ -402,6 +412,51 @@ def test_a_user_prompt_submit_entry_of_the_wrong_type_does_not_hide_the_prompt_h
     path.write_text(json.dumps(data))
     assert doctor.hook_installed(path) and doctor.prompt_hook_installed(path)
     assert doctor.keyfence_hook(path, "UserPromptSubmit") == ours
+
+
+@pytest.mark.parametrize("event, check", [("PreToolUse", "check_hook"), ("UserPromptSubmit", "check_prompt_hook")])
+@pytest.mark.parametrize("keyfence_present, foreign_present, expected", [
+    (True, False, "ok"), (False, True, "fail"),
+])
+def test_hook_checks_look_at_keyfence_hook_in_an_entry_it_shares(home, tmp_path, monkeypatch, event, check,
+                                                                  keyfence_present, foreign_present, expected):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    keyfence = bin_dir / "keyfence"
+    agentlog = bin_dir / "agentlog"
+    for path, present in ((keyfence, keyfence_present), (agentlog, foreign_present)):
+        if present:
+            path.write_text("")
+            path.chmod(0o755)
+    own = {"type": "command", "command": str(keyfence), "args": ["hook", "claude-code"], "timeout": 10, "onFailure": "block"}
+    foreign = {"type": "command", "command": f"{agentlog} hook claude-code"}
+    entry = {"hooks": [foreign, own]}
+    if event == "PreToolUse":
+        entry["matcher"] = doctor.hooks.HOOK_MATCHER
+    (project / "settings.json").write_text(json.dumps({"hooks": {event: [entry]}}))
+    result = getattr(doctor, check)(tmp_path / "proj")
+    assert result.status == expected
+    if expected == "fail":
+        assert str(keyfence) in result.detail and "agentlog" not in result.detail
+
+
+def test_keyfence_hook_in_exec_form_with_an_empty_command_is_the_one_checked(home, tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.hooks.Path, "home", classmethod(lambda cls: tmp_path))
+    project = tmp_path / "proj" / ".claude"
+    project.mkdir(parents=True)
+    agentlog = tmp_path / "agentlog"
+    agentlog.write_text("")
+    agentlog.chmod(0o755)
+    own = {"type": "command", "command": "", "args": ["hook", "claude-code"]}
+    foreign = {"type": "command", "command": f"{agentlog} hook claude-code"}
+    path = project / "settings.json"
+    path.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": doctor.hooks.HOOK_MATCHER, "hooks": [own, foreign]}]}}))
+    assert doctor.keyfence_hook(path, "PreToolUse") == own
+    result = doctor.check_hook(tmp_path / "proj")
+    assert result.status == doctor.FAIL and "agentlog" not in result.detail
 
 
 def test_prompt_hook_check_parses_quoted_commands_like_a_shell(home, tmp_path, monkeypatch):
