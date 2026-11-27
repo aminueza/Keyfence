@@ -371,7 +371,7 @@ def test_hook_check_accepts_a_shared_entry_when_its_own_entry_covers_every_tool(
     agentlog = tmp_path / "bin" / "agentlog"
     agentlog.write_text("")
     agentlog.chmod(0o755)
-    own = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"]}
+    own = {"type": "command", "command": str(binary), "args": ["hook", "claude-code"], "onFailure": "block"}
     foreign = {"type": "command", "command": f"{agentlog} hook claude-code"}
     (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [
         {"matcher": "Read", "hooks": [foreign, own]},
@@ -389,7 +389,8 @@ def test_hook_check_accepts_a_matcher_that_covers_every_checked_tool(home, tmp_p
     binary.parent.mkdir()
     binary.write_text("")
     binary.chmod(0o755)
-    entry = {"hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"]}]}
+    entry = {"hooks": [{"type": "command", "command": str(binary), "args": ["hook", "claude-code"],
+                        "onFailure": "block"}]}
     if matcher is not None:
         entry["matcher"] = matcher
     (project / "settings.json").write_text(json.dumps({"hooks": {"PreToolUse": [entry]}}))

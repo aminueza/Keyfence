@@ -427,7 +427,7 @@ def check_hook(cwd: Path | None = None, verdicts: dict[Path, tuple[str, str]] | 
         cwd, verdicts), open_scopes, "tool call")
     stale = [(scope, matchers[0]) for scope, path in scopes
              if (matchers := keyfence_matchers(path)) and not any(map(_matcher_covers_every_tool, matchers))]
-    if check.status == OK and stale:
+    if check.status in (OK, WARN) and not open_scopes and stale:
         scope, matcher = stale[0]
         flag = " --project" if scope == "project" else ""
         return Check(WARN, "Claude Code hook",
