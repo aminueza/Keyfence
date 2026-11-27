@@ -127,6 +127,45 @@ def test_choices_that_is_not_a_list_passes_through():
     assert out == b'data: {"choices": 5}\n\n'
 
 
+def chat_chunk(content: str, token: str | None = None) -> str:
+    choice = {"index": 0, "delta": {"content": content}}
+    if token is not None:
+        choice["logprobs"] = {"content": [{"token": token, "logprob": -0.1}]}
+    return f"data: {json.dumps({'choices': [choice]}, ensure_ascii=False)}\n\n"
+
+
+def logprobs_tokens(output: bytes) -> list[str]:
+    found = []
+    for block in output.decode().split("\n\n"):
+        for line in block.split("\n"):
+            if line.startswith("data:"):
+                obj = json.loads(line[5:])
+                entry = obj.get("choices", [{}])[0].get("logprobs")
+                if entry:
+                    found.extend(token["token"] for token in entry["content"])
+    return found
+
+
+def test_a_logprobs_token_that_starts_like_a_placeholder_stays_in_its_chunk():
+    r = SSERestorer(MAPPING)
+    out = r.feed(chat_chunk("a", "<").encode()) + r.feed(chat_chunk("b", "div").encode()) + r.feed(b"")
+    assert texts(out) == ["a", "b"]
+    assert logprobs_tokens(out) == ["<", "div"]
+
+
+def test_a_whole_placeholder_in_a_logprobs_token_is_restored():
+    r = SSERestorer(MAPPING)
+    out = r.feed(chat_chunk("x", "<<SECRET_1>>").encode()) + r.feed(b"")
+    assert logprobs_tokens(out) == [KEY]
+
+
+def test_a_placeholder_split_across_chunks_is_still_restored_in_the_content():
+    r = SSERestorer(MAPPING)
+    out = (r.feed(chat_chunk("use <<SEC", "<").encode()) + r.feed(chat_chunk("RET_1>> ok", "").encode())
+           + r.feed(b""))
+    assert "".join(texts(out)) == f"use {KEY} ok"
+
+
 def test_whole_placeholder_in_one_event():
     r = SSERestorer(MAPPING)
     out = r.feed(anthropic_event("use <<SECRET_1>> now").encode()) + r.feed(b"")
