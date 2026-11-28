@@ -165,6 +165,12 @@ def test_gemini_system_instruction():
     assert bare["systemInstruction"]["parts"] == [{"text": NOTICE}]
 
 
+def test_gemini_request_with_cached_content_is_left_alone():
+    body = json.dumps({"contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+                       "cachedContent": "cachedContents/abc123"})
+    assert add_notice(body, "generativelanguage.googleapis.com") == body
+
+
 @pytest.mark.parametrize("host", ["api.example.com", "generativelanguage.googleapis.com"])
 def test_a_body_whose_contents_is_not_a_list_is_left_alone(host):
     body = json.dumps({"contents": "hi"})

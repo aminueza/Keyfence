@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A Gemini request that uses an explicit context cache (`cachedContent`) is
+  left without the notice, because Gemini refuses a `systemInstruction` next to
+  a cache (issue #296).
 - A held placeholder prefix stays inside the chat completion choice it came from.
   With `n > 1` and one choice per chunk, both choices sat at position 0 of their
   own chunk and shared one hold, so the held text moved into the other choice; a
