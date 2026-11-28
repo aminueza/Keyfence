@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A line that ends with a keyword and a colon or an equals sign, such as
+  `if token:`, no longer gives the first word of the next line to the
+  `generic-assignment` rule as a secret: the rule now stops at the end of the
+  line (issue #293).
 - A held placeholder prefix stays inside the chat completion choice it came from.
   With `n > 1` and one choice per chunk, both choices sat at position 0 of their
   own chunk and shared one hold, so the held text moved into the other choice; a
