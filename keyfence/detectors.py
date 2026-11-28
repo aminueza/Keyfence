@@ -33,7 +33,7 @@ def _rule(name: str, regex: str, **kwargs) -> Rule:
 _GENERIC_ASSIGNMENT = compile_regex(r"""(?ix)
     \b[a-z0-9_]*(?:api[_-]?key|apikey|secret(?:[_-](?:access[_-])?key(?:[_-]base)?)?|passwd|password|senha|
         auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key|db[_-]?pass|token|(?<=[a-z0-9][_-])pass|(?<![a-z0-9])pwd(?!["']?\s*[:=]\s*["']?(?:[/~]|\.\.?/)))
-    \b(?P<quote>["'])?\s*[:=]\s*
+    \b(?P<quote>["'])?[ \t]*[:=][ \t]*
     (?(quote)["']|["']?)(?P<val>(?:[^\s"'&\\]|&(?!&|[\w.-]+[=;])){8,})["']?
     """)
 

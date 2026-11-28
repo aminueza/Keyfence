@@ -66,6 +66,15 @@ def test_generic_assignment_ignores_placeholders():
     assert findings == []
 
 
+@pytest.mark.parametrize("text", [
+    "if api_key:\n    headers['Authorization'] = value",
+    "if token:\n    continue",
+    "if not password:\n    raise_error = True",
+])
+def test_generic_assignment_does_not_cross_line_boundaries(text):
+    assert scan(text, config=NO_ENTROPY) == []
+
+
 def test_url_query_secret_detected():
     text = "GET https://api.example.com/v1?key=Zq8xK2mP9vL4nR7tW3yB6cF1dH5j&x=1"
     findings = scan(text, config=NO_ENTROPY)
